@@ -7,9 +7,9 @@ import requests
 from dotenv import load_dotenv
 from typing import Any
 
-from basemodels import ( OutgoingMediaMsg,
-                         ServerInteractiveOptsMsg,
-                         WhatsAppMediaData )
+from .basemodels import ( OutgoingMediaMsg,
+                          ServerInteractiveOptsMsg,
+                          WhatsAppMediaData )
 
 
 # -----------------------------------------------------------------------------------------

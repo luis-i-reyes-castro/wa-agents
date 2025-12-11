@@ -3,12 +3,13 @@
 from pathlib import Path
 from sys import argv
 
-from DO_spaces_io import *
-from DO_spaces_storage import *
 from sofia_utilities.file_io import ( load_json_file,
                                       load_json_string,
                                       write_to_json_file )
 from sofia_utilities.printing import print_ind
+
+from .DO_spaces_io import *
+from .DO_spaces_storage import *
 
 
 def check_environment_variables() -> None :

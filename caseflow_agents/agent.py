@@ -15,14 +15,6 @@ from typing import ( Any,
                      Literal,
                      Type )
 
-from basemodels import ( AssistantContent,
-                         AssistantMsg,
-                         BasicMsg,
-                         Message,
-                         StructuredDataMsg,
-                         ToolCall,
-                         ToolResultsMsg,
-                         UserContentMsg )
 from sofia_utilities.file_io import ( extract_code_block,
                                       load_file_as_string,
                                       load_json_string,
@@ -30,6 +22,15 @@ from sofia_utilities.file_io import ( extract_code_block,
                                       write_to_json_string )
 from sofia_utilities.printing import ( print_recursively,
                                        print_sep )
+
+from .basemodels import ( AssistantContent,
+                          AssistantMsg,
+                          BasicMsg,
+                          Message,
+                          StructuredDataMsg,
+                          ToolCall,
+                          ToolResultsMsg,
+                          UserContentMsg )
 
 
 class Agent :

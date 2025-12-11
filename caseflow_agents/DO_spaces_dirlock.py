@@ -10,9 +10,9 @@ from pathlib import Path
 from socket import gethostname
 from uuid import uuid4
 
-from DO_spaces_io import ( b3_delete,
-                           b3_list_objects,
-                           b3_put_json )
+from .DO_spaces_io import ( b3_delete,
+                            b3_list_objects,
+                            b3_put_json )
 
 
 class DOSpacesLock :
