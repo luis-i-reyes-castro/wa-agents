@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caseflow-agents"
+version = "1.0.0"
+description = "CaseFlow Agents"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Luis Ignacio Reyes Castro", email = "luis.i.reyes.castro@gmail.com" },
+]
+dependencies = [
+  "boto3>=1.40.27",
+  "botocore>=1.40.27",
+  "mistralai>=1.9.11",
+  "openai>=2.9.0",
+  "pydantic>=2.12.5",
+  "python-dotenv>=1.2.1",
+  "requests>=2.32.5",
+  "sofia-utilities>=1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["caseflow_agents*"]
