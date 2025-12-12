@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "caseflow-agents"
+name = "wa-agents"
 version = "1.0.0"
-description = "CaseFlow Agents"
+description = "WhatsApp Agents"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
@@ -20,9 +20,9 @@ dependencies = [
   "pydantic>=2.12.5",
   "python-dotenv>=1.2.1",
   "requests>=2.32.5",
-  "sofia-utilities>=1.0.0",
+  "sofia-utils>=1.0.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["caseflow_agents*"]
+include = ["wa_agents*"]

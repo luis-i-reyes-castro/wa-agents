@@ -28,8 +28,8 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Any
 
-from sofia_utilities.file_io import load_json_string
-from sofia_utilities.stamps import utc_iso_to_dt
+from sofia_utils.io import load_json_string
+from sofia_utils.stamps import utc_iso_to_dt
 
 from .basemodels import ( CaseManifest,
                           MediaContent,

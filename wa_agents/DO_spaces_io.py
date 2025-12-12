@@ -11,7 +11,7 @@ from os import getenv
 from pathlib import Path
 from typing import Any
 
-from sofia_utilities.file_io import write_to_json_string
+from sofia_utils.io import write_to_json_string
 
 
 # =========================================================================================

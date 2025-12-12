@@ -15,13 +15,13 @@ from typing import ( Any,
                      Literal,
                      Type )
 
-from sofia_utilities.file_io import ( extract_code_block,
-                                      load_file_as_string,
-                                      load_json_string,
-                                      load_json_file,
-                                      write_to_json_string )
-from sofia_utilities.printing import ( print_recursively,
-                                       print_sep )
+from sofia_utils.io import ( extract_code_block,
+                             load_file_as_string,
+                             load_json_string,
+                             load_json_file,
+                             write_to_json_string )
+from sofia_utils.printing import ( print_recursively,
+                                   print_sep )
 
 from .basemodels import ( AssistantContent,
                           AssistantMsg,

@@ -7,9 +7,9 @@ from datetime import ( datetime,
                        timezone,
                        timedelta )
 
-from sofia_utilities.stamps import *
-from sofia_utilities.file_io import ( JSON_INDENT,
-                                      write_to_json_string )
+from sofia_utils.stamps import *
+from sofia_utils.io import ( JSON_INDENT,
+                             write_to_json_string )
 
 from .basemodels import ( AssistantMsg,
                           Message,
