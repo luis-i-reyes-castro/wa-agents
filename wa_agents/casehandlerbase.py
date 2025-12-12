@@ -1,7 +1,8 @@
 """
 Case Handler Base Class
 """
-
+from abc import ( ABC,
+                  abstractmethod )
 from copy import deepcopy
 from datetime import ( datetime,
                        timezone,
@@ -12,20 +13,22 @@ from sofia_utils.io import ( JSON_INDENT,
                              write_to_json_string )
 
 from .basemodels import ( AssistantMsg,
+                          CaseIndex,
+                          CaseManifest,
+                          MediaContent,
                           Message,
                           ServerInteractiveOptsMsg,
                           ServerTextMsg,
                           ToolResultsMsg,
                           UserData,
-                          CaseIndex,
-                          CaseManifest )
+                          WhatsAppMsg )
 from .DO_spaces_storage import DOSpacesBucket
 from .DO_spaces_dirlock import DOSpacesLock
 from .whatsapp_functions import ( send_whatsapp_text,
                                   send_whatsapp_interactive)
 
 
-class CaseHandlerBase :
+class CaseHandlerBase(ABC) :
     """
     Class for case and context management
     * Looks up user data
@@ -291,7 +294,7 @@ class CaseHandlerBase :
         return
     
     # =====================================================================================
-    # SEND MESSAGE FUNCTION
+    # MESSAGE SENDING FUNCTIONS
     # =====================================================================================
     
     def send_text( self,
@@ -356,3 +359,23 @@ class CaseHandlerBase :
                 print(f"In {self.__class__.__name__} send_interactive: {ex}")
         
         return False
+    
+    # =====================================================================================
+    # ABSTRACT METHODS TO BE IMPLEMENTED BY THE CASEHANDLER
+    # =====================================================================================
+    
+    @abstractmethod
+    def process_msg_human( self,
+                           message       : WhatsAppMsg,
+                           media_content : MediaContent | None = None
+                         ) -> bool :
+        
+        raise NotImplementedError
+    
+    @abstractmethod
+    def generate_response( self,
+                           max_tokens : int | None = None,
+                           debug      : bool       = False
+                         ) -> bool :
+        
+        raise NotImplementedError
