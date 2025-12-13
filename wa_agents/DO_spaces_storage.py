@@ -2,16 +2,16 @@
 Digital Ocean Spaces S3 Bucket
 ----------------
 Directory layout:
-root/
+<operator_id>/
     <user_id>/
-        data.json                       # UserData
-        index.json                      # CaseIndex
+        user_data.json                  # UserData
+        case_index.json                 # CaseIndex
         dedup/
             <idempotency_key.json>
             ...
         cases/
             <case_id>/
-                manifest.json           # CaseManifest
+                case_manifest.json      # CaseManifest
                 messages/
                     <message_id>.json   # Message
                     ...
@@ -49,28 +49,45 @@ class DOSpacesBucket :
     # -------------------------------------------------------------------------------------
     
     # Set user ID
-    def __init__( self, user_id : str) -> None :
-        self.user_id = Path(str(user_id))
+    def __init__( self,
+                  operator_id : str | int,
+                  user_id     : str | int ) -> None :
+        
+        self.operator_id = str(operator_id)
+        self.user_id     = str(user_id)
+        
         return
     
     # Set case ID
-    def set_case_id( self, case_id : int) -> None :
+    def set_case_id( self, case_id : str | int) -> None :
+        
         if case_id and isinstance( case_id, int) :
             self.case_id = case_id
+        
+        elif case_id and isinstance( case_id, str) and case_id.isdigit() :
+            self.case_id = int(case_id)
+        
         else :
             e_orig = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
             e_msg  = f"In {e_orig}: Invalid 'case_id' type {type(case_id)}"
             raise ValueError(e_msg)
+        
         return
     
     # -------------------------------------------------------------------------------------
     # PATHS TO DIRECTORIES
     
     def dir_user(self) -> Path :
-        p = self.user_id
+        """
+        Returns: <operator_id> / <user_id>
+        """
+        p = Path(self.operator_id) / Path(self.user_id)
         return p
     
     def dir_case(self) -> Path :
+        """
+        Returns: <operator_id> / <user_id> / cases / <case_id>
+        """
         if self.case_id :
             p = self.dir_user() / "cases" / str(self.case_id)
             return p
@@ -80,10 +97,23 @@ class DOSpacesBucket :
             raise ValueError(e_msg)
     
     def dir_dedup(self) -> Path :
+        """
+        Returns: <operator_id> / <user_id> / dedup
+        """
         p = self.dir_user() / "dedup"
         return p
     
+    def dir_messages(self) -> Path :
+        """
+        Returns: <operator_id> / <user_id> / cases / <case_id> / messages
+        """
+        p = self.dir_case() / "messages"
+        return p
+    
     def dir_media(self) -> Path :
+        """
+        Returns: <operator_id> / <user_id> / cases / <case_id> / media
+        """
         p = self.dir_case() / "media"
         return p
     
@@ -91,19 +121,31 @@ class DOSpacesBucket :
     # PATHS TO FILES
     
     def path_user_data(self) -> Path :
+        """
+        Returns: ... / user_data.json
+        """
         p = self.dir_user() / "user_data.json"
         return p
     
     def path_case_index(self) -> Path :
+        """
+        Returns: ... / case_index.json
+        """
         p = self.dir_user() / "case_index.json"
         return p
     
     def path_manifest(self) -> Path :
+        """
+        Returns: ... / cases / <case_id> / case_manifest.json
+        """
         p = self.dir_case() / "case_manifest.json"
         return p
     
     def path_message( self, message_id : str) -> Path :
-        p = self.dir_case() / "messages" / f"{message_id}.json"
+        """
+        Returns: ... / cases / <case_id> / messages / <message_id>.json
+        """
+        p = self.dir_messages() / f"{message_id}.json"
         return p
     
     # -------------------------------------------------------------------------------------
@@ -128,8 +170,7 @@ class DOSpacesBucket :
     
     def dedup_exists( self, idempotency_key : str) -> bool :
         """
-        Check if idempotency key path exists
-        Path: root / <user_id> / dedup / <key>.json
+        Check if idempotency key path exists\n
         Args:
             idempotency_key: Idempotency key
         Returns:
@@ -141,8 +182,7 @@ class DOSpacesBucket :
     
     def dedup_write( self, idempotency_key : str) -> None :
         """
-        Write idempotency key to dedup dir
-        Path: root / <user_id> / dedup / <key>.json
+        Write idempotency key to dedup dir\n
         Args:
             idempotency_key: Idempotency key
         """
@@ -155,10 +195,9 @@ class DOSpacesBucket :
     # MESSAGE I/O
     # -------------------------------------------------------------------------------------
     
-    def message_read( self, message_id: str) -> Message | None :
+    def message_read( self, message_id : str) -> Message | None :
         """
-        Read from message path
-        Path: root / <user_id> / cases / <case_ID> / messages / <message ID>.json
+        Read from message path\n
         Args:
             message_id: Message ID
         Returns:
@@ -182,8 +221,7 @@ class DOSpacesBucket :
     
     def message_write( self, message : Message) -> None :
         """
-        Write message
-        Path: root / <user_id> / cases / <case_ID> / messages / <message ID>.json
+        Write message\n
         Args:
             message: Message to write
         """
@@ -195,8 +233,7 @@ class DOSpacesBucket :
     
     def media_get( self, filename : str) -> bytes | None :
         """
-        Retrieve media as bytes
-        Path: root / <user_id> / cases / <case_ID> / media / <filename>
+        Retrieve media as bytes\n
         Args:
             filename: Media filename
         Returns:
@@ -210,8 +247,7 @@ class DOSpacesBucket :
                      message : UserContentMsg,
                      media   : MediaContent ) -> None :
         """
-        Write media contents to storage and return media data
-        Path: root / <user_id> / cases / <case_ID> / media / <message ID>.<extension>
+        Write media contents to storage and return media data\n
         Args:
             message: User Message object with non-empty 'media' field
             media:   Media contents object
@@ -247,7 +283,6 @@ class DOSpacesBucket :
         If necessary:
             Append message to manifest (enforcing idempotency)
             Update manifest time of last message.
-        Path: root / <user_id> / cases / <case_ID> / manifest.json
         Args:
             manifest: Case Manifest
             message:  Message
@@ -276,8 +311,7 @@ class DOSpacesBucket :
     
     def manifest_load(self) -> CaseManifest | None :
         """
-        Load manifest
-        Path: root / <user_id> / cases / <case_ID> / manifest.json
+        Load manifest\n
         Returns
             Case Manifest if data exists, else None
         """
@@ -288,8 +322,7 @@ class DOSpacesBucket :
     
     def manifest_write( self, manifest : CaseManifest) -> None :
         """
-        Write manifest
-        Path: root / <user_id> / cases / <case_ID> / manifest.json
+        Write manifest\n
         Args:
             manifest: Case Manifest
         """

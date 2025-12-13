@@ -21,6 +21,8 @@ from .basemodels import ( AssistantMsg,
                           ServerTextMsg,
                           ToolResultsMsg,
                           UserData,
+                          WhatsAppContact,
+                          WhatsAppMetaData,
                           WhatsAppMsg )
 from .DO_spaces_storage import DOSpacesBucket
 from .DO_spaces_dirlock import DOSpacesLock
@@ -41,17 +43,21 @@ class CaseHandlerBase(ABC) :
     MAX_CONTEXT_LEN  = 20
     TIME_LIMIT_STALE = 48
     
-    def __init__( self, user_id : str, user_name : str | None = None) -> None :
+    def __init__( self,
+                  operator : WhatsAppMetaData,
+                  user     : WhatsAppContact ) -> None :
         
-        self.user_id   = user_id
-        self.user_name = user_name
+        self.operator_num = operator.display_phone_number
+        self.operator_id  = operator.phone_number_id
+        self.user_id      = user.wa_id
+        self.user_name    = user.profile.name
         
         self.user_data     : UserData      = None
         self.case_id       : int           = None
         self.case_manifest : CaseManifest  = None
         self.case_context  : list[Message] = None
         
-        self.storage = DOSpacesBucket(self.user_id)
+        self.storage = DOSpacesBucket( self.operator_num, self.user_id)
         self.DirLock = DOSpacesLock
         
         self.user_root = self.storage.dir_user()
@@ -306,7 +312,7 @@ class CaseHandlerBase(ABC) :
             if not debug :
                 if isinstance( message, ( ServerTextMsg, AssistantMsg)) \
                 and message.text :
-                    send_whatsapp_text( self.user_id, message.text)
+                    send_whatsapp_text( self.operator_id, self.user_id, message.text)
                 return True
             
             # Debug mode: Assistant Message
@@ -316,12 +322,12 @@ class CaseHandlerBase(ABC) :
                     if len(text_str) > 4096 :
                         text_str = "[Result too long to display here]"
                     msg_display = "📝 Text:\n" + text_str
-                    send_whatsapp_text( self.user_id, msg_display)
+                    send_whatsapp_text( self.operator_id, self.user_id, msg_display)
                 if isinstance( message, AssistantMsg) :
                     for tc in message.tool_calls :
                         msg_display = "🔧 Tool call:\n" \
                                     + write_to_json_string(tc.model_dump())
-                        send_whatsapp_text( self.user_id, msg_display)
+                        send_whatsapp_text( self.operator_id, self.user_id, msg_display)
             
             # Debug mode: Tool Results Message
             elif isinstance( message, ToolResultsMsg) :
@@ -330,7 +336,7 @@ class CaseHandlerBase(ABC) :
                     if len(tr_str) > 4096 :
                         tr_str = "[Result too long to display here]"
                     msg_display = "📊 Tool result:\n" + tr_str
-                    send_whatsapp_text( self.user_id, msg_display)
+                    send_whatsapp_text( self.operator_id, self.user_id, msg_display)
             
             return True
         
@@ -346,12 +352,12 @@ class CaseHandlerBase(ABC) :
         if isinstance( message, ServerInteractiveOptsMsg) :
             try :
                 if not debug :
-                    send_whatsapp_interactive( self.user_id, message)
+                    send_whatsapp_interactive( self.operator_id, self.user_id, message)
                 else :
                     message_cp      = deepcopy(message)
                     message_cp.body = "📝 Interactive Message:\n" \
                                     + str(message_cp.body)
-                    send_whatsapp_interactive( self.user_id, message)
+                    send_whatsapp_interactive( self.operator_id, self.user_id, message)
                 
                 return True
             

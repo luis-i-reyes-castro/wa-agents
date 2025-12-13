@@ -7,6 +7,8 @@ import requests
 from dotenv import load_dotenv
 from typing import Any
 
+from sofia_utils.printing import print_sep
+
 from .basemodels import ( OutgoingMediaMsg,
                           ServerInteractiveOptsMsg,
                           WhatsAppMediaData )
@@ -16,10 +18,8 @@ from .basemodels import ( OutgoingMediaMsg,
 # ENVIRONMENT VARIABLES
 
 load_dotenv()
-API_URL      = "https://graph.facebook.com/v23.0/"
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
-WA_NUMBER_ID = os.getenv("WA_NUMBER_ID_PROD")
-WA_TOKEN     = os.getenv("WA_TOKEN")
+API_URL  = "https://graph.facebook.com/v23.0/"
+WA_TOKEN = os.getenv("WA_TOKEN")
 
 # -----------------------------------------------------------------------------------------
 # MESSAGES: INCOMING
@@ -122,44 +122,51 @@ def write_payload( to_number : str,
     
     return payload
 
-def send_whatsapp_text( to_number : str, text : str) -> None :
+def send_whatsapp_text( operator_id : str,
+                        to_number   : str,
+                        text        : str ) -> None :
     
     # 1) Declare message URL and headers
-    msg_url     = f"{API_URL}{WA_NUMBER_ID}/messages"
+    msg_url     = f"{API_URL}{operator_id}/messages"
     msg_headers = write_headers( content_type = True)
     # 2) Write payload and post message
     payload  = write_payload( to_number, text)
     response = requests.post( msg_url, headers = msg_headers, json = payload)
     # 3) Print response
+    print_sep()
     print( "Reply response:", response.json())
     
     return
 
-def send_whatsapp_interactive( to_number : str,
-                               message   : ServerInteractiveOptsMsg) -> None :
+def send_whatsapp_interactive( operator_id : str,
+                               to_number   : str,
+                               message     : ServerInteractiveOptsMsg ) -> None :
     
     # 1) Declare message URL and headers
-    msg_url     = f"{API_URL}{WA_NUMBER_ID}/messages"
+    msg_url     = f"{API_URL}{operator_id}/messages"
     msg_headers = write_headers( content_type = True)
     # 2) Write payload and post message
     payload  = write_payload( to_number, message)
     response = requests.post( msg_url, headers = msg_headers, json = payload)
     # 3) Print response
+    print_sep()
     print( "Reply response:", response.json())
     
     return
 
-def send_whatsapp_media( to_number : str,
-                         media     : OutgoingMediaMsg) -> bool :
+def send_whatsapp_media( operator_id : str,
+                         to_number   : str,
+                         media       : OutgoingMediaMsg ) -> bool :
     
     # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media/
     
     try:
         # 1) UPLOAD THE IMAGE TO GET A MEDIA ID
+        print_sep()
         print(f"Uploading image: {media.filepath}")
         
         # Post upload
-        upload_url  = f"{API_URL}{WA_NUMBER_ID}/media"
+        upload_url  = f"{API_URL}{operator_id}/media"
         upload_head = write_headers()
         files       = { "file" : ( media.filepath, media.content, media.mime) }
         data        = { "messaging_product": "whatsapp" }
@@ -191,7 +198,7 @@ def send_whatsapp_media( to_number : str,
         print(f"Sending image message...")
         
         # Declare message URL and headers
-        msg_url     = f"{API_URL}{WA_NUMBER_ID}/messages"
+        msg_url     = f"{API_URL}{operator_id}/messages"
         msg_headers = write_headers( content_type = True)
         
         # Write payload and post message
