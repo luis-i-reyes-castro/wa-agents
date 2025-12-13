@@ -42,6 +42,7 @@ class InteractiveOption(BaseModel) :
 
 # =========================================================================================
 # WHATSAPP BASEMODELS
+# Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/reference/messages
 # =========================================================================================
 
 # MESSAGES
@@ -114,7 +115,7 @@ class WhatsAppMsg(BaseModel) :
 
     context   : WhatsAppContext | None = None
     
-    user      : NE_str = Field( alias = "from")
+    user      : NE_str = Field( alias = "from") # Sender Phone Number
     id        : NE_str
     timestamp : NE_str
     type      : Literal[ "text",
@@ -162,7 +163,6 @@ class WhatsAppMsg(BaseModel) :
         
         return None
 
-# -----------------------------------------------------------------------------------------
 # CONTACTS
 
 class WhatsAppProfile(BaseModel) :
@@ -173,6 +173,37 @@ class WhatsAppContact(BaseModel) :
     
     wa_id   : NE_str
     profile : WhatsAppProfile | None = None
+
+# PAYLOADS
+
+class WhatsAppMetaData(BaseModel) :
+    
+    display_phone_number : NE_str # Receiver Phone Number
+    phone_number_id      : NE_str # Receiver WhatsApp Number ID
+
+class WhatsAppValue(BaseModel) :
+    
+    messaging_product : NE_str = "whatsapp"
+    
+    metadata : WhatsAppMetaData
+    contacts : list[WhatsAppContact]
+    messages : list[WhatsAppMsg]
+
+class WhatsAppChange_(BaseModel) :
+    
+    value : WhatsAppValue
+    field : NE_str = "messages"
+
+class WhatsAppChanges(BaseModel) :
+    
+    id      : NE_str # Receiver WABA Number
+    changes : list[WhatsAppChange_]
+
+class WhatsAppPayload(BaseModel) :
+    
+    title : NE_str = Field( alias   = "object",
+                            default = "whatsapp_business_account")
+    entry : list[WhatsAppChanges]
 
 # =========================================================================================
 # CASEFLOW BASEMODELS
