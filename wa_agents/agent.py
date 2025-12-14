@@ -35,61 +35,45 @@ from .basemodels import ( AssistantContent,
 class Agent :
     
     # -------------------------------------------------------------------------------------
-    API_DATA_PATTERN = r"^[a-z0-9.:-]{2,}/[a-z0-9.:-]{2,}$"
-    API_DATA : dict[ str, dict] = \
-    {
-        "anthropic" :
-        {
-            "claude-opus"  : "claude-opus-4-1-20250805",
-            "claude-sonet" : "claude-sonnet-4-20250514"
-        },
-        "mistral" :
-        {
-            "mistral-nemo" : "open-mistral-nemo",
-            "pixtral"      : "pixtral-12b-2409"
-        },
-        "openai" :
-        {
-            "gpt-5"      : "gpt-5",
-            "gpt-5-mini" : "gpt-5-mini",
-        }
-    }
-    APIS_NO_TOOL_CALLS : list[str] = [ "mistral" ]
+    API_DATA_PATTERN = r"^([\w\.:-]+)/([\w\.:-]+)$"
+    OTHER_APIS       = { "openai", "mistral" }
+    
+    APIs_THAT_CANNOT_MAKE_TOOL_CALLS = { "mistral" }
     
     # -------------------------------------------------------------------------------------
-    def __init__( self, name : str, models : str | list[str]) -> None :
+    def __init__( self, name : str, models : list[str] | str) -> None :
         
         self.name   = name
         self.api    = None
-        self.client = None
         self.model  = None
         self.model_fallbacks : list[str] = []
         
-        # Case: Single provider (Anthropic, Mistral, OpenAI)
-        if isinstance( models, str) :
-            if match( self.API_DATA_PATTERN, models) :
-                api_name, model_name = models.split("/")
-                if api_name in self.API_DATA :
-                    self.api   = api_name
-                    self.model = self.API_DATA[api_name].get(model_name)
+        # Case: OpenRouter
+        if models and isinstance( models, list) \
+        and all( isinstance( m, str) for m in models ) \
+        and all( bool( match( self.API_DATA_PATTERN, m) ) for m in models ) :
+            self.api   = "openrouter"
+            self.model = models[0]
+            if len(models) > 1 :
+                self.model_fallbacks = models[1:]
         
-        # Case: OpenRouter routing (non-empty list of model ids)
-        elif isinstance( models, list) and models :
-            if all( isinstance( m, str) for m in models ) \
-            and all( bool(match( self.API_DATA_PATTERN, m)) for m in models ) :
-                self.api   = "openrouter"
-                self.model = models[0]
-                if len(models) > 1 :
-                    self.model_fallbacks = models[1:]
+        # Case: Other APIs
+        elif models and isinstance( models, str) \
+        and ( m := match( self.API_DATA_PATTERN, models) ) :
+            api_name, model_name = m.groups()
+            if api_name in self.OTHER_APIS :
+                self.api   = api_name
+                self.model = model_name
         
         if not ( self.api and self.model ) :
             e_prefix = f"In class {self.__class__.__name__} method __init__"
             raise ValueError(f"{e_prefix}: Invalid argument '{models}'")
         
-        self.prompts         : list[str]      = []
-        self.prompts_merged  : str | None     = None
-        self.tools           : list[Any]      = []
-        self.post_processors : list[Callable] = []
+        self.prompts         : list[str]       = []
+        self.prompts_merged  : str | None      = None
+        self.tools           : list[Any]       = []
+        self.client          : Callable | None = None
+        self.post_processors : list[Callable]  = []
         
         return
     
@@ -125,7 +109,7 @@ class Agent :
     
     def load_tools( self, list_tool_paths : list[str]) -> None :
         
-        for blacklisted_api in self.APIS_NO_TOOL_CALLS :
+        for blacklisted_api in self.APIs_THAT_CANNOT_MAKE_TOOL_CALLS :
             msg = f"{blacklisted_api.upper()} API cannot make tool calls"
             if blacklisted_api == self.api :
                 raise ValueError(f"In Agent load_tools: {msg}")
@@ -188,33 +172,13 @@ class Agent :
         # Merge prompts
         self.merge_prompts()
         
-        ag_resp_obj : AssistantContent | None = None
-        
-        if self.api == "anthropic" :
-            ag_resp_obj = self.call_anthropic( context    = context,
-                                               load_imgs  = load_imgs,
-                                               imgs_cache = imgs_cache,
-                                               max_tokens = max_tokens,
-                                               debug      = debug )
-        
-        elif self.api in ( "mistral", "openrouter") :
-            ag_resp_obj = self.call_openai_chat_completion( context    = context,
-                                                            load_imgs  = load_imgs,
-                                                            imgs_cache = imgs_cache,
-                                                            output_st  = output_st,
-                                                            max_tokens = max_tokens,
-                                                            debug      = debug )
-        
-        elif self.api == "openai" :
-            ag_resp_obj = self.call_openai_responses( context    = context,
-                                                      load_imgs  = load_imgs,
-                                                      imgs_cache = imgs_cache,
-                                                      output_st  = output_st,
-                                                      max_tokens = max_tokens,
-                                                      debug      = debug )
-        
-        else :
-            raise ValueError(f"In Agent get_response: Unsupported API '{self.api}'")
+        # Call API and request response
+        ag_resp_obj = self.call_openai_chat_completion( context    = context,
+                                                        load_imgs  = load_imgs,
+                                                        imgs_cache = imgs_cache,
+                                                        output_st  = output_st,
+                                                        max_tokens = max_tokens,
+                                                        debug      = debug )
         
         # If no response received then print warning
         if not ag_resp_obj :
@@ -248,19 +212,6 @@ class Agent :
         return
     
     # =====================================================================================
-    # DO NOT USE! REFACTORING INCOMPLETE!
-    # TODO: Update to use caseflow_basemodels (see call_openai_chat_completion)
-    def call_anthropic( self,
-                        context : list[Message],
-                        *,
-                        load_imgs  : bool = False,
-                        imgs_cache : dict[ str : bytes] = {},
-                        max_tokens : int = 1024,
-                        debug      : bool = False
-                      ) -> AssistantContent | None :
-        return None
-    
-    # =====================================================================================
     def call_openai_chat_completion( self,
                                      context : list[Message],
                                      *,
@@ -272,7 +223,7 @@ class Agent :
                                    ) -> AssistantContent | None :
         
         # Initialize API flag
-        api_is_openrouter = bool( self.api == "openrouter" )
+        api_is_openrouter = ( self.api == "openrouter" )
         
         # Initialize list of messages
         messages : list[dict] = []
@@ -325,7 +276,7 @@ class Agent :
                             if api_is_openrouter :
                                 image_url = { "url" : image_url }
                             msg["content"].append( { "type"      : "image_url",
-                                                    "image_url" : image_url } )
+                                                     "image_url" : image_url } )
                         else :
                             msg["content"].append(text_cb)
                     else :
@@ -400,7 +351,7 @@ class Agent :
         if debug :
             
             client_call = "chat."
-            if api_is_openrouter :
+            if api_is_openrouter or ( self.api == "openai" ) :
                 client_call += "completions."
                 client_call += "create" if not parse_mode else "parse"
             else :
@@ -409,15 +360,25 @@ class Agent :
             self.debug_print( "input", resp_req_parms, client_call)
         
         # Generate response using appropriate client
+        response = None
+        
         if api_is_openrouter :
-            self.client = OpenAI( api_key  = os.environ.get("API_KEY_OPENROUTER"),
+            self.client = OpenAI( api_key  = os.environ.get("OPENROUTER_API_KEY"),
                                   base_url = "https://openrouter.ai/api/v1" )
             if not parse_mode :
                 response = self.client.chat.completions.create(**resp_req_parms)
             else :
                 response = self.client.chat.completions.parse(**resp_req_parms)
-        else :
-            self.client = Mistral( api_key = os.environ.get("API_KEY_MISTRAL"))
+        
+        elif self.api == "openai" :
+            self.client = OpenAI( api_key = os.environ.get("OPENAI_API_KEY"))
+            if not parse_mode :
+                response = self.client.chat.completions.create(**resp_req_parms)
+            else :
+                response = self.client.chat.completions.parse(**resp_req_parms)
+        
+        elif self.api == "mistral" :
+            self.client = Mistral( api_key = os.environ.get("MISTRAL_API_KEY"))
             if not parse_mode :
                 response = self.client.chat.complete(**resp_req_parms)
             else :
@@ -506,17 +467,3 @@ class Agent :
         # ---------------------------------------------------------------------------------
         # The grand finale
         return ag_resp_obj
-    
-    # =====================================================================================
-    # DO NOT USE! REFACTORING INCOMPLETE!
-    # TODO: Update to use caseflow_basemodels (see call_openai_chat_completion)
-    def call_openai_responses( self,
-                               context : list[Message],
-                               *,
-                               load_imgs  : bool = False,
-                               imgs_cache : dict[ str, bytes] = {},
-                               output_st  : str | Type | None = None,
-                               max_tokens : int = 1024,
-                               debug      : bool = False
-                             ) -> AssistantContent | None :
-        return None
