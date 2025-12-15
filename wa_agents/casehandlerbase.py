@@ -212,9 +212,10 @@ class CaseHandlerBase(ABC) :
             debug:    Debug mode flag
         """
         
-        # Get manifest
-        if not self.case_manifest :
-            self.case_manifest = self.storage.manifest_load()
+        # Ensure we know which case to load
+        if not ( self.case_id and self.case_manifest ) :
+            self.case_id, self.case_manifest = self.case_decide()
+        
         # Initialize DKDB
         if self.case_manifest and self.case_manifest.model \
                               and ( not self.tool_server.dkdb.model ) :

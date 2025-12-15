@@ -55,6 +55,7 @@ class DOSpacesBucket :
         
         self.operator_id = str(operator_id)
         self.user_id     = str(user_id)
+        self.case_id     = None
         
         return
     
