@@ -16,10 +16,10 @@ from sofia_utils.io import write_to_json_string
 
 # =========================================================================================
 
-BUCKET_REGION     = os.getenv("SPACES_REGION")
-BUCKET_KEY        = os.getenv("SPACES_KEY_ID")
-BUCKET_KEY_SECRET = os.getenv("SPACES_KEY_SECRET")
-BUCKET_NAME       = os.getenv("SPACES_BUCKET")
+BUCKET_REGION     = os.getenv("BUCKET_REGION")
+BUCKET_KEY        = os.getenv("BUCKET_KEY_ID")
+BUCKET_KEY_SECRET = os.getenv("BUCKET_KEY_SECRET")
+BUCKET_NAME       = os.getenv("BUCKET_NAME")
 
 boto3_client_args = \
     { 
