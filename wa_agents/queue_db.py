@@ -16,7 +16,7 @@ class QueueDB :
     
     def __init__( self, db_path : str | Path) -> None :
         
-        self._db_path = str(db_path)
+        self._db_path = Path(db_path)
         self._lock    = threading.Lock()
         self._init_db()
         

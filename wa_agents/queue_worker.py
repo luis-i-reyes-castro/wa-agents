@@ -27,16 +27,13 @@ RESPONSE_DELAY     = float( os.getenv( "QUEUE_RESPONSE_DELAY",     1.0))
 
 type HandlerJob = tuple[ WhatsAppMetaData, WhatsAppContact]
 
-class ResponseTimeDict( dict[ HandlerJob, float] ) :
+class JobTimeDict( dict[ HandlerJob, float] ) :
     
-    def mark_as_done( self, jobs : list[HandlerJob]) -> None :
-        
-        for job_ in jobs :
-            self.pop( job_, 0.0)
-        
+    def mark_as_done( self, job : HandlerJob) -> None :
+        self.pop( job, 0.0)
         return
     
-    def jobs_to_process(self) -> list[HandlerJob] :
+    def get_due_now(self) -> list[HandlerJob] :
         
         result = []
         for handlerjob, job_response_time in self.items() :
@@ -54,7 +51,7 @@ class QueueWorker :
         
         self.queue       = queue_db
         self.handler_cls = handler_cls
-        self.job_time    = ResponseTimeDict()
+        self._job_td     = JobTimeDict()
         self._stop_flag  = False
         
         return
@@ -71,27 +68,16 @@ class QueueWorker :
         
         while not self._stop_flag :
             
-            received_payload = self._process_payload()
+            received_payload  = self._process_payload()
+            processed_jobs    = self._process_jobs(self._job_td.get_due_now())
+            have_pending_jobs = bool(self._job_td)
             
-            jobs_to_process = self.job_time.jobs_to_process()
-            if jobs_to_process :
-                
-                for ( operator, user) in jobs_to_process :
-                    handler  = self.handler_cls( operator, user)
-                    respond  = True
-                    while respond :
-                        respond = handler.generate_response( debug = False)
-                
-                self.job_time.mark_as_done(jobs_to_process)
+            if ( received_payload or processed_jobs or have_pending_jobs ) :
                 time.sleep(POLL_INTERVAL_BUSY)
-                continue
-            
-            if not ( received_payload or self.job_time ) :
-                time.sleep(POLL_INTERVAL_IDLE)
             else :
-                time.sleep(POLL_INTERVAL_BUSY)
+                time.sleep(POLL_INTERVAL_IDLE)
         
-        logging.info( "Queue worker stopped")
+        logging.info("Queue worker stopped")
         
         return
     
@@ -135,16 +121,40 @@ class QueueWorker :
                         
                         if respond :
                             job = ( operator, user)
-                            self.job_time[job] = time.time() + RESPONSE_DELAY
+                            self._job_td[job] = time.time() + RESPONSE_DELAY
             
             self.queue.mark_done(row_id)
         
         except Exception as ex :
-            logging.error( "Worker failed for payload with row id %s: %s\n%s",
-                           row_id, ex, format_exc())
+            logging.error( "Worker failed for payload with row id: %s\n"
+                           "Exception raised: %s\n%s", row_id, ex, format_exc())
             self.queue.mark_error( row_id, str(ex))
         
         finally :
             gc.collect()
         
         return True
+    
+    def _process_jobs( self, jobs_to_process : list[HandlerJob]) -> bool :
+        
+        processed_jobs = False
+        try :
+            for ( operator, user) in jobs_to_process :
+                handler  = self.handler_cls( operator, user)
+                respond  = True
+                while respond :
+                    respond = handler.generate_response( debug = False)
+                
+                self._job_td.mark_as_done(( operator, user))
+                processed_jobs = True
+        
+        except Exception as ex :
+            job_batch = [ ( jtp[0].model_dump_json(),
+                            jtp[1].model_dump_json()) for jtp in jobs_to_process ]
+            logging.error( "Worker failed to generate response for job batch: %s\n"
+                           "Exception raised: %s\n%s", job_batch, ex, format_exc())
+        
+        finally :
+            gc.collect()
+        
+        return processed_jobs
