@@ -20,7 +20,6 @@ from sofia_utils.phone_numbers import get_country_and_language
 from sofia_utils.printing import print_sep
 from sofia_utils.stamps import ( generate_UUID,
                                  get_now_utc_iso,
-                                 get_repo_main_hash,
                                  get_sha256 )
 
 
@@ -281,26 +280,18 @@ class Message( BaseModel, ABC) :
     """
     Message abstract base class. Must implement abstract property `role`.
     {
-    
     "basemodel"       : "<class name (for deserialization)>"
-    "repo_main_hash"  : "<hash of the repo's main branch (for deserialization)>"
-    
     "origin"          : "CaseHandler/<method>"
     "case_id"         : <case ID>,
-    
     "idempotency_key" : "<provider message ID>",
     "time_created"    : "<timestamp>"
     "time_received"   : "<timestamp>"
     "id"              : "<timestamp>_<random B62 8-char string>" | null
-    
     }
     """
     basemodel       : NE_str | None = None
-    repo_main_hash  : NE_str | None = None
-    
     origin          : NE_str
     case_id         : NN_int
-    
     idempotency_key : NE_str = Field( default_factory = generate_UUID)
     time_created    : NE_str = Field( default_factory = get_now_utc_iso)
     time_received   : NE_str = Field( default_factory = get_now_utc_iso)
@@ -308,11 +299,9 @@ class Message( BaseModel, ABC) :
     
     def model_post_init( self, __context : Any) -> None :
         """
-        * Populate basemodel and repo_main_hash
-        * Ensure initialization of idempotency key
+        * Populate basemodel and id
         """
-        self.basemodel      = self.__class__.__name__
-        self.repo_main_hash = get_repo_main_hash()
+        self.basemodel = self.__class__.__name__
         
         if not self.id :
             
