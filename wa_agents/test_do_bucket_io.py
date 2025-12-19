@@ -8,8 +8,7 @@ from sofia_utils.io import ( load_json_file,
                              write_to_json_file )
 from sofia_utils.printing import print_ind
 
-from .DO_spaces_io import *
-from .DO_spaces_storage import *
+from .do_bucket_io import *
 
 
 def check_environment_variables() -> None :
@@ -56,7 +55,7 @@ def check_environment_variables() -> None :
     
     return
 
-def test_do_spaces_functions( filepath_json : str, filepath_media : str) -> None :
+def test_do_bucket_io( filepath_json : str, filepath_media : str) -> None :
     
     # Extract filenames without paths
     fn_json  = Path(filepath_json).expanduser().name
@@ -141,8 +140,9 @@ def test_do_spaces_functions( filepath_json : str, filepath_media : str) -> None
 
 if __name__ == "__main__" :
     
-    if len(argv) < 3 :
-        print("Usage: python test_do_spaces.py <JSON file> <Media file>")
+    if not len(argv) == 3 :
+        fname = str(Path(__file__).name)
+        print(f"Usage: python {fname} <JSON file> <Media file>")
     else :
         check_environment_variables()
-        test_do_spaces_functions( argv[1], argv[2])
+        test_do_bucket_io( argv[1], argv[2])

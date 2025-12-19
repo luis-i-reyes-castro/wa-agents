@@ -10,12 +10,12 @@ from pathlib import Path
 from socket import gethostname
 from uuid import uuid4
 
-from .DO_spaces_io import ( b3_delete,
+from .do_bucket_io import ( b3_delete,
                             b3_list_objects,
                             b3_put_json )
 
 
-class DOSpacesLock :
+class DOBucketLock :
     """
     Best-effort distributed lock for DigitalOcean Spaces using a lease file.
     - Each contender writes a unique token object under a common prefix:
@@ -47,7 +47,7 @@ class DOSpacesLock :
 
         return
 
-    def __enter__( self ) -> "DOSpacesLock" :
+    def __enter__( self ) -> "DOBucketLock" :
         
         # Write our token (lease) with a small payload
         now   = time.time()

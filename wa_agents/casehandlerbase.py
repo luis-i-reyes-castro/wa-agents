@@ -28,8 +28,8 @@ from .basemodels import ( AssistantMsg,
                           WhatsAppContact,
                           WhatsAppMetaData,
                           WhatsAppMsg )
-from .DO_spaces_storage import DOSpacesBucket
-from .DO_spaces_dirlock import DOSpacesLock
+from .do_bucket_storage import DOBucketStorage
+from .do_bucket_lock import DOBucketLock
 from .whatsapp_functions import ( send_whatsapp_text,
                                   send_whatsapp_interactive)
 
@@ -63,8 +63,8 @@ class CaseHandlerBase(ABC) :
         self.case_manifest : CaseManifest  = None
         self.case_context  : list[Message] = None
         
-        self.storage = DOSpacesBucket( self.operator_num, self.user_id)
-        self.DirLock = DOSpacesLock
+        self.storage      = DOBucketStorage( self.operator_num, self.user_id)
+        self.storage_lock = DOBucketLock
         
         self.user_root = self.storage.dir_user()
         self.user_data_lookup()
@@ -97,7 +97,7 @@ class CaseHandlerBase(ABC) :
         
         # If necessary then update user data
         if need_to_update :
-            with self.DirLock(self.user_root) :
+            with self.storage_lock(self.user_root) :
                 self.storage.json_write( p, self.user_data.model_dump())
         
         return
@@ -239,7 +239,7 @@ class CaseHandlerBase(ABC) :
         """
         
         # Get user store and lock it
-        with self.DirLock(self.user_root) :
+        with self.storage_lock(self.user_root) :
             # Write message JSON and append message to manifest
             self.storage.message_write(message)
             self.storage.manifest_append( self.case_manifest, message)
@@ -310,7 +310,7 @@ class CaseHandlerBase(ABC) :
             self.context_update(msg)
             # Write message media to storage
             if isinstance( msg, UserContentMsg) and msg.media :
-                with self.DirLock(self.user_root) :
+                with self.storage_lock(self.user_root) :
                     self.storage.media_write( msg, media_content)
         
         # The grand finale

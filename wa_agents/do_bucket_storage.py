@@ -35,14 +35,14 @@ from .basemodels import ( CaseManifest,
                           MediaContent,
                           Message,
                           UserContentMsg )
-from .DO_spaces_io import ( b3_exists,
+from .do_bucket_io import ( b3_exists,
                             b3_get_file,
                             b3_list_directories,
                             b3_put_json,
                             b3_put_media )
 
 
-class DOSpacesBucket :
+class DOBucketStorage :
     
     # -------------------------------------------------------------------------------------
     # ORIGINAL CLASS DEFINITION
