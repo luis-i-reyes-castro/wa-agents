@@ -33,6 +33,10 @@ from .basemodels import ( AssistantMsg,
 
 
 class Agent :
+    """
+    Wrapper around chat-completion APIs (OpenRouter, OpenAI, Mistral) \\
+    Provides prompt/tool loading, request formatting, and post-processing.
+    """
     
     # -------------------------------------------------------------------------------------
     API_DATA_PATTERN = r"^([\w\.:-]+)/([\w\.:-]+)$"
@@ -42,6 +46,12 @@ class Agent :
     
     # -------------------------------------------------------------------------------------
     def __init__( self, name : str, models : list[str] | str) -> None :
+        """
+        Configure the agent for a given API/model combination \\
+        Args:
+            name   : Friendly name to attach to generated responses
+            models : Either one `api/model` string or an ordered list for fallbacks
+        """
         
         self.name   = name
         self.api    = None
@@ -82,6 +92,11 @@ class Agent :
     # -------------------------------------------------------------------------------------
     
     def load_prompts( self, list_prompt_paths : list[str|dict] ) -> None :
+        """
+        Load prompt snippets from strings or {path, replace} dictionaries \\
+        Args:
+            list_prompt_paths : Sequence with file paths or descriptor dicts
+        """
         
         for prompt_obj in list_prompt_paths :
             # If prompt object is string then assume it is path
@@ -108,6 +123,11 @@ class Agent :
         return
     
     def load_tools( self, list_tool_paths : list[str]) -> None :
+        """
+        Load JSON tool schemas while enforcing API/tool-call constraints \\
+        Args:
+            list_tool_paths : JSON files with either dict or list payloads
+        """
         
         for blacklisted_api in self.APIs_THAT_CANNOT_MAKE_TOOL_CALLS :
             msg = f"{blacklisted_api.upper()} API cannot make tool calls"
@@ -135,6 +155,9 @@ class Agent :
         return
     
     def merge_prompts(self) -> None :
+        """
+        Merge loaded prompts into a single system message separated by blanks
+        """
         
         # Merge prompts (adding 1-2 extra newlines between prompts)
         if self.prompts :
@@ -164,6 +187,19 @@ class Agent :
                       max_tokens : int | None = None,
                       debug      : bool = False
                     ) -> AssistantMsg | None :
+        """
+        Request a response from the configured API and post-process outputs \\
+        Args:
+            context    : Prior conversation contents (system, user, assistant)
+            origin     : Optional identifier for tracing the call site
+            load_imgs  : Whether to embed user images via cached binary data
+            imgs_cache : Cache mapping image names to their byte payloads
+            output_st  : Structured output schema (pydantic class or 'json')
+            max_tokens : Optional completion cap passed to the API
+            debug      : Dump raw API input/output if True
+        Returns:
+            AssistantMsg with text/tool calls/structured output, or None on failure.
+        """
         
         # If loading images then arguments must include images cache
         if load_imgs and not imgs_cache :
@@ -203,6 +239,13 @@ class Agent :
                      mode : Literal[ "input", "output"],
                      data : Any,
                      client_call : str | None = None ) -> None :
+        """
+        Pretty-print API payloads/responses for debugging sessions \\
+        Args:
+            mode        : Either 'input' or 'output'
+            data        : Arbitrary payload to print recursively
+            client_call : Helpful string with the client call being made
+        """
         
         print_sep()
         print(f"{self.api.upper()} API {mode.upper()}:")
@@ -226,6 +269,19 @@ class Agent :
                                      max_tokens : int | None = None,
                                      debug      : bool = False
                                    ) -> AssistantMsg | None :
+        """
+        Build the chat payload and call the backing API client \\
+        Args:
+            context    : Message history to serialize per API expectations
+            origin     : Identifier describing who triggered the request
+            load_imgs  : Whether to include user-provided images
+            imgs_cache : Cache used when `load_imgs` is enabled
+            output_st  : Structured output schema (json or BaseModel subclass)
+            max_tokens : Optional completion cap passed to the API
+            debug      : Print verbose request/response dumps
+        Returns:
+            AssistantMsg parsed from the API response, or None on failure.
+        """
         
         # Determine message origin if not provided
         origin = origin or f"{self.__class__.__name__}/{currentframe().f_code.co_name}"

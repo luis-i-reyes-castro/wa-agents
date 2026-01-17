@@ -41,18 +41,28 @@ class CaseHandlerBase(ABC) :
     Class for case and context management
     * Looks up user data
     * Decides when to open or close cases
-    * Manages case manifest and index
+    * Manages case index and manifest
     * Builds, scans and prints context
     * Provides unified message sending
     """
     
     MAX_CONTEXT_LEN  = 20
+    """ Maximum context length (in number of messages) """
+    
     TIME_LIMIT_STALE = 48
+    """ Case staleness time limit (in hours) """
     
     def __init__( self,
                   operator : WhatsAppMetaData,
                   user     : WhatsAppContact,
                   debug    : bool = False ) -> None :
+        """
+        Initialize the handler with WhatsApp metadata and user info \\
+        Args:
+            operator : WhatsApp metadata payload describing the business account
+            user     : WhatsApp contact representing the end user
+            debug    : When True, send verbose WhatsApp copies of assistant output
+        """
         
         self.operator_num = operator.display_phone_number
         self.operator_id  = operator.phone_number_id
@@ -80,6 +90,10 @@ class CaseHandlerBase(ABC) :
     # =====================================================================================
     
     def user_data_lookup(self) -> None :
+        """
+        Load or initialize UserData for the WhatsApp contact \\
+        Ensures the latest name list persists back to storage with locking.
+        """
         
         # Initialize user data update flag
         need_to_update = False
@@ -108,16 +122,17 @@ class CaseHandlerBase(ABC) :
     
     def case_decide(self) -> tuple[ int, CaseManifest] :
         """
-        Decide case. Logic:
-        * Look for open case index in root / <user_id> / index.json
-        * IF open case index not found or is null then open new case
-        * ELSE open case index was found
-            * Load manifest
-            * If manifest status is not open or if case stale:
-                * Open new case
-            * Else return case ID and manifest
+        Decide whether to continue on the open case or create a new one.
+        
+        Logic:
+        * Try to load `case_index.json` to find an open case id
+        * If `case_index.json` does not exist, or if the case index is `null`, then open a new case.
+        * Otherwise try to load `case_manifest.json`
+        * If `case_manifest.json` exists, status is `open` and case is not stale (i.e., time since last message not greater than `TIME_LIMIT_STALE`), then continue on that case.
+        * Otherwise open a new case.
+        
         Returns:
-            Case ID, Case Manifest
+            Tuple of `(case_id, CaseManifest)` describing the active case.
         """
         
         # Initialize open case index
@@ -155,9 +170,9 @@ class CaseHandlerBase(ABC) :
     
     def case_open_new(self) -> tuple[ int, CaseManifest] :
         """
-        Open new case
+        Create a new case manifest and update the open-case index \\
         Returns:
-            Case ID, Case Manifest
+            Tuple of `(case_id, CaseManifest)` for the newly opened case.
         """
         # Query storage for next case ID
         case_id = self.storage.get_next_case_id()
@@ -174,7 +189,7 @@ class CaseHandlerBase(ABC) :
     
     def case_mark_as_resolved(self) -> None :
         """
-        Mark current case as resolved
+        Mark the active case as resolved and persist the closing timestamp
         """
         self.case_manifest.status      = "resolved"
         self.case_manifest.time_closed = get_now_utc_iso()
@@ -186,9 +201,9 @@ class CaseHandlerBase(ABC) :
     
     def case_set_open_case_id( self, case_id : int | None) -> None :
         """
-        Set open case ID
+        Update the open case index \\
         Args:
-            case_id: Open case ID or None
+            case_id : Either open case ID or None
         """
         
         # Update root / <user_id> / index.json
@@ -203,10 +218,9 @@ class CaseHandlerBase(ABC) :
     
     def context_build( self, truncate : bool = True) -> None :
         """
-        Build context\n
+        Build the ordered case context and feed it to the state machine \\
         Args:
-            truncate: Whether or not to enforce the max content length
-            debug:    Debug mode flag
+            truncate : Whether to limit context to the last `MAX_CONTEXT_LEN` messages
         """
         
         # Ensure we know which case to load
@@ -239,13 +253,16 @@ class CaseHandlerBase(ABC) :
     
     def context_update( self, message : Message) -> None :
         """
-        Update context:
-        * Write message to storage
-        * Append message to case manifest and re-write manifest
-        * If the case context has been initialized then append message\n
+        Persist a new message and refresh the in-memory context
+        
+        Steps:
+        * Write the message JSON to storage
+        * Append it to the manifest (with locking)
+        * If case context available then append message
+        * If state machine available then feed message to machine
+        
         Args:
-            message: Instance of a subclass of Message
-            debug :  Debug mode flag
+            message : Instance of a Message subclass
         """
         
         # Get user store and lock it
@@ -276,7 +293,12 @@ class CaseHandlerBase(ABC) :
                                   media_content : MediaContent | None = None,
                                 ) -> UserMsg | None :
         """
-        Deduplicate and ingest a WhatsApp message
+        Convert a webhook payload into domain messages, skipping duplicates \\
+        Args:
+            message       : WhatsApp webhook message
+            media_content : Fetched media bytes when applicable
+        Returns:
+            User message object queued for processing, or None if duplicate.
         """
         _orig_ = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
         
@@ -335,6 +357,13 @@ class CaseHandlerBase(ABC) :
     def send_text( self,
                    message : ServerTextMsg | AssistantMsg | ToolResultsMsg
                  ) -> bool :
+        """
+        Send textual assistant output or debugging artifacts via WhatsApp \\
+        Args:
+            message : Assistant, server, or tool-results message to deliver
+        Returns:
+            True on success; False if sending fails.
+        """
         
         try :
             # If not in debug mode: Send only Assistant Message text
@@ -375,6 +404,13 @@ class CaseHandlerBase(ABC) :
         return False
     
     def send_interactive( self, message : ServerInteractiveOptsMsg) -> bool :
+        """
+        Send WhatsApp interactive messages or their debug copy \\
+        Args:
+            message : Interactive options payload ready for WhatsApp APIs
+        Returns:
+            True on success; False otherwise.
+        """
         
         if isinstance( message, ServerInteractiveOptsMsg) :
             try :
@@ -403,12 +439,12 @@ class CaseHandlerBase(ABC) :
                          media_content : MediaContent | None = None
                        ) -> bool :
         """
-        Process WhatsApp message\n
+        Process a single WhatsApp webhook message \\
         Args:
-            message:       WhatsApp message object
-            media_content: If WhatsApp message is a media message then use this field to pass the media content
+            message       : WhatsApp message object
+            media_content : Media content associated with the message (if any)
         Returns:
-            True if message needs to be replied to, False otherwise.
+            True if additional responses should be generated; else False.
         """
         
         raise NotImplementedError
@@ -418,11 +454,11 @@ class CaseHandlerBase(ABC) :
                            max_tokens : int | None = None
                          ) -> bool :
         """
-        Generate response\n
+        Generate an assistant reply (potentially multi-turn) \\
         Args:
-            max_tokens: Optional maximum number of input+output tokens
+            max_tokens : Optional maximum number of tokens
         Returns:
-            bool: True if need to generate more responses, False otherwise.
+            True if another response pass is required; else False.
         """
         
         raise NotImplementedError
