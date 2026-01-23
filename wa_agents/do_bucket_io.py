@@ -37,11 +37,11 @@ b3 = boto3_client(**boto3_client_args)
 
 def b3_exists( key : str | Path) -> bool :
     """
-    Check if object key exists. Uses HEAD (faster than GET).
+    Check if an object key exists using a HEAD request \\
     Args:
-        key: Object key
+        key : Object key relative to the bucket root
     Returns:
-        True if it exists else False
+        True if the object is present; else False.
     """
     try :
         b3.head_object( Bucket = BUCKET_NAME, Key = str(key))
@@ -50,13 +50,13 @@ def b3_exists( key : str | Path) -> bool :
         pass
     return False
 
-def b3_list_objects( prefix : str | Path) -> list[str] :
+def b3_list_objects( prefix : str | Path) -> list[ dict[ str, float | str] ] :
     """
-    List all object keys under a prefix with Key and LastModified timestamp
+    List object metadata under a prefix including last-modified timestamps \\
     Args:
-        prefix: Key prefix. NOTE: Use "" for root.
+        prefix : Key prefix (use empty string for the root)
     Returns:
-        List of full keys (including the prefix)
+        List of dictionaries with `Key` and `LastModified` entries.
     """
     paginator = b3.get_paginator("list_objects_v2")
     page_iter = paginator.paginate( Bucket = BUCKET_NAME, Prefix = str(prefix))
@@ -74,11 +74,11 @@ def b3_list_objects( prefix : str | Path) -> list[str] :
 
 def b3_list_directories( prefix : str | Path) -> list[str] :
     """
-    List all directory names under a prefix (first-level subdirectories only).
+    List top-level directory names within a prefix \\
     Args:
-        prefix: Key prefix. NOTE: Use "" for root.
+        prefix : Key prefix (use empty string for the root)
     Returns:
-        List of directory names (not full paths)
+        List of directory names without the prefix.
     """
     # Prepare prefix path and string form
     prefix_path = Path(prefix)
@@ -110,10 +110,9 @@ def b3_list_directories( prefix : str | Path) -> list[str] :
 
 def b3_clear_prefix( prefix : str | Path) -> None :
     """
-    Delete all objects under a prefix. No-op if empty.
-    Performs chunked deletes in batches of 1000.
+    Delete every object under a given prefix in batches of 1000 keys \\
     Args:
-        prefix: Key prefix
+        prefix : Prefix whose contents should be removed
     """
     keys =[ obj["Key"] for obj in b3_list_objects(prefix) ]
     if not keys :
@@ -127,7 +126,11 @@ def b3_clear_prefix( prefix : str | Path) -> None :
     return
 
 def b3_delete( key : str) -> None :
-    
+    """
+    Delete a single object from the bucket \\
+    Args:
+        key : Object key to delete
+    """
     b3.delete_object( Bucket = BUCKET_NAME, Key = key)
     
     return
@@ -136,9 +139,9 @@ def b3_delete( key : str) -> None :
 
 def b3_get_file( key : str | Path) -> Any :
     """
-    Download file content from storage bucket.
+    Download file content from the storage bucket \\
     Args:
-        key: Object key in the bucket
+        key : Object key in the bucket
     Returns:
         Raw file content as bytes
     """
@@ -148,10 +151,10 @@ def b3_get_file( key : str | Path) -> Any :
 
 def b3_put_json( key : str | Path, obj : Any) -> None :
     """
-    Upload JSON object to storage bucket.
+    Serialize and upload JSON content to the bucket \\
     Args:
-        key: Object key in the bucket
-        obj: Python object to serialize as JSON
+        key : Object key in the bucket
+        obj : JSON-serializable Python object
     """
     body = BytesIO(write_to_json_string(obj).encode("utf-8"))
     
@@ -166,15 +169,13 @@ def b3_put_media( key     : str | Path,
                   content : bytes,
                   mime    : str ) -> dict[ str : str] :
     """
-    Upload media file for a specific user and case.
+    Upload binary media content using the provided MIME type \\
     Args:
-        user_id:  User ID
-        case_id:  Case ID
-        filename: Name of the media file
-        content:  Raw file content as bytes
-        mime: MIME type of the file
+        key     : Destination object key
+        content : Raw file content as bytes
+        mime    : MIME type string (e.g., image/jpeg)
     Returns:
-        Dictionary with bucket name and object key
+        Dictionary with the bucket name and stored object key.
     """
     
     b3.put_object( Bucket      = BUCKET_NAME,
@@ -189,11 +190,11 @@ def b3_put_media( key     : str | Path,
 
 def b3_get_error_code( ex : ClientError) -> str | None :
     """
-    Extract error code from boto3 ClientError exception.
+    Extract and format an error code from a boto3 ClientError \\
     Args:
-        ex: ClientError exception from boto3 operation
+        ex : ClientError raised during an S3 operation
     Returns:
-        String with formatted error code
+        String such as 'Error code AccessDenied', or None if missing.
     """
     
     code = ex.response.get( "Error", {}).get( "Code", "")
@@ -204,13 +205,13 @@ def presign( action  : str,
              key     : str | Path,
              expires : int = 3600 ) -> str :
     """
-    Generate a presigned URL. For possible future use.
+    Generate a presigned GET or PUT URL for the bucket \\
     Args:
-        action:  Either "get" or "put"
-        key:     Object key
-        expires: Presigned URL expiration time in seconds
+        action  : Either "get" or "put"
+        key     : Object key
+        expires : Expiration time in seconds (default 1 hour)
     Returns:
-        String with generated presigned URL
+        Generated presigned URL or an error message if action invalid.
     """
     if action not in ( "get", "put") :
         return f"Error in function presign: Invalid action '{action}'"

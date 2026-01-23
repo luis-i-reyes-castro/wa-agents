@@ -8,6 +8,7 @@ import time
 from botocore.exceptions import ClientError
 from pathlib import Path
 from socket import gethostname
+from types import TracebackType
 from uuid import uuid4
 
 from .do_bucket_io import ( b3_delete,
@@ -17,7 +18,7 @@ from .do_bucket_io import ( b3_delete,
 
 class DOBucketLock :
     """
-    Best-effort distributed lock for DigitalOcean Spaces using a lease file.
+    Best-effort distributed lock for DigitalOcean Spaces using a lease file. \\
     - Each contender writes a unique token object under a common prefix:
         storage/<user_id>/locks/<name>/<token>.json
     - The *earliest* non-stale token is the owner.
@@ -31,6 +32,15 @@ class DOBucketLock :
                   poll     : float = 0.05,
                   ttl      : float = 30.0,
                   owner_id : str | None = None ) -> None :
+        """
+        Configure the distributed lock helper \\
+        Args:
+            prefix   : Base prefix (user root) for the locks directory
+            timeout  : Max seconds to wait for the lock
+            poll     : Interval between acquisition retries
+            ttl      : Lease duration used to detect stale tokens
+            owner_id : Optional identifier used for debugging/logging
+        """
         
         self.prefix   = str( Path(prefix) / "locks" )
         self.timeout  = timeout
@@ -48,6 +58,11 @@ class DOBucketLock :
         return
 
     def __enter__( self ) -> "DOBucketLock" :
+        """
+        Acquire the distributed lock by writing/contending lease tokens \\
+        Returns:
+            Self when the current token becomes the earliest non-stale entry.
+        """
         
         # Write our token (lease) with a small payload
         now   = time.time()
@@ -88,7 +103,17 @@ class DOBucketLock :
             
             time.sleep( self.poll )
     
-    def __exit__( self, exc_type, exc, tb ) :
+    def __exit__( self,
+                  exc_type : type[BaseException] | None,
+                  exc      : BaseException | None,
+                  tb       : TracebackType | None ) -> None :
+        """
+        Release the lease token when leaving the context \\
+        Args:
+            exc_type : Exception type raised within the context (if any)
+            exc      : Exception instance (if any)
+            tb       : Traceback object (if any)
+        """
         # Only owner attempts to release its own token
         if self.acquired :
             try :

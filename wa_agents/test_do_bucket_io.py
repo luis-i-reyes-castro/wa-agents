@@ -12,6 +12,9 @@ from .do_bucket_io import *
 
 
 def check_environment_variables() -> None :
+    """
+    Print current bucket-related environment variables and client config \\
+    """
     
     print("=== Checking Environment Variables ===")
     
@@ -56,6 +59,12 @@ def check_environment_variables() -> None :
     return
 
 def test_do_bucket_io( filepath_json : str, filepath_media : str) -> None :
+    """
+    Upload/download a JSON file and media asset for manual verification \\
+    Args:
+        filepath_json  : Path to a JSON file to upload
+        filepath_media : Path to a media file to upload/download
+    """
     
     # Extract filenames without paths
     fn_json  = Path(filepath_json).expanduser().name

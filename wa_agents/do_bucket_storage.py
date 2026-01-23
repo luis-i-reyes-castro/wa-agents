@@ -52,6 +52,12 @@ class DOBucketStorage :
     def __init__( self,
                   operator_id : str | int,
                   user_id     : str | int ) -> None :
+        """
+        Initialize a storage helper for an operator/user pair \\
+        Args:
+            operator_id : WhatsApp phone-number ID (bucket root partition)
+            user_id     : User phone-number ID
+        """
         
         self.operator_id = str(operator_id)
         self.user_id     = str(user_id)
@@ -61,6 +67,11 @@ class DOBucketStorage :
     
     # Set case ID
     def set_case_id( self, case_id : str | int) -> None :
+        """
+        Validate and store the active case identifier \\
+        Args:
+            case_id : Numeric case identifier or digit-only string
+        """
         
         if case_id and isinstance( case_id, int) :
             self.case_id = case_id
@@ -80,14 +91,18 @@ class DOBucketStorage :
     
     def dir_user(self) -> Path :
         """
-        Returns: <operator_id> / <user_id>
+        Compute `<operator_id>/<user_id>` directory path \\
+        Returns:
+            Base path shared by all user assets
         """
         p = Path(self.operator_id) / Path(self.user_id)
         return p
     
     def dir_case(self) -> Path :
         """
-        Returns: <operator_id> / <user_id> / cases / <case_id>
+        Compute `<operator_id>/<user_id>/cases/<case_id>` path \\
+        Returns:
+            Full case directory path for the selected case_id
         """
         if self.case_id :
             p = self.dir_user() / "cases" / str(self.case_id)
@@ -99,21 +114,27 @@ class DOBucketStorage :
     
     def dir_dedup(self) -> Path :
         """
-        Returns: <operator_id> / <user_id> / dedup
+        Compute `<operator_id>/<user_id>/dedup` path \\
+        Returns:
+            Directory containing idempotency markers
         """
         p = self.dir_user() / "dedup"
         return p
     
     def dir_messages(self) -> Path :
         """
-        Returns: <operator_id> / <user_id> / cases / <case_id> / messages
+        Compute `<operator_id>/<user_id>/cases/<case_id>/messages` path \\
+        Returns:
+            Directory containing serialized messages for the case
         """
         p = self.dir_case() / "messages"
         return p
     
     def dir_media(self) -> Path :
         """
-        Returns: <operator_id> / <user_id> / cases / <case_id> / media
+        Compute `<operator_id>/<user_id>/cases/<case_id>/media` path \\
+        Returns:
+            Directory containing uploaded media for the case
         """
         p = self.dir_case() / "media"
         return p
@@ -123,28 +144,36 @@ class DOBucketStorage :
     
     def path_user_data(self) -> Path :
         """
-        Returns: ... / user_data.json
+        Path to `.../user_data.json` \\
+        Returns:
+            Location for the persisted UserData document
         """
         p = self.dir_user() / "user_data.json"
         return p
     
     def path_case_index(self) -> Path :
         """
-        Returns: ... / case_index.json
+        Path to `.../case_index.json` \\
+        Returns:
+            Location for the CaseIndex file storing the open case id
         """
         p = self.dir_user() / "case_index.json"
         return p
     
     def path_manifest(self) -> Path :
         """
-        Returns: ... / cases / <case_id> / case_manifest.json
+        Path to `.../cases/<case_id>/case_manifest.json` \\
+        Returns:
+            Location for the CaseManifest file
         """
         p = self.dir_case() / "case_manifest.json"
         return p
     
     def path_message( self, message_id : str) -> Path :
         """
-        Returns: ... / cases / <case_id> / messages / <message_id>.json
+        Path to `.../cases/<case_id>/messages/<message_id>.json` \\
+        Args:
+            message_id : Message identifier
         """
         p = self.dir_messages() / f"{message_id}.json"
         return p
@@ -153,6 +182,13 @@ class DOBucketStorage :
     # JSON I/O
     
     def json_read( self, path : Path) -> Any | None :
+        """
+        Read and deserialize a JSON document from the bucket \\
+        Args:
+            path : Object key resolved via the helper's directory methods
+        Returns:
+            Parsed Python object or None if the file does not exist.
+        """
         
         if b3_exists(path) :
             return load_json_string(b3_get_file(path))
@@ -160,6 +196,12 @@ class DOBucketStorage :
         return None
     
     def json_write( self, path : Path, obj : Any) -> None :
+        """
+        Serialize and store an object as JSON in the bucket \\
+        Args:
+            path : Destination object key
+            obj  : JSON-serializable Python object
+        """
         
         b3_put_json( path, obj)
         
@@ -171,11 +213,11 @@ class DOBucketStorage :
     
     def dedup_exists( self, idempotency_key : str) -> bool :
         """
-        Check if idempotency key path exists\n
+        Check if an idempotency marker already exists for the user \\
         Args:
-            idempotency_key: Idempotency key
+            idempotency_key : Unique key assigned to an incoming message
         Returns:
-            True if path found, else False.
+            True if the marker is present, else False.
         """
         p = self.dir_dedup() / f"{idempotency_key}.json"
         
@@ -183,9 +225,9 @@ class DOBucketStorage :
     
     def dedup_write( self, idempotency_key : str) -> None :
         """
-        Write idempotency key to dedup dir\n
+        Persist a processed-id marker under the dedup directory \\
         Args:
-            idempotency_key: Idempotency key
+            idempotency_key : Unique key assigned to an incoming message
         """
         p = self.dir_dedup() / f"{idempotency_key}.json"
         b3_put_json( p, True)
@@ -198,11 +240,11 @@ class DOBucketStorage :
     
     def message_read( self, message_id : str) -> Message | None :
         """
-        Read from message path\n
+        Load and deserialize a stored message document \\
         Args:
-            message_id: Message ID
+            message_id : Message identifier
         Returns:
-            Message if path exists, else None.
+            Message subclass instance if present, else None.
         """
         p        = self.path_message(message_id)
         msg_dict = self.json_read(p)
@@ -222,9 +264,9 @@ class DOBucketStorage :
     
     def message_write( self, message : Message) -> None :
         """
-        Write message\n
+        Persist a message document under the case directory \\
         Args:
-            message: Message to write
+            message : Message subclass instance
         """
         p = self.path_message(message.id)
         
@@ -234,11 +276,11 @@ class DOBucketStorage :
     
     def media_get( self, filename : str) -> bytes | None :
         """
-        Retrieve media as bytes\n
+        Download stored media content for the active case \\
         Args:
-            filename: Media filename
+            filename : Media filename (with extension)
         Returns:
-            Media content as bytes, or None if not found.
+            Media content bytes or None if the file is absent.
         """
         p = self.dir_media() / filename
         
@@ -248,10 +290,10 @@ class DOBucketStorage :
                      message : UserContentMsg,
                      media   : MediaContent ) -> None :
         """
-        Write media contents to storage and return media data\n
+        Store media bytes associated with a user content message \\
         Args:
-            message: User Message object with non-empty 'media' field
-            media:   Media contents object
+            message : User message containing metadata (filename, mime)
+            media   : Media content payload to persist
         """
         media_path = self.dir_media() / message.media.name
         
@@ -266,6 +308,11 @@ class DOBucketStorage :
     # -------------------------------------------------------------------------------------
     
     def get_next_case_id(self) -> int :
+        """
+        Determine the next sequential case ID for the user \\
+        Returns:
+            First positive integer not currently assigned to a case
+        """
         
         max_id    = 0
         prefix    = self.dir_user() / "cases"
@@ -281,12 +328,10 @@ class DOBucketStorage :
                          manifest : CaseManifest,
                          message  : Message ) -> None :
         """
-        If necessary:
-            Append message to manifest (enforcing idempotency)
-            Update manifest time of last message.
+        Append message metadata to the manifest and refresh timestamps \\
         Args:
-            manifest: Case Manifest
-            message:  Message
+            manifest : Case Manifest model for the active case
+            message  : Message to record
         """
         
         # Append message to manifest
@@ -312,9 +357,9 @@ class DOBucketStorage :
     
     def manifest_load(self) -> CaseManifest | None :
         """
-        Load manifest\n
-        Returns
-            Case Manifest if data exists, else None
+        Load the active case manifest from the bucket \\
+        Returns:
+            CaseManifest instance if data exists, else None.
         """
         p    = self.path_manifest()
         data = self.json_read(p)
@@ -323,9 +368,9 @@ class DOBucketStorage :
     
     def manifest_write( self, manifest : CaseManifest) -> None :
         """
-        Write manifest\n
+        Persist the manifest JSON for the active case \\
         Args:
-            manifest: Case Manifest
+            manifest : CaseManifest instance
         """
         p = self.path_manifest()
         self.json_write( p, manifest.model_dump())
