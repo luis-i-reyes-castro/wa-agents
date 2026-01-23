@@ -63,6 +63,14 @@ class InteractiveOption(BaseModel) :
 # MESSAGES
 
 class WhatsAppContext(BaseModel) :
+    """
+    WhatsApp message context
+        `user`                 : "<sender phone number>" | null
+        `id`                   : "<replied-to message ID>" | null
+        `forwarded`            : true | false | null
+        `frequently_forwarded` : true | false | null
+        `referred_product`     : { "<key>": "<value>", ... } | null
+    """
     
     model_config = ConfigDict( frozen           = True,
                                populate_by_name = True)
@@ -79,12 +87,22 @@ class WhatsAppContext(BaseModel) :
     referred_product : dict[ str, str] | None = None
 
 class WhatsAppText(BaseModel) :
+    """
+    WhatsApp text payload
+        `body` : "<message text>"
+    """
     
     model_config = ConfigDict( frozen = True)
     
     body : NE_str
 
 class WhatsAppInteractiveReply(BaseModel) :
+    """
+    WhatsApp interactive reply
+        `type`         : "button_reply" | "list_reply"
+        `button_reply` : InteractiveOption | null
+        `list_reply`   : InteractiveOption | null
+    """
     
     model_config = ConfigDict( frozen = True)
     
@@ -114,6 +132,15 @@ class WhatsAppInteractiveReply(BaseModel) :
         return
 
 class WhatsAppMediaData(BaseModel) :
+    """
+    WhatsApp media descriptor
+        `id`        : "<media ID>"
+        `mime_type` : "<MIME type>"
+        `sha256`    : "<sha256 checksum>"
+        `caption`   : "<caption>" | null
+        `voice`     : true | false | null
+        `animated`  : true | false | null
+    """
     
     model_config = ConfigDict( frozen = True)
     
@@ -133,6 +160,11 @@ class WhatsAppMediaData(BaseModel) :
         return self.mime_type.split("/")[0]
 
 class WhatsAppReaction(BaseModel) :
+    """
+    WhatsApp reaction
+        `message_id` : "<message ID>"
+        `emoji`      : "<emoji>" | null
+    """
     
     model_config = ConfigDict( frozen = True)
     
@@ -140,6 +172,20 @@ class WhatsAppReaction(BaseModel) :
     emoji      : str | None = None
 
 class WhatsAppMsg(BaseModel) :
+    """
+    WhatsApp message payload
+        `user`        : "<sender phone number>"
+        `id`          : "<message ID>"
+        `timestamp`   : "<unix timestamp>"
+        `type`        : "<message type>"
+        `text`        : WhatsAppText | null
+        `interactive` : WhatsAppInteractiveReply | null
+        `image`       : WhatsAppMediaData | null
+        `video`       : WhatsAppMediaData | null
+        `audio`       : WhatsAppMediaData | null
+        `sticker`     : WhatsAppMediaData | null
+        `reaction`    : WhatsAppReaction | null
+    """
     
     model_config = ConfigDict( frozen           = True,
                                populate_by_name = True)
@@ -199,12 +245,21 @@ class WhatsAppMsg(BaseModel) :
 # CONTACTS
 
 class WhatsAppProfile(BaseModel) :
+    """
+    WhatsApp contact profile
+        `name` : "<display name>"
+    """
     
     model_config = ConfigDict( frozen = True)
     
     name : NE_str
 
 class WhatsAppContact(BaseModel) :
+    """
+    WhatsApp contact record
+        `wa_id`   : "<sender phone number>"
+        `profile` : WhatsAppProfile | null
+    """
     
     model_config = ConfigDict( frozen = True)
     
@@ -214,6 +269,11 @@ class WhatsAppContact(BaseModel) :
 # PAYLOADS
 
 class WhatsAppMetaData(BaseModel) :
+    """
+    WhatsApp webhook metadata
+        `display_phone_number` : "<receiver phone number>"
+        `phone_number_id`      : "<receiver WhatsApp number ID>"
+    """
     
     model_config = ConfigDict( frozen = True)
     
@@ -221,6 +281,13 @@ class WhatsAppMetaData(BaseModel) :
     phone_number_id      : NE_str # Receiver WhatsApp Number ID
 
 class WhatsAppValue(BaseModel) :
+    """
+    WhatsApp change value payload
+        `messaging_product` : "whatsapp"
+        `metadata`          : WhatsAppMetaData
+        `contacts`          : tuple[ WhatsAppContact, ...]
+        `messages`          : tuple[ WhatsAppMsg, ...]
+    """
     
     model_config = ConfigDict( frozen = True)
     
@@ -231,6 +298,11 @@ class WhatsAppValue(BaseModel) :
     messages : tuple[ WhatsAppMsg, ...]
 
 class WhatsAppChange_(BaseModel) :
+    """
+    WhatsApp change item
+        `value` : WhatsAppValue
+        `field` : "messages"
+    """
     
     model_config = ConfigDict( frozen = True)
     
@@ -238,6 +310,11 @@ class WhatsAppChange_(BaseModel) :
     field : NE_str = "messages"
 
 class WhatsAppChanges(BaseModel) :
+    """
+    WhatsApp change wrapper
+        `id`      : "<receiver WABA number>"
+        `changes` : tuple[ WhatsAppChange_, ...]
+    """
     
     model_config = ConfigDict( frozen = True)
     
@@ -245,6 +322,11 @@ class WhatsAppChanges(BaseModel) :
     changes : tuple[ WhatsAppChange_, ...]
 
 class WhatsAppPayload(BaseModel) :
+    """
+    Top-level WhatsApp webhook payload
+        `title` : "whatsapp_business_account"
+        `entry` : tuple[ WhatsAppChanges, ...]
+    """
     
     model_config = ConfigDict( frozen = True)
     
@@ -499,7 +581,7 @@ class UserInteractiveReplyMsg( UserMsg, StructuredDataMsg) :
 # -----------------------------------------------------------------------------------------
 # SERVER MESSAGES
 
-class ServerMsg( BasicMsg, ABC) :
+class ServerMsg( Message, ABC) :
     """
     Server Message
     """
@@ -509,7 +591,7 @@ class ServerMsg( BasicMsg, ABC) :
     def role(self) -> str :
         return "user"
 
-class ServerTextMsg(ServerMsg) :
+class ServerTextMsg( ServerMsg, BasicMsg) :
     """
     Server Text Message
     """
