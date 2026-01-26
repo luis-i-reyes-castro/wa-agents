@@ -142,6 +142,19 @@ def write_payload( to_number : str,
     
     return payload
 
+def chunk_text( text : str, max_len : int = 4096) -> list[str] :
+    
+    if len(text) <= max_len :
+        return [text]
+    
+    i_mid  = len(text) // 2
+    result = []
+    
+    result.extend( chunk_text( text[:i_mid ], max_len) )
+    result.extend( chunk_text( text[ i_mid:], max_len) )
+    
+    return result
+
 def send_whatsapp_text( operator_id : str,
                         to_number   : str,
                         text        : str ) -> None :
@@ -156,12 +169,15 @@ def send_whatsapp_text( operator_id : str,
     # 1) Declare message URL and headers
     msg_url     = f"{API_URL}{operator_id}/messages"
     msg_headers = write_headers( content_type = True)
-    # 2) Write payload and post message
-    payload  = write_payload( to_number, text)
-    response = requests.post( msg_url, headers = msg_headers, json = payload)
-    # 3) Print response
-    print_sep()
-    print( "Reply response:", response.json())
+    
+    # 2) Chunk the text
+    for _text_ in chunk_text(text) :
+        # 2-1) Write payload and post message
+        payload  = write_payload( to_number, _text_)
+        response = requests.post( msg_url, headers = msg_headers, json = payload)
+        # 2-2) Print response
+        print_sep()
+        print( "Reply response:", response.json())
     
     return
 
