@@ -21,6 +21,18 @@ BUCKET_KEY        = os.getenv("BUCKET_KEY_ID")
 BUCKET_KEY_SECRET = os.getenv("BUCKET_KEY_SECRET")
 BUCKET_NAME       = os.getenv("BUCKET_NAME")
 
+missing = [ label
+            for label, value in
+            [ ( "BUCKET_REGION",     BUCKET_REGION),
+              ( "BUCKET_KEY_ID",     BUCKET_KEY),
+              ( "BUCKET_KEY_SECRET", BUCKET_KEY_SECRET),
+              ( "BUCKET_NAME",       BUCKET_NAME) ]
+            if not value ]
+
+if missing :
+    missing_str = ", ".join(missing)
+    raise RuntimeError(f"Missing S3 bucket environment variables: {missing_str}")
+
 boto3_client_args = \
     { 
     "service_name"          : "s3",

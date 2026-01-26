@@ -9,7 +9,6 @@ from sofia_utils.printing import ( print_recursively,
                                    print_sep )
 from wa_agents.basemodels import ( WhatsAppMsg,
                                    WhatsAppContact )
-from wa_agents.whatsapp_functions import send_whatsapp_text
 
 
 load_dotenv()
@@ -55,14 +54,6 @@ def webhook() :
         print_sep()
         print("MESSAGE STRUCTURE:")
         print_recursively(msg)
-        
-        MDJ_OPTS = { "indent"        : 4,
-                     "by_alias"      : True,
-                     "exclude_unset" : True,
-                     "exclude_none"  : True}
-        
-        send_whatsapp_text( msg.user, msg.model_dump_json(**MDJ_OPTS))
-        send_whatsapp_text( msg.user, contact.model_dump_json(**MDJ_OPTS))
     
     except Exception as e :
         print( "Error:", e)
