@@ -181,7 +181,7 @@ Return semantics:
 ### 1) Single-turn, no tools, no LLM
 
 Template:
-- `docs/example_casehandler_single_turn_no_llm.py`
+- [`docs/example_casehandler_single_turn_no_llm.py`](docs/example_casehandler_single_turn_no_llm.py)
 
 - `process_message`: dedup + ingest, then `return True`.
 - `generate_response`: run DB/business logic, send a text, `return False`.
@@ -191,7 +191,7 @@ Good for deterministic bots: lookups, status reports, alerts.
 ### 2) Single-turn, with LLM
 
 Template:
-- `docs/example_casehandler_single_turn_with_llm.py`
+- [`docs/example_casehandler_single_turn_with_llm.py`](docs/example_casehandler_single_turn_with_llm.py)
 
 - `process_message`: gate by whitelist/regex (for example, patient ID).
 - `generate_response`: gather external data, optionally call `Agent`, send one answer,
@@ -199,17 +199,17 @@ Template:
 
 ### 3) Multi-turn, with state machine
 
-Used in `da-assistant/state_machine.py` + `da-assistant/casehandler.py`.
+Used in [`da-assistant/state_machine.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/state_machine.py) + [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py).
 
-- Keep FSM state in `StateMachineBase` subclass.
-- `context_build()` replays stored case messages into the FSM.
-- `generate_response()` checks FSM actions and routes to step handlers.
+- Keep FSM state in [`StateMachineBase`](wa_agents/state_machine_base.py) subclass.
+- [`context_build()`](wa_agents/case_handler_base.py) replays stored case messages into the FSM.
+- [`generate_response()`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) checks FSM actions and routes to step handlers.
 - Each step can decide whether to continue (`True`) or wait for user (`False`).
 
 ### 4) Multi-turn, with tool calls
 
-Used in `da-assistant` (`call_match_agent`, `call_main_agent`) and mirrored in:
-- `docs/example_casehandler_multi_turn_tools.py`
+Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) (`call_match_agent`, `call_main_agent`) and mirrored in:
+- [`docs/example_casehandler_multi_turn_tools.py`](docs/example_casehandler_multi_turn_tools.py)
 
 Loop shape:
 
@@ -364,9 +364,8 @@ Use these as templates when building new bots:
 ## Local Webhook Introspection
 
 For payload exploration only, see:
-- [`docs/demo_webhook.py`](docs/demo_webhook.py)
-- [`docs/instructions_demo_webhook.md`](docs/instructions_demo_webhook.md)
 - [`docs/instructions_whatsapp_api.md`](docs/instructions_whatsapp_api.md)
-- [`docs/examples_chatbot_patterns.md`](docs/examples_chatbot_patterns.md)
+- [`docs/instructions_demo_webhook.md`](docs/instructions_demo_webhook.md)
+- [`docs/demo_webhook.py`](docs/demo_webhook.py)
 
 These are useful when mapping incoming WhatsApp JSON to your bot routing logic.
