@@ -6,7 +6,6 @@ import os
 
 from base64 import b64encode
 from inspect import currentframe
-from mistralai import Mistral
 from openai import OpenAI
 from pydantic import BaseModel
 from re import match
@@ -14,6 +13,11 @@ from typing import ( Any,
                      Callable,
                      Literal,
                      Type )
+
+try :
+    from mistralai import Mistral
+except ImportError :
+    Mistral = None
 
 from sofia_utils.io import ( extract_code_block,
                              load_file_as_string,
@@ -444,6 +448,11 @@ class Agent :
                 response = self.client.chat.completions.parse(**resp_req_parms)
         
         elif self.api == "mistral" :
+            if Mistral is None :
+                raise ImportError(
+                    "Mistral client is unavailable. "
+                    "Install a compatible 'mistralai' package before using api='mistral'."
+                )
             self.client = Mistral( api_key = os.environ.get("MISTRAL_API_KEY"))
             if not parse_mode :
                 response = self.client.chat.complete(**resp_req_parms)
