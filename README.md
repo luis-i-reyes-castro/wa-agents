@@ -199,11 +199,12 @@ Template:
 
 ### 3) Multi-turn, with state machine
 
-Used in [`da-assistant/state_machine.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/state_machine.py) + [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py).
+Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py).
 
-- Keep FSM state in [`StateMachineBase`](wa_agents/state_machine_base.py) subclass.
-- [`context_build()`](wa_agents/case_handler_base.py) replays stored case messages into the FSM.
-- [`generate_response()`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) checks FSM actions and routes to step handlers.
+- Initialize `CaseHandlerBase` itself as a `transitions.Machine` with `init_machine(...)`.
+- [`context_build()`](wa_agents/case_handler_base.py) replays stored case messages into the handler state machine.
+- [`context_update()`](wa_agents/case_handler_base.py) incrementally feeds new messages into the handler state machine.
+- [`generate_response()`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) checks the current state's `on_enter` actions and routes to step handlers.
 - Each step can decide whether to continue (`True`) or wait for user (`False`).
 
 ### 4) Multi-turn, with tool calls
@@ -332,7 +333,7 @@ resp = agent.get_response(context=context,
 - case manifests with ordered `message_ids`,
 - idempotency (`dedup/<provider_message_id>.json`),
 - media persistence,
-- context replay into your state machine,
+- context replay into your optional handler state machine,
 - send helpers for text and interactive messages.
 
 Storage layout under DigitalOcean Spaces:
@@ -354,7 +355,7 @@ Use these as templates when building new bots:
 
 - [`da-assistant`](https://github.com/luis-i-reyes-castro/da-assistant)
   - Multi-turn chatbot.
-  - Uses `StateMachineBase` + staged agent calls + tool call loop.
+  - Uses built-in `CaseHandlerBase` state-machine support + staged agent calls + tool call loop.
   - Includes image flow and interactive model selection.
 
 - [`docs/examples_chatbot_patterns.md`](docs/examples_chatbot_patterns.md)

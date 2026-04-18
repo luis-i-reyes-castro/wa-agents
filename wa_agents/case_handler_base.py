@@ -8,7 +8,8 @@ from datetime import ( datetime,
                        timezone,
                        timedelta )
 from inspect import currentframe
-from typing import Type
+from transitions import ( Machine,
+                          State )
 
 from sofia_utils.stamps import *
 from sofia_utils.io import write_to_json_string
@@ -31,12 +32,11 @@ from .basemodels import ( AssistantMsg,
                           WhatsAppMsg )
 from .do_bucket_storage import DOBucketStorage
 from .do_bucket_lock import DOBucketLock
-from .state_machine_base import StateMachineBase
 from .whatsapp_functions import ( send_whatsapp_text,
                                   send_whatsapp_interactive)
 
 
-class CaseHandlerBase(ABC) :
+class CaseHandlerBase ( Machine, ABC) :
     """
     Class for case and context management
     * Looks up user data
@@ -74,6 +74,10 @@ class CaseHandlerBase(ABC) :
         self.case_id       : int           = None
         self.case_manifest : CaseManifest  = None
         self.case_context  : list[Message] = None
+        self.machine       : Machine       = None
+        self.states        : list[State]   = []
+        self.transitions   : list[dict]    = []
+        self.state         : str           = None
         
         self.storage      = DOBucketStorage( self.operator_num, self.user_id)
         self.storage_lock = DOBucketLock
@@ -81,8 +85,67 @@ class CaseHandlerBase(ABC) :
         self.user_root = self.storage.dir_user()
         self.user_data_lookup()
         
-        self.state_machine : Type[StateMachineBase] = None
+        return
+    
+    def build_dummy_state_callbacks( self,
+                                     states : list[State] ) -> None :
+        """
+        Ensure every on_enter/on_exit callback exists (fallback is a no-op) \\
+        Args:
+            states : Machine states whose callbacks should exist on `self`
+        """
         
+        for state in states :
+            for callback_name in state.on_enter :
+                if not hasattr( self, callback_name) :
+                    setattr( self, callback_name, lambda : None)
+            for callback_name in state.on_exit :
+                if not hasattr( self, callback_name) :
+                    setattr( self, callback_name, lambda : None)
+        
+        return
+    
+    def init_machine( self,
+                      states       : list[State],
+                      transitions  : list[dict],
+                      initial      : str = "idle",
+                      **machine_kwargs
+                    ) -> None :
+        """
+        Initialize the handler itself as a `transitions.Machine` model \\
+        Args:
+            states       : State definitions
+            transitions  : Transition definitions
+            initial      : Initial state name
+            machine_kwargs : Extra kwargs forwarded to `Machine`
+        """
+        
+        self.states      = states
+        self.transitions = transitions
+        self.build_dummy_state_callbacks(states)
+        
+        self.machine = Machine( model                   = self,
+                                states                  = states,
+                                initial                 = initial,
+                                transitions             = transitions,
+                                auto_transitions        = False,
+                                ignore_invalid_triggers = True,
+                                **machine_kwargs )
+        
+        return
+    
+    def ingest_message( self, message : Message) -> None :
+        """
+        Ingest a single message and fire corresponding triggers \\
+        Args:
+            message : Instance of a subclass of Message
+        """
+        return
+    
+    def reset_state_machine(self) -> None :
+        """
+        Reset handler-specific state-machine data before context replay.
+        """
         return
     
     # =====================================================================================
@@ -218,7 +281,8 @@ class CaseHandlerBase(ABC) :
     
     def context_build( self, truncate : bool = True) -> None :
         """
-        Build the ordered case context and feed it to the state machine \\
+        Build the ordered case context. \\
+        If state machine is initialized then also replay it. \\
         Args:
             truncate : Whether to limit context to the last `MAX_CONTEXT_LEN` messages
         """
@@ -243,10 +307,10 @@ class CaseHandlerBase(ABC) :
             self.case_context = self.case_context[ -self.MAX_CONTEXT_LEN : ]
         
         # Feed context to state machine
-        if self.state_machine :
-            self.state_machine.reset()
+        if self.machine :
+            self.reset_state_machine()
             for message in self.case_context :
-                self.state_machine.ingest_message(message)
+                self.ingest_message(message)
         
         # The grand finale
         return
@@ -279,8 +343,8 @@ class CaseHandlerBase(ABC) :
             self.case_context.append(message)
         
         # Update state machine
-        if self.state_machine :
-            self.state_machine.ingest_message(message)
+        if self.machine :
+            self.ingest_message(message)
         
         return
     
