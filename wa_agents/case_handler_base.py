@@ -558,7 +558,7 @@ class CaseHandlerBase ( Machine, ABC) :
         graph_machine = GraphMachine(
             model                   = self,
             states                  = list(self.states.values()),
-            initial                 = "idle",
+            initial                 = getattr( self, "initial", None) or self.state,
             transitions             = self.transitions,
             auto_transitions        = False,
             ignore_invalid_triggers = True,
