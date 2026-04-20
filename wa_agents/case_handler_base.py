@@ -124,13 +124,15 @@ class CaseHandlerBase ( Machine, ABC) :
         self.transitions = transitions
         self.build_dummy_state_callbacks(states)
         
-        self.machine = Machine( model                   = self,
-                                states                  = states,
-                                initial                 = initial,
-                                transitions             = transitions,
-                                auto_transitions        = False,
-                                ignore_invalid_triggers = True,
-                                **machine_kwargs )
+        Machine.__init__( self,
+                          model                   = self,
+                          states                  = states,
+                          initial                 = initial,
+                          transitions             = transitions,
+                          auto_transitions        = False,
+                          ignore_invalid_triggers = True,
+                          **machine_kwargs )
+        self.machine = self
         
         return
     
