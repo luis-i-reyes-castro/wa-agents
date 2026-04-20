@@ -528,3 +528,71 @@ class CaseHandlerBase ( Machine, ABC) :
         """
         
         raise NotImplementedError
+    
+    # =====================================================================================
+    # GRAPHING METHOD (for dev/debug)
+    # =====================================================================================
+    
+    def draw_state_machine_graph( self,
+                                  filename : str = "state_machine.png"
+                                ) -> None :
+        """
+        Draw the State Machine graph.
+        * States shown as rounded rectangles with black borders.
+        * State labels 'enter' replaced by 'actions'.
+        * Transition arrows in red and labels in blue.
+        
+        NOTE: This method uses class `GraphMachine` which in turn needs a graphing engine. The engine is NOT INCLUDED in the package requirements in `pyproject.toml` to prevent bloating the container build in production.
+        
+        Graphing engine options:
+        * Graphviz: Install via `sudo apt install graphviz`
+        * PyGraphviz: Install via `pip install pygraphviz`
+        """
+        
+        import re
+        from transitions.extensions import GraphMachine
+        
+        if not self.machine :
+            return
+        
+        graph_machine = GraphMachine(
+            model                   = self,
+            states                  = list(self.states.values()),
+            initial                 = "idle",
+            transitions             = self.transitions,
+            auto_transitions        = False,
+            ignore_invalid_triggers = True,
+            show_state_attributes   = True,
+        )
+        
+        graph = graph_machine.get_graph()
+        
+        # Apply customizations to each node
+        for node in graph.nodes() :
+            
+            # Replace node labels
+            if 'label' in node.attr :
+                label = node.attr['label']
+                label = re.sub( r"^(\w+)", r"STATE '\1'", label)
+                label = label.replace( '+', '•')
+                label = label.replace( '- enter:', '[»] do:')
+                label = label.replace( '- exit:', '[»] on exit:')
+                node.attr['label'] = label
+            
+            # Apply state style and border color
+            node.attr['style'] = 'rounded,filled'
+            node.attr['color'] = 'black'
+            
+            # Apply orange fill color to agent nodes
+            node_color = "orange" if ( "agent" in node.name ) else "white"
+            node.attr['fillcolor'] = node_color
+        
+        # Apply colors to transitions (edges)
+        for edge in graph.edges() :
+            edge.attr['color']     = 'red'
+            edge.attr['fontcolor'] = 'blue'
+        
+        # Draw the graph
+        graph.draw( filename, prog = 'dot')
+        
+        return
