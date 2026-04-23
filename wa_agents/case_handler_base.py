@@ -10,6 +10,8 @@ from datetime import ( datetime,
 from inspect import currentframe
 from transitions import ( Machine,
                           State )
+from types import SimpleNamespace
+from typing import Literal
 
 from sofia_utils.stamps import *
 from sofia_utils.io import write_to_json_string
@@ -30,10 +32,14 @@ from .basemodels import ( AssistantMsg,
                           WhatsAppContact,
                           WhatsAppMetaData,
                           WhatsAppMsg )
-from .do_bucket_storage import DOBucketStorage
-from .do_bucket_lock import DOBucketLock
 from .whatsapp_functions import ( send_whatsapp_text,
                                   send_whatsapp_interactive)
+
+
+type TransitionDK = Literal[ "source", "trigger", "dest" ]
+"""
+Transition Dictionary Key
+"""
 
 
 class CaseHandlerBase ( Machine, ABC) :
@@ -79,6 +85,9 @@ class CaseHandlerBase ( Machine, ABC) :
         self.transitions   : list[dict]    = []
         self.state         : str           = None
         
+        from .do_bucket_storage import DOBucketStorage
+        from .do_bucket_lock import DOBucketLock
+        
         self.storage      = DOBucketStorage( self.operator_num, self.user_id)
         self.storage_lock = DOBucketLock
         
@@ -87,30 +96,23 @@ class CaseHandlerBase ( Machine, ABC) :
         
         return
     
-    def build_dummy_state_callbacks( self,
-                                     states : list[State] ) -> None :
-        """
-        Ensure every on_enter/on_exit callback exists (fallback is a no-op) \\
-        Args:
-            states : Machine states whose callbacks should exist on `self`
-        """
-        
-        for state in states :
-            for callback_name in state.on_enter :
-                if not hasattr( self, callback_name) :
-                    setattr( self, callback_name, lambda : None)
-            for callback_name in state.on_exit :
-                if not hasattr( self, callback_name) :
-                    setattr( self, callback_name, lambda : None)
-        
-        return
+    # =====================================================================================
+    # STATE MACHINE
+    # =====================================================================================
     
-    def init_machine( self,
-                      states       : list[State],
-                      transitions  : list[dict],
-                      initial      : str = "idle",
-                      **machine_kwargs
-                    ) -> None :
+    @classmethod
+    def define_state_machine_config(cls) \
+    -> tuple[ list[ State ], str, list[ dict[ TransitionDK, str] ] ] :
+        """
+        Overload this method to define state machine states and transitions. \\
+        Returns:
+            * List of states. Each must have `name`. Optional: `on_enter`, `on_exit`.
+            * List of transitions as dicts with keys `source`, `trigger` and `dest`.
+            * Initial state name.
+        """
+        return [], str(None), []
+    
+    def init_machine( self, **machine_kwargs) -> None :
         """
         Initialize the handler itself as a `transitions.Machine` model \\
         Args:
@@ -120,9 +122,8 @@ class CaseHandlerBase ( Machine, ABC) :
             machine_kwargs : Extra kwargs forwarded to `Machine`
         """
         
-        self.states      = states
-        self.transitions = transitions
-        self.build_dummy_state_callbacks(states)
+        states, initial, transitions = self.define_state_machine_config()
+        self = attach_dummy_state_callbacks( self, states)
         
         Machine.__init__( self,
                           model                   = self,
@@ -136,9 +137,25 @@ class CaseHandlerBase ( Machine, ABC) :
         
         return
     
+    @classmethod
+    def draw_state_machine_graph(
+        cls,
+        filename : str | None = "state_machine.png",
+    ) -> None :
+        
+        states, initial, transitions = cls.define_state_machine_config()
+        
+        return draw_state_machine_graph(
+            states      = states,
+            transitions = transitions,
+            initial     = initial,
+            filename    = filename,
+            class_name  = cls.__name__
+        )
+    
     def ingest_message( self, message : Message) -> None :
         """
-        Ingest a single message and fire corresponding triggers \\
+        Overload this method to ingest a single message and fire triggers. \\
         Args:
             message : Instance of a subclass of Message
         """
@@ -146,7 +163,7 @@ class CaseHandlerBase ( Machine, ABC) :
     
     def reset_state_machine(self) -> None :
         """
-        Reset handler-specific state-machine data before context replay.
+        Overload this method to reset handler-specific state-machine data.
         """
         return
     
@@ -496,7 +513,7 @@ class CaseHandlerBase ( Machine, ABC) :
         return False
     
     # =====================================================================================
-    # ABSTRACT METHODS TO BE IMPLEMENTED BY THE CASEHANDLER
+    # ABSTRACT METHODS TO BE IMPLEMENTED BY THE CHILD CASEHANDLE
     # =====================================================================================
     
     @abstractmethod
@@ -528,71 +545,109 @@ class CaseHandlerBase ( Machine, ABC) :
         """
         
         raise NotImplementedError
+
+
+# =========================================================================================
+# STATE MACHINE HELPERS
+# =========================================================================================
+
+def attach_dummy_state_callbacks(
+    machine : object,
+    states  : list[State],
+) -> object :
+    """
+    Ensure every on_enter/on_exit callback exists (fallback is a no-op) \\
+    Args:
+        states : Machine states whose callbacks should exist on `machine`
+    """
     
-    # =====================================================================================
-    # GRAPHING METHOD (for dev/debug)
-    # =====================================================================================
+    for state in states :
+        for callback_name in state.on_enter :
+            if not hasattr( machine, callback_name) :
+                setattr( machine, callback_name, lambda : None)
+        for callback_name in state.on_exit :
+            if not hasattr( machine, callback_name) :
+                setattr( machine, callback_name, lambda : None)
     
-    def draw_state_machine_graph( self,
-                                  filename : str = "state_machine.png"
-                                ) -> None :
-        """
-        Draw the State Machine graph.
-        * States shown as rounded rectangles with black borders.
-        * State labels 'enter' replaced by 'actions'.
-        * Transition arrows in red and labels in blue.
+    return machine
+
+def draw_state_machine_graph(
+    *,
+    states      : list[State],
+    initial     : str | None,
+    transitions : list[ dict[ TransitionDK, str] ],
+    filename    : str        = "state_machine.png",
+    class_name  : str | None = None,
+) -> None :
+    """
+    Draw the State Machine graph.
+    * States shown as rounded rectangles with black borders.
+    * State labels 'enter' replaced by 'actions'.
+    * Any state with 'agent' in its name will be painted orange.
+    * Transition arrows in red and labels in blue.
+    
+    NOTE: This method uses class `GraphMachine` which in turn needs a graphing engine. The engine is NOT INCLUDED in the package requirements in `pyproject.toml` to prevent bloating the container build in production.
+    
+    Graphing engine options:
+    * Graphviz: Install via `sudo apt install graphviz`
+    * PyGraphviz: Install via `pip install pygraphviz`
+    """
+    import re
+    from transitions.extensions import GraphMachine
+    
+    dummy_model   = attach_dummy_state_callbacks( SimpleNamespace(), states)
+    graph_machine = GraphMachine(
+        model                   = dummy_model,
+        states                  = states,
+        initial                 = initial,
+        transitions             = transitions,
+        auto_transitions        = False,
+        ignore_invalid_triggers = True,
+        show_state_attributes   = True,
+    )
+    
+    graph = graph_machine.get_graph()
+    
+    # Draw graph from top to bottom
+    graph.graph_attr["rankdir"] = "TB"
+    
+    # Include title (optional)
+    if class_name :
+        graph.graph_attr["label"]    = f"\n{class_name} State Machine\n\n"
+        graph.graph_attr["labelloc"] = "t"
+        graph.graph_attr["fontsize"] = "16"
+        graph.graph_attr["fontname"] = "Courier-Bold"
+    
+    # Apply customizations to each node
+    for node in graph.nodes() :
         
-        NOTE: This method uses class `GraphMachine` which in turn needs a graphing engine. The engine is NOT INCLUDED in the package requirements in `pyproject.toml` to prevent bloating the container build in production.
+        # Replace node labels
+        if 'label' in node.attr :
+            label = node.attr['label']
+            label = re.sub( r"^(\w+)", r"STATE '\1'", label)
+            label = label.replace( '+', '•')
+            label = label.replace( '- enter:', '[»] do:')
+            label = label.replace( '- exit:', '[»] on exit:')
+            node.attr['label']    = label
+            node.attr["fontname"] = "Courier"
+            node.attr["fontsize"] = "10"
         
-        Graphing engine options:
-        * Graphviz: Install via `sudo apt install graphviz`
-        * PyGraphviz: Install via `pip install pygraphviz`
-        """
+        # Apply state style and border color
+        node.attr['style'] = 'rounded,filled'
+        node.attr['color'] = 'black'
         
-        import re
-        from transitions.extensions import GraphMachine
-        
-        if not self.machine :
-            return
-        
-        graph_machine = GraphMachine(
-            model                   = self,
-            states                  = list(self.states.values()),
-            initial                 = getattr( self, "initial", None) or self.state,
-            transitions             = self.transitions,
-            auto_transitions        = False,
-            ignore_invalid_triggers = True,
-            show_state_attributes   = True,
-        )
-        
-        graph = graph_machine.get_graph()
-        
-        # Apply customizations to each node
-        for node in graph.nodes() :
-            
-            # Replace node labels
-            if 'label' in node.attr :
-                label = node.attr['label']
-                label = re.sub( r"^(\w+)", r"STATE '\1'", label)
-                label = label.replace( '+', '•')
-                label = label.replace( '- enter:', '[»] do:')
-                label = label.replace( '- exit:', '[»] on exit:')
-                node.attr['label'] = label
-            
-            # Apply state style and border color
-            node.attr['style'] = 'rounded,filled'
-            node.attr['color'] = 'black'
-            
-            # Apply orange fill color to agent nodes
-            node_color = "orange" if ( "agent" in node.name ) else "white"
-            node.attr['fillcolor'] = node_color
-        
-        # Apply colors to transitions (edges)
-        for edge in graph.edges() :
-            edge.attr['color']     = 'red'
-            edge.attr['fontcolor'] = 'blue'
-        
-        # Draw the graph
-        graph.draw( filename, prog = 'dot')
-        
-        return
+        # Apply orange fill color to agent nodes
+        node_color = "orange" if ( "agent" in node.name ) else "white"
+        node.attr['fillcolor'] = node_color
+    
+    # Apply colors to transitions (edges)
+    for edge in graph.edges() :
+        edge.attr['color']     = 'red'
+        edge.attr['fontcolor'] = 'blue'
+        edge.attr["fontname"]  = "Courier"
+        edge.attr["fontsize"]  = "10"
+    
+    # Draw the graph
+    graph.draw( filename, prog = 'dot')
+    
+    return
