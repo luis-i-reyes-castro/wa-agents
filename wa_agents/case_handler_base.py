@@ -42,6 +42,51 @@ Transition Dictionary Key
 """
 
 
+class CH_State ( State ) :
+    """
+    State with manually-dispatched `while_in` actions. \\
+    Use `on_enter` / `on_exit` for true FSM callbacks that should run only when a
+    transition changes the active state. Use `while_in` for response-generation
+    actions that must still run when the handler ingests a message and remains in
+    the same state.
+    
+    This distinction matters because `CaseHandlerBase` initializes
+    `transitions.Machine` with `auto_transitions = False`. In that setup, a user
+    message may be ingested without firing any transition, so the machine stays in
+    the same state and `on_enter` is not called again. `while_in` actions are
+    therefore dispatched manually from `generate_response()`.
+    
+    If we instead used `auto_transitions = True` to force a same-state transition,
+    we would also need to account for `on_exit` + `on_enter` firing for that same
+    state. Keeping `while_in` separate avoids that coupling.
+    """
+    
+    def __init__( self,
+                  name : str,
+                  *,
+                  on_enter                : str | list[str] | None = None,
+                  while_in                : str | list[str] | None = None,
+                  on_exit                 : str | list[str] | None = None,
+                  ignore_invalid_triggers : bool | None            = None,
+                  final                   : bool                   = False
+                ) -> None :
+        
+        super().__init__( name,
+                          on_enter                = on_enter,
+                          on_exit                 = on_exit,
+                          ignore_invalid_triggers = ignore_invalid_triggers,
+                          final                   = final )
+        
+        if while_in is None :
+            self.while_in = []
+        elif isinstance( while_in, str) :
+            self.while_in = [ while_in ]
+        else :
+            self.while_in = list(while_in)
+        
+        return
+
+
 class CaseHandlerBase ( Machine, ABC) :
     """
     Class for case and context management
@@ -102,11 +147,11 @@ class CaseHandlerBase ( Machine, ABC) :
     
     @classmethod
     def define_state_machine_config(cls) \
-    -> tuple[ list[ State ], str, list[ dict[ TransitionDK, str] ] ] :
+    -> tuple[ list[ CH_State ], str, list[ dict[ TransitionDK, str] ] ] :
         """
         Overload this method to define state machine states and transitions. \\
         Returns:
-            * List of states. Each must have `name`. Optional: `on_enter`, `on_exit`.
+            * List of states. Each must have `name`. Optional: `on_enter`, `while_in`, `on_exit`.
             * List of transitions as dicts with keys `source`, `trigger` and `dest`.
             * Initial state name.
         """
@@ -123,7 +168,7 @@ class CaseHandlerBase ( Machine, ABC) :
         """
         
         states, initial, transitions = self.define_state_machine_config()
-        self = attach_dummy_state_callbacks( self, states)
+        attach_state_callbacks( self, states)
         
         Machine.__init__( self,
                           model                   = self,
@@ -551,14 +596,14 @@ class CaseHandlerBase ( Machine, ABC) :
 # STATE MACHINE HELPERS
 # =========================================================================================
 
-def attach_dummy_state_callbacks(
+def attach_state_callbacks(
     machine : object,
     states  : list[State],
 ) -> object :
     """
-    Ensure every on_enter/on_exit callback exists (fallback is a no-op) \\
-    Args:
-        states : Machine states whose callbacks should exist on `machine`
+    Ensure every real `on_enter` / `on_exit` callback exists on `machine`. \\
+    `while_in` actions are intentionally excluded because they are dispatched
+    manually from `generate_response()` and are not FSM callbacks.
     """
     
     for state in states :
@@ -582,7 +627,7 @@ def draw_state_machine_graph(
     """
     Draw the State Machine graph.
     * States shown as rounded rectangles with black borders.
-    * State labels 'enter' replaced by 'actions'.
+    * State labels show `on_enter`, `while_in`, and `on_exit` separately.
     * Any state with 'agent' in its name will be painted orange.
     * Transition arrows in red and labels in blue.
     
@@ -595,7 +640,7 @@ def draw_state_machine_graph(
     import re
     from transitions.extensions import GraphMachine
     
-    dummy_model   = attach_dummy_state_callbacks( SimpleNamespace(), states)
+    dummy_model   = attach_state_callbacks( SimpleNamespace(), states)
     graph_machine = GraphMachine(
         model                   = dummy_model,
         states                  = states,
@@ -607,6 +652,7 @@ def draw_state_machine_graph(
     )
     
     graph = graph_machine.get_graph()
+    state_by_name = { state.name : state for state in states }
     
     # Draw graph from top to bottom
     graph.graph_attr["rankdir"] = "TB"
@@ -625,9 +671,24 @@ def draw_state_machine_graph(
         if 'label' in node.attr :
             label = node.attr['label']
             label = re.sub( r"^(\w+)", r"STATE '\1'", label)
+            
+            state = state_by_name.get(node.name)
+            if state and getattr( state, "while_in", [] ) :
+                while_in_lines = "- while_in:\\l" + "".join(
+                    f"  + {action}\\l"
+                    for action in state.while_in
+                )
+                if "- exit:\\l" in label :
+                    label = label.replace( "- exit:\\l",
+                                           while_in_lines + "- exit:\\l" )
+                else :
+                    label += while_in_lines
+            
             label = label.replace( '+', '•')
-            label = label.replace( '- enter:', '[»] do:')
-            label = label.replace( '- exit:', '[»] on exit:')
+            label = label.replace( '- enter:',    '[»] on enter:')
+            label = label.replace( '- while_in:', '[»] while in:')
+            label = label.replace( '- exit:',     '[»] on exit:' )
+            
             node.attr['label']    = label
             node.attr["fontname"] = "Courier"
             node.attr["fontsize"] = "10"

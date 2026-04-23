@@ -204,8 +204,21 @@ Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/d
 - Initialize `CaseHandlerBase` itself as a `transitions.Machine` with `init_machine(...)`.
 - [`context_build()`](wa_agents/case_handler_base.py) replays stored case messages into the handler state machine.
 - [`context_update()`](wa_agents/case_handler_base.py) incrementally feeds new messages into the handler state machine.
-- [`generate_response()`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) checks the current state's `on_enter` actions and routes to step handlers.
+- [`generate_response()`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) checks the current state's `while_in` actions and routes to step handlers.
 - Each step can decide whether to continue (`True`) or wait for user (`False`).
+
+Use `on_enter` and `on_exit` only for true FSM callbacks that should run when a
+transition changes state. Use `while_in` for response-generation actions such as
+`ask_for_*` and `call_*_agent`, which must still be available when a new message
+is ingested but the machine remains in the same state.
+
+This distinction matters because `CaseHandlerBase.init_machine(...)` sets
+`auto_transitions = False`. With that setting, the machine can ingest a message,
+stay in the same state, and therefore skip `on_enter`. `generate_response()`
+must then manually dispatch the current state's `while_in` actions. If you
+instead enabled `auto_transitions = True` to force same-state transitions, you
+would also need to handle that same state's `on_exit` + `on_enter` firing on
+each such loop.
 
 ### 4) Multi-turn, with tool calls
 
