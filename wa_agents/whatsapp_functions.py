@@ -10,6 +10,8 @@ from sofia_utils.printing import print_sep
 
 from .basemodels import ( OutgoingMediaMsg,
                           ServerInteractiveOptsMsg,
+                          WhatsAppContactPayload,
+                          WhatsAppLocation,
                           WhatsAppMediaData )
 
 
@@ -66,9 +68,14 @@ def write_headers( content_type : bool = False) -> dict :
     
     return headers
 
-def write_payload( to_number : str,
-                   content   : str | ServerInteractiveOptsMsg | OutgoingMediaMsg
-                 ) -> dict[ str, Any] :
+def write_payload(
+    to_number : str,
+    content   : str
+              | ServerInteractiveOptsMsg
+              | WhatsAppContactPayload
+              | WhatsAppLocation
+              | OutgoingMediaMsg,
+) -> dict[ str, Any] :
     """
     Serialize outgoing text/interactive/media messages \\
     Args:
@@ -87,7 +94,7 @@ def write_payload( to_number : str,
         
         payload["type"] = "text"
         payload["text"] = { "body" : content }
-        
+    
     elif isinstance( content, ServerInteractiveOptsMsg) :
         
         # References:
@@ -127,6 +134,20 @@ def write_payload( to_number : str,
                         "rows"  : [ opt.model_dump() for opt in content.options ]
                         } ]
                     }
+    
+    elif isinstance( content, WhatsAppContactPayload) :
+        
+        # Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contacts-messages
+        
+        payload["type"]     = "contacts"
+        payload["contacts"] = [ content.model_dump( exclude_none = True) ]
+    
+    elif isinstance( content, WhatsAppLocation) :
+        
+        # Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/location
+        
+        payload["type"]     = "location"
+        payload["location"] = content.model_dump( exclude_none = True)
     
     elif isinstance( content, OutgoingMediaMsg) :
         
@@ -197,6 +218,32 @@ def send_whatsapp_interactive( operator_id : str,
     msg_headers = write_headers( content_type = True)
     # 2) Write payload and post message
     payload  = write_payload( to_number, message)
+    response = requests.post( msg_url, headers = msg_headers, json = payload)
+    # 3) Print response
+    print_sep()
+    print( "Reply response:", response.json())
+    
+    return
+
+def send_whatsapp_content(
+    operator_id : str,
+    to_number   : str,
+    content     : WhatsAppContactPayload | WhatsAppLocation,
+) -> None :
+    """
+    Send a WhatsApp content message \\
+    Args:
+        operator_id : Business phone-number id
+        to_number   : Recipient phone number
+        content     : WhatsApp contact or location
+    """
+    
+    # 1) Declare message URL and headers
+    msg_url     = f"{API_URL}{operator_id}/messages"
+    msg_headers = write_headers( content_type = True)
+    
+    # 2) Write payload and post message
+    payload  = write_payload( to_number, content)
     response = requests.post( msg_url, headers = msg_headers, json = payload)
     # 3) Print response
     print_sep()

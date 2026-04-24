@@ -117,7 +117,7 @@ class WhatsAppInteractiveReply(BaseModel) :
         if not type_attribute :
             e_msg = f"Interactive reply of type '{self.type}' " \
                   + f"must have nontrivial attribute '{self.type}'"
-            raise ValidationError(e_msg)
+            raise ValueError(e_msg)
         
         return self
     
@@ -171,6 +171,162 @@ class WhatsAppReaction(BaseModel) :
     message_id : NE_str
     emoji      : str | None = None
 
+class WhatsAppContactPayload_Name(BaseModel) :
+    """
+    WhatsApp incoming contact name
+        `formatted_name` : "<name>"
+        `first_name`     : str | null
+        `middle_name`    : str | null
+        `last_name`      : str | null
+        `prefix`         : str | null
+        `suffix`         : str | null
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    formatted_name : str
+    first_name     : str | None = None
+    middle_name    : str | None = None
+    last_name      : str | None = None
+    prefix         : str | None = None
+    suffix         : str | None = None
+    
+    @model_validator( mode = "after")
+    def ensure_at_least_one_name(self) -> Self :
+        """
+        Satisfy META's requirement that the payload have at least:
+        * Formatted name
+        * At least one of: first name, middle name, last name.
+        """
+        
+        if not ( self.first_name or self.middle_name or self.last_name ) :
+            raise ValueError("Must have at least one name")
+        
+        return self
+
+class WhatsAppContactPayload_Phone(BaseModel) :
+    """
+    WhatsApp incoming contact phone
+        `phone` : "<phone number starting with plus sign>"
+        `type`  : "CELL" | "Mobile" | "Landline" | str
+        `wa_id` : "<WhatsApp phone number ID>" | null
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    phone : str
+    type  : str
+    wa_id : str | None = None
+
+class WhatsAppContactPayload_Email(BaseModel) :
+    """
+    WhatsApp incoming contact email
+        `email` : "<email>"
+        `type`  : "Work" | "Personal" | str
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    email : str
+    type  : str
+
+class WhatsAppContactPayload_Org(BaseModel) :
+    """
+    WhatsApp incoming contact organization
+        `company` : "<company name>"
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    company    : str
+    department : str | None = None
+    title      : str | None = None
+
+class WhatsAppContactPayload_Address(BaseModel) :
+    """
+    WhatsApp incoming contact address
+        `type`         : "HOME" | "WORK" | str | null
+        `city`         : "<city>" | null
+        `country`      : "<country>" | null
+        `country_code` : "<2-letter ISO country code>" | null
+        `state`        : "<state>" | null
+        `street`       : "<street>" | null
+        `zip`          : "<zip code>" | null
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    type         : str | None = None
+    city         : str | None = None
+    country      : str | None = None
+    country_code : str | None = None
+    state        : str | None = None
+    street       : str | None = None
+    zip          : str | None = None
+    
+    @model_validator( mode = "after")
+    def ensure_not_empty(self) -> Self :
+        
+        if not (
+            self.city         or
+            self.country      or
+            self.country_code or
+            self.state        or
+            self.street       or
+            self.zip
+            ) :
+            raise ValueError("No data")
+        
+        return self
+
+class WhatsAppContactPayload_Url(BaseModel) :
+    """
+    WhatsApp incoming contact URL
+        `type` : "HOME" | "WORK" | str | null
+        `url`  : "<URL>"
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    type : str | None = None
+    url  : str
+
+class WhatsAppContactPayload(BaseModel) :
+    """
+    WhatsApp incoming contact payload
+        `name`   : `WhatsAppContactPayload_Name`
+        `phones` : `tuple[ WhatsAppContactPayload_Phone, ...]`
+        `org`    : `WhatsAppContactPayload_Org`                | null
+        `emails` : `tuple[ WhatsAppContactPayload_Email, ...]` | null
+    NOTE:
+        * Different from `WhatsAppContact`
+        * This class models contact data payload ATTACHED to a WhatsAppMsg
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    name   : WhatsAppContactPayload_Name
+    phones : tuple[ WhatsAppContactPayload_Phone, ...]
+    org    : WhatsAppContactPayload_Org                | None = None
+    emails : tuple[ WhatsAppContactPayload_Email, ...] | None = None
+    birthday  : str                                         | None = None
+    addresses : tuple[ WhatsAppContactPayload_Address, ...] | None = None
+    urls      : tuple[ WhatsAppContactPayload_Url, ...]     | None = None
+
+class WhatsAppLocation(BaseModel) :
+    """
+    WhatsApp location
+        `latitude`  : <degrees>
+        `longitude` : <degrees>
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    latitude  : float
+    longitude : float
+    name      : str | None = None
+    address   : str | None = None
+
 class WhatsAppMsg(BaseModel) :
     """
     WhatsApp message payload
@@ -178,13 +334,15 @@ class WhatsAppMsg(BaseModel) :
         `id`          : "<message ID>"
         `timestamp`   : "<unix timestamp>"
         `type`        : "<message type>"
-        `text`        : WhatsAppText | null
-        `interactive` : WhatsAppInteractiveReply | null
-        `image`       : WhatsAppMediaData | null
-        `video`       : WhatsAppMediaData | null
-        `audio`       : WhatsAppMediaData | null
-        `sticker`     : WhatsAppMediaData | null
-        `reaction`    : WhatsAppReaction | null
+        `text`        : `WhatsAppText`             | null
+        `interactive` : `WhatsAppInteractiveReply` | null
+        `image`       : `WhatsAppMediaData`        | null
+        `video`       : `WhatsAppMediaData`        | null
+        `audio`       : `WhatsAppMediaData`        | null
+        `sticker`     : `WhatsAppMediaData`        | null
+        `reaction`    : `WhatsAppReaction`         | null
+        `contacts`    : `tuple[ WhatsAppContactPayload, ...]` | null
+        `location`    : `WhatsAppLocation`                    | null
     """
     
     model_config = ConfigDict( frozen           = True,
@@ -202,9 +360,9 @@ class WhatsAppMsg(BaseModel) :
                          "audio",
                          "sticker",
                          "reaction",
-                         "unsupported",
                          "contacts",
-                         "location" ]
+                         "location",
+                         "unsupported" ]
     
     # In a WhatsApp message only one of the fields below will be present
     # (more precisely, the field that matches the message `type`).
@@ -215,6 +373,8 @@ class WhatsAppMsg(BaseModel) :
     audio       : WhatsAppMediaData        | None = None
     sticker     : WhatsAppMediaData        | None = None
     reaction    : WhatsAppReaction         | None = None
+    contacts    : tuple[ WhatsAppContactPayload, ...] | None = None
+    location    : WhatsAppLocation                 | None = None
     
     @model_validator( mode = "after")
     def check_content(self) -> Self :
@@ -224,7 +384,7 @@ class WhatsAppMsg(BaseModel) :
             if not type_attribute :
                 e_msg = f"Message of type '{self.type}' " \
                       + f"must have nontrivial attribute '{self.type}'"
-                raise ValidationError(e_msg)
+                raise ValueError(e_msg)
         
         return self
     
@@ -259,6 +419,9 @@ class WhatsAppContact(BaseModel) :
     WhatsApp contact record
         `wa_id`   : "<sender phone number>"
         `profile` : WhatsAppProfile | null
+    NOTE:
+        * Different from `WhatsAppContactPayload`
+        * This class models contact data CORRESPONDING to a received WhatsAppMsg
     """
     
     model_config = ConfigDict( frozen = True)
@@ -566,7 +729,7 @@ class UserContentMsg(UserMsg) :
     @model_validator( mode = "after")
     def check_nonempty(self) -> Self :
         if not ( self.text or self.media ) :
-            raise ValidationError(f"In {self.basemodel}: No text or media")
+            raise ValueError(f"In {self.basemodel}: No text or media")
         return self
 
 class UserInteractiveReplyMsg( UserMsg, StructuredDataMsg) :
@@ -616,11 +779,11 @@ class ServerInteractiveOptsMsg( ServerMsg, StructuredDataMsg) :
         
         if self.type == "button" and len(self.options) > 3 :
             e_msg += "Type 'button' only supports up to 3 options"
-            raise ValidationError(e_msg)
+            raise ValueError(e_msg)
         
         elif self.type == "list" and len(self.options) > 10 :
             e_msg += "Type 'list' only supports up to 10 options"
-            raise ValidationError(e_msg)
+            raise ValueError(e_msg)
         
         return self
     
