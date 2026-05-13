@@ -787,6 +787,10 @@ class ServerInteractiveOptsMsg( ServerMsg, StructuredDataMsg) :
             e_msg += "Type 'list' only supports up to 10 options"
             raise ValueError(e_msg)
         
+        if self.button and len(self.button > 20) :
+            e_msg += "Field 'button' supports a max length of 20 chars"
+            raise ValueError(e_msg)
+        
         return self
     
     def as_text(self) -> str :
