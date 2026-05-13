@@ -52,6 +52,8 @@ class InteractiveOption(BaseModel) :
         `id`    : "<option ID>"
         `title` : "<option title>"
     """
+    model_config = ConfigDict( frozen = True)
+    
     id    : NE_str
     title : NE_str
 

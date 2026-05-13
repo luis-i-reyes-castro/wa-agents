@@ -5,7 +5,6 @@ Listener App
 import os
 from flask import ( Flask,
                     request )
-from pathlib import Path
 from pydantic import ValidationError
 
 from sofia_utils.printing import print_sep
