@@ -62,6 +62,45 @@ class InteractiveOption(BaseModel) :
 # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/reference/messages
 # =========================================================================================
 
+# METADATA
+
+class WhatsAppMetaData(BaseModel) :
+    """
+    WhatsApp message or status recipient metadata.
+        `display_phone_number` : "<receiver phone number>"
+        `phone_number_id`      : "<receiver WhatsApp number ID>"
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    display_phone_number : NE_str # Receiver Phone Number
+    phone_number_id      : NE_str # Receiver WhatsApp Number ID
+
+# CONTACTS ASSOCIATED WITH INCOMING MESSAGES (NOT CONTACT CARDS)
+
+class WhatsAppProfile(BaseModel) :
+    """
+    WhatsApp contact profile
+        `name` : "<display name>"
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    name : NE_str
+
+class WhatsAppContact(BaseModel) :
+    """
+    WhatsApp contact record
+        `wa_id`   : "<sender phone number>"
+        `profile` : WhatsAppProfile | null
+    NOTE:
+        * This class models contact data ASSOCIATED WITH an incoming WhatsAppMsg
+        * Different from `WhatsAppContactPayload`
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    wa_id   : NE_str # Sender Phone Number
+    profile : WhatsAppProfile | None = None
+
+# -----------------------------------------------------------------------------------------
 # MESSAGES
 
 class WhatsAppContext(BaseModel) :
@@ -73,7 +112,6 @@ class WhatsAppContext(BaseModel) :
         `frequently_forwarded` : true | false | null
         `referred_product`     : { "<key>": "<value>", ... } | null
     """
-    
     model_config = ConfigDict( frozen           = True,
                                populate_by_name = True)
     
@@ -93,7 +131,6 @@ class WhatsAppText(BaseModel) :
     WhatsApp text payload
         `body` : "<message text>"
     """
-    
     model_config = ConfigDict( frozen = True)
     
     body : NE_str
@@ -105,7 +142,6 @@ class WhatsAppInteractiveReply(BaseModel) :
         `button_reply` : InteractiveOption | null
         `list_reply`   : InteractiveOption | null
     """
-    
     model_config = ConfigDict( frozen = True)
     
     type         : Literal[ "button_reply", "list_reply"]
@@ -143,7 +179,6 @@ class WhatsAppMediaData(BaseModel) :
         `voice`     : true | false | null
         `animated`  : true | false | null
     """
-    
     model_config = ConfigDict( frozen = True)
     
     id        : NE_str
@@ -167,7 +202,6 @@ class WhatsAppReaction(BaseModel) :
         `message_id` : "<message ID>"
         `emoji`      : "<emoji>" | null
     """
-    
     model_config = ConfigDict( frozen = True)
     
     message_id : NE_str
@@ -183,7 +217,6 @@ class WhatsAppContactPayload_Name(BaseModel) :
         `prefix`         : str | null
         `suffix`         : str | null
     """
-    
     model_config = ConfigDict( frozen = True)
     
     formatted_name : str
@@ -213,7 +246,6 @@ class WhatsAppContactPayload_Phone(BaseModel) :
         `type`  : "CELL" | "Mobile" | "Landline" | str
         `wa_id` : "<WhatsApp phone number ID>" | null
     """
-    
     model_config = ConfigDict( frozen = True)
     
     phone : str
@@ -226,7 +258,6 @@ class WhatsAppContactPayload_Email(BaseModel) :
         `email` : "<email>"
         `type`  : "Work" | "Personal" | str
     """
-    
     model_config = ConfigDict( frozen = True)
     
     email : str
@@ -237,7 +268,6 @@ class WhatsAppContactPayload_Org(BaseModel) :
     WhatsApp incoming contact organization
         `company` : "<company name>"
     """
-    
     model_config = ConfigDict( frozen = True)
     
     company    : str
@@ -255,7 +285,6 @@ class WhatsAppContactPayload_Address(BaseModel) :
         `street`       : "<street>" | null
         `zip`          : "<zip code>" | null
     """
-    
     model_config = ConfigDict( frozen = True)
     
     type         : str | None = None
@@ -287,7 +316,6 @@ class WhatsAppContactPayload_Url(BaseModel) :
         `type` : "HOME" | "WORK" | str | null
         `url`  : "<URL>"
     """
-    
     model_config = ConfigDict( frozen = True)
     
     type : str | None = None
@@ -295,16 +323,15 @@ class WhatsAppContactPayload_Url(BaseModel) :
 
 class WhatsAppContactPayload(BaseModel) :
     """
-    WhatsApp incoming contact payload
+    WhatsApp incoming contact payload (a.k.a. contact card)
         `name`   : `WhatsAppContactPayload_Name`
         `phones` : `tuple[ WhatsAppContactPayload_Phone, ...]`
         `org`    : `WhatsAppContactPayload_Org`                | null
         `emails` : `tuple[ WhatsAppContactPayload_Email, ...]` | null
     NOTE:
-        * Different from `WhatsAppContact`
         * This class models contact data payload ATTACHED to a WhatsAppMsg
+        * Different from `WhatsAppContact`
     """
-    
     model_config = ConfigDict( frozen = True)
     
     name   : WhatsAppContactPayload_Name
@@ -321,7 +348,6 @@ class WhatsAppLocation(BaseModel) :
         `latitude`  : <degrees>
         `longitude` : <degrees>
     """
-    
     model_config = ConfigDict( frozen = True)
     
     latitude  : float
@@ -346,7 +372,6 @@ class WhatsAppMsg(BaseModel) :
         `contacts`    : `tuple[ WhatsAppContactPayload, ...]` | null
         `location`    : `WhatsAppLocation`                    | null
     """
-    
     model_config = ConfigDict( frozen           = True,
                                populate_by_name = True)
     
@@ -376,7 +401,7 @@ class WhatsAppMsg(BaseModel) :
     sticker     : WhatsAppMediaData        | None = None
     reaction    : WhatsAppReaction         | None = None
     contacts    : tuple[ WhatsAppContactPayload, ...] | None = None
-    location    : WhatsAppLocation                 | None = None
+    location    : WhatsAppLocation                    | None = None
     
     @model_validator( mode = "after")
     def check_content(self) -> Self :
@@ -404,46 +429,121 @@ class WhatsAppMsg(BaseModel) :
         
         return None
 
-# CONTACTS
+# -----------------------------------------------------------------------------------------
+# STATUS
 
-class WhatsAppProfile(BaseModel) :
+class WhatsAppConversationOrigin (BaseModel) :
     """
-    WhatsApp contact profile
-        `name` : "<display name>"
+    WhatsApp conversation origin
+        `type` : "authentication" | "authentication_international" | "marketing" | "marketing_lite" | "referral_conversion" | "service" | "utility"
     """
-    
     model_config = ConfigDict( frozen = True)
     
-    name : NE_str
+    type : Literal[
+        "authentication",
+        "authentication_international",
+        "marketing",
+        "marketing_lite",
+        "referral_conversion",
+        "service",
+        "utility",
+    ]
 
-class WhatsAppContact(BaseModel) :
+class WhatsAppConversation (BaseModel) :
     """
-    WhatsApp contact record
-        `wa_id`   : "<sender phone number>"
-        `profile` : WhatsAppProfile | null
-    NOTE:
-        * Different from `WhatsAppContactPayload`
-        * This class models contact data CORRESPONDING to a received WhatsAppMsg
+    WhatsApp status conversation data
+        `id`                   : "<conversation ID>"
+        `origin`               : WhatsAppConversationOrigin | null
+        `expiration_timestamp` : "<unix timestamp>" | null
     """
-    
     model_config = ConfigDict( frozen = True)
     
-    wa_id   : NE_str # Sender Phone Number
-    profile : WhatsAppProfile | None = None
+    id                   : NE_str
+    origin               : WhatsAppConversationOrigin | None = None
+    expiration_timestamp : NE_str                     | None = None
 
-# PAYLOADS
-
-class WhatsAppMetaData(BaseModel) :
+class WhatsAppPricing (BaseModel) :
     """
-    WhatsApp webhook metadata
-        `display_phone_number` : "<receiver phone number>"
-        `phone_number_id`      : "<receiver WhatsApp number ID>"
+    WhatsApp status pricing data
+        `billable`      : true | false | null
+        `category`      : "authentication" | "authentication-international" | "marketing" | "marketing_lite" | "referral_conversion" | "service" | "utility" | null
+        `pricing_model` : "CBP" | "PMP" | null
+        `type`          : "free_customer_service" | "free_entry_point" | "regular" | null
     """
-    
     model_config = ConfigDict( frozen = True)
     
-    display_phone_number : NE_str # Receiver Phone Number
-    phone_number_id      : NE_str # Receiver WhatsApp Number ID
+    billable : bool | None = None
+    category : Literal[
+        "authentication",
+        "authentication-international",
+        "marketing",
+        "marketing_lite",
+        "referral_conversion",
+        "service",
+        "utility",
+    ] | None = None
+    pricing_model : Literal[
+        "CBP",
+        "PMP",
+    ] | None = None
+    type          : Literal[
+        "free_customer_service",
+        "free_entry_point",
+        "regular",
+    ] | None = None
+
+class WhatsAppStatusErrorData (BaseModel) :
+    """
+    WhatsApp status error details
+        `details` : "<error details>" | null
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    details : str | None = None
+
+class WhatsAppStatusError (BaseModel) :
+    """
+    WhatsApp status error
+        `code`       : <error code>
+        `title`      : "<error title>"
+        `message`    : "<error message>" | null
+        `error_data` : WhatsAppStatusErrorData | null
+        `href`       : "<error code URL>" | null
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    code       : int
+    title      : NE_str
+    message    : NE_str                  | None = None
+    error_data : WhatsAppStatusErrorData | None = None
+    href       : NE_str                  | None = None
+
+class WhatsAppStatus (BaseModel) :
+    """
+    WhatsApp outbound message status update
+        `id`            : "<WhatsApp message ID>"
+        `recipient_id`  : "<user phone number or group ID>"
+        `status`        : "delivered" | "failed" | "played" | "read" | "sent" | null
+        `timestamp`     : "<unix timestamp>"
+        `conversation`  : WhatsAppConversation | null
+        `pricing`       : WhatsAppPricing | null
+        `errors`        : tuple[ WhatsAppStatusError, ...] | null
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    id           : NE_str
+    recipient_id : NE_str
+    status       : Literal[
+        "delivered",
+        "failed",
+        "played",
+        "read",
+        "sent",
+    ]
+    timestamp    : NE_str
+    conversation : WhatsAppConversation             | None = None
+    pricing      : WhatsAppPricing                  | None = None
+    errors       : tuple[ WhatsAppStatusError, ...] | None = None
 
 class WhatsAppValue(BaseModel) :
     """
@@ -452,6 +552,7 @@ class WhatsAppValue(BaseModel) :
         `metadata`          : WhatsAppMetaData
         `contacts`          : tuple[ WhatsAppContact, ...]
         `messages`          : tuple[ WhatsAppMsg, ...]
+        `statuses`          : tuple[ WhatsAppStatus, ...]
     """
     
     model_config = ConfigDict( frozen = True)
@@ -459,8 +560,17 @@ class WhatsAppValue(BaseModel) :
     messaging_product : NE_str = "whatsapp"
     
     metadata : WhatsAppMetaData
-    contacts : tuple[ WhatsAppContact, ...]
-    messages : tuple[ WhatsAppMsg, ...]
+    contacts : tuple[ WhatsAppContact, ...] = ()
+    messages : tuple[ WhatsAppMsg,     ...] = ()
+    statuses : tuple[ WhatsAppStatus,  ...] = ()
+    
+    @model_validator( mode = "after")
+    def check_content(self) -> Self :
+        
+        if not ( self.messages or self.statuses ) :
+            raise ValueError("WhatsApp value must include messages or statuses")
+        
+        return self
 
 class WhatsAppChange_(BaseModel) :
     """
