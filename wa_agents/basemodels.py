@@ -608,6 +608,13 @@ class WhatsAppPayload(BaseModel) :
     title : NE_str = Field( alias   = "object",
                             default = "whatsapp_business_account")
     entry : tuple[ WhatsAppChanges, ...]
+    
+    def has_messages(self) -> bool :
+        return any(
+            change.value.messages
+            for entry in self.entry
+            for change in entry.changes
+        )
 
 # =========================================================================================
 # CASEFLOW BASEMODELS
