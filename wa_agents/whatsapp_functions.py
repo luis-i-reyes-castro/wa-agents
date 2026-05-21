@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import hashlib
+import hmac
 import os
 import re
 import requests
@@ -18,8 +20,12 @@ from .basemodels import ( OutgoingMediaMsg,
 # -----------------------------------------------------------------------------------------
 # CONSTANTS AND ENVIRONMENT VARIABLES
 
-API_URL  = "https://graph.facebook.com/v23.0/"
-WA_TOKEN = os.getenv("WA_TOKEN")
+API_URL = "https://graph.facebook.com/v23.0/"
+
+if not ( WA_APP_SECRET := os.getenv("WA_APP_SECRET") ) :
+    raise RuntimeError("Environment variable 'WA_APP_SECRET' was not found")
+if not ( WA_TOKEN      := os.getenv("WA_TOKEN")      ) :
+    raise RuntimeError("Environment variable 'WA_TOKEN' was not found")
 
 # -----------------------------------------------------------------------------------------
 # MESSAGES: INCOMING
@@ -49,6 +55,22 @@ def fetch_media( media_data : WhatsAppMediaData) -> bytes :
         print("In download_media: No file URL received")
     
     return result
+
+def verify_payload_signature(
+    payload   : bytes | None,
+    signature : str   | None,
+) -> bool :
+    
+    if not ( signature and signature.startswith("sha256=") ) :
+        return False
+    
+    expected = hmac.new(
+        key       = WA_APP_SECRET.encode("utf-8"),
+        msg       = payload,
+        digestmod = hashlib.sha256,
+    ).hexdigest()
+    
+    return hmac.compare_digest( signature, f"sha256={expected}")
 
 # -----------------------------------------------------------------------------------------
 # MESSAGES: OUTGOING

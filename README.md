@@ -68,6 +68,7 @@ These names must match the current code:
 
 | Variable | Description |
 | --- | --- |
+| `WA_APP_SECRET` | Meta app secret used to validate webhook payload signatures |
 | `WA_TOKEN` | Graph API access token |
 | `WA_VERIFY_TOKEN` | Token used by webhook verification endpoint |
 
