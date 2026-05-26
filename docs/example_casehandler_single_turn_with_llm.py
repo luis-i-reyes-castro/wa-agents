@@ -83,7 +83,7 @@ class CaseHandler (AsyncCaseHandlerBase) :
             return False
 
         message.print()
-        await self.async_send_text(message)
+        await self.send_text(message)
         await self.context_update(message)
 
         return False

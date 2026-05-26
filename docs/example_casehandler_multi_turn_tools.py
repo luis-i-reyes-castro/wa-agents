@@ -124,7 +124,7 @@ class CaseHandler (AsyncCaseHandlerBase) :
 
         message.print()
         if message.text :
-            await self.async_send_text(message)
+            await self.send_text(message)
         await self.context_update(message)
 
         if not message.tool_calls :

@@ -573,7 +573,11 @@ class CaseHandlerBase ( Machine, ABC) :
                     message_cp      = deepcopy(message)
                     message_cp.body = "📝 Interactive Message:\n" \
                                     + str(message_cp.body)
-                    send_whatsapp_interactive( self.operator_id, self.user_id, message)
+                    send_whatsapp_interactive(
+                        self.operator_id,
+                        self.user_id,
+                        message_cp,
+                    )
                 
                 return True
             
@@ -672,6 +676,18 @@ class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
             await self.user_data_lookup()
             self._async_ready = True
         
+        return
+    
+    # =====================================================================================
+    # STATE MACHINE
+    # =====================================================================================
+    
+    async def ingest_message( self, message : Message) -> None :
+        """
+        Overload this method to ingest a single message and fire triggers. \\
+        Args:
+            message : Instance of a subclass of Message
+        """
         return
     
     # =====================================================================================
@@ -807,7 +823,7 @@ class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
         if self.machine :
             self.reset_state_machine()
             for message in self.case_context :
-                self.ingest_message(message)
+                await self.ingest_message(message)
         
         return
     
@@ -827,7 +843,7 @@ class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
             self.case_context.append(message)
         
         if self.machine :
-            self.ingest_message(message)
+            await self.ingest_message(message)
         
         return
     
@@ -976,7 +992,7 @@ class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
                     await async_send_whatsapp_interactive(
                         self.operator_id,
                         self.user_id,
-                        message,
+                        message_cp,
                     )
                 
                 return True
