@@ -1,101 +1,106 @@
 """
-Agent Class
+Agent Classes
 """
 
 import os
 
+from abc import ABC
 from base64 import b64encode
 from inspect import currentframe
-from openai import OpenAI
+from openai import (
+    AsyncOpenAI,
+    OpenAI,
+)
+from openai.types.chat import (
+    ChatCompletion,
+    ParsedChatCompletion,
+)
 from pydantic import BaseModel
 from re import match
-from typing import ( Any,
-                     Callable,
-                     Literal,
-                     Type )
+from typing import (
+    Any,
+    Callable,
+    Literal,
+    cast,
+)
 
-try :
-    from mistralai import Mistral
-except ImportError :
-    Mistral = None
+from sofia_utils.io import (
+    extract_code_block,
+    load_file_as_string,
+    load_json_file,
+    load_json_string,
+    write_to_json_string,
+)
+from sofia_utils.printing import (
+    print_recursively,
+    print_sep,
+)
 
-from sofia_utils.io import ( extract_code_block,
-                             load_file_as_string,
-                             load_json_string,
-                             load_json_file,
-                             write_to_json_string )
-from sofia_utils.printing import ( print_recursively,
-                                   print_sep )
-
-from .basemodels import ( AssistantMsg,
-                          BasicMsg,
-                          Message,
-                          StructuredDataMsg,
-                          ToolCall,
-                          ToolResultsMsg,
-                          UserContentMsg )
+from .basemodels import (
+    AssistantMsg,
+    BasicMsg,
+    Message,
+    StructuredDataMsg,
+    ToolCall,
+    ToolResultsMsg,
+    UserContentMsg,
+)
 
 
-class Agent :
+class AgentBase (ABC) :
     """
-    Wrapper around chat-completion APIs (OpenRouter, OpenAI, Mistral) \\
-    Provides prompt/tool loading, request formatting, and post-processing.
+    Shared OpenRouter agent behavior \\
+    Provides prompt/tool loading, request formatting, and response parsing.
     """
     
-    # -------------------------------------------------------------------------------------
+    # =====================================================================================
+    # SHARED CONSTRUCTOR AND LOADERS
+    # =====================================================================================
+    
     API_DATA_PATTERN = r"^([\w\.:-]+)/([\w\.:-]+)$"
-    OTHER_APIS       = { "openai", "mistral" }
+    BASE_URL         = "https://openrouter.ai/api/v1"
     
-    APIs_THAT_CANNOT_MAKE_TOOL_CALLS = { "mistral" }
-    
-    # -------------------------------------------------------------------------------------
-    def __init__( self, name : str, models : list[str] | str) -> None :
+    def __init__(
+        self,
+        name   : str,
+        models : str | list[str],
+    ) -> None :
         """
-        Configure the agent for a given API/model combination \\
+        Configure the agent for OpenRouter model fallback order \\
         Args:
             name   : Friendly name to attach to generated responses
-            models : Either one `api/model` string or an ordered list for fallbacks
+            models : One OpenRouter model string or ordered model fallback list
         """
         
-        self.name   = name
-        self.api    = None
-        self.model  = None
-        self.model_fallbacks : list[str] = []
+        if isinstance( models, str) :
+            models = [models]
         
-        # Case: OpenRouter
-        if models and isinstance( models, list) \
-        and all( isinstance( m, str) for m in models ) \
-        and all( bool( match( self.API_DATA_PATTERN, m) ) for m in models ) :
-            self.api   = "openrouter"
-            self.model = models[0]
-            if len(models) > 1 :
-                self.model_fallbacks = models[1:]
-        
-        # Case: Other APIs
-        elif models and isinstance( models, str) \
-        and ( m := match( self.API_DATA_PATTERN, models) ) :
-            api_name, model_name = m.groups()
-            if api_name in self.OTHER_APIS :
-                self.api   = api_name
-                self.model = model_name
-        
-        if not ( self.api and self.model ) :
+        if not (
+            models
+            and isinstance( models, list)
+            and all( isinstance( m, str) for m in models )
+            and all( bool( match( self.API_DATA_PATTERN, m) ) for m in models )
+        ) :
             e_prefix = f"In class {self.__class__.__name__} method __init__"
             raise ValueError(f"{e_prefix}: Invalid argument '{models}'")
         
-        self.prompts         : list[str]       = []
-        self.prompts_merged  : str | None      = None
-        self.tools           : list[Any]       = []
-        self.client          : Callable | None = None
-        self.post_processors : list[Callable]  = []
+        self.name            = name
+        self.api             = "openrouter"
+        self.model           = models[0]
+        self.model_fallbacks = models[1:]
+        
+        self.prompts         : list[str]  = []
+        self.prompts_merged  : str | None = None
+        self.tools           : list[Any]  = []
+        self.client          : Any | None = None
+        self.post_processors : list[ Callable[ [str], str] ] = []
         
         return
     
-    # -------------------------------------------------------------------------------------
-    # LOADERS
-    # -------------------------------------------------------------------------------------
-    
-    def load_prompts( self, list_prompt_paths : list[str|dict] ) -> None :
+    def load_prompts(
+        self,
+        list_prompt_paths : list[ str | dict ],
+    ) -> None :
         """
         Load prompt snippets from strings or {path, replace} dictionaries \\
         Args:
@@ -126,20 +131,15 @@ class Agent :
         
         return
     
-    def load_tools( self, list_tool_paths : list[str]) -> None :
+    def load_tools(
+        self,
+        list_tool_paths : list[str],
+    ) -> None :
         """
-        Load JSON tool schemas while enforcing API/tool-call constraints \\
+        Load JSON tool schemas \\
         Args:
             list_tool_paths : JSON files with either dict or list payloads
         """
-        
-        for blacklisted_api in self.APIs_THAT_CANNOT_MAKE_TOOL_CALLS :
-            msg = f"{blacklisted_api.upper()} API cannot make tool calls"
-            if blacklisted_api == self.api :
-                raise ValueError(f"In Agent load_tools: {msg}")
-            for model_fallback_option in self.model_fallbacks :
-                if blacklisted_api in model_fallback_option :
-                    raise ValueError(f"In Agent load_tools: {msg}")
         
         for tool_file in list_tool_paths :
             tool_file_content = load_json_file(tool_file)
@@ -178,71 +178,32 @@ class Agent :
         return
     
     # =====================================================================================
-    # GET RESPONSE
+    # SHARED RESPONSE HELPERS
     # =====================================================================================
-    
-    def get_response( self,
-                      context : list[Message],
-                      *,
-                      origin     : str | None = None,
-                      load_imgs  : bool = False,
-                      imgs_cache : dict[ str : bytes] = {},
-                      output_st  : str | Type[BaseModel] | None = None,
-                      max_tokens : int | None = None,
-                      debug      : bool = False
-                    ) -> AssistantMsg | None :
+
+    def validate_get_response_args(
+        self,
+        load_imgs  : bool,
+        imgs_cache : dict[ str, bytes],
+    ) -> None :
         """
-        Request a response from the configured API and post-process outputs \\
+        Validate get_response arguments \\
         Args:
-            context    : Prior conversation contents (system, user, assistant)
-            origin     : Optional identifier for tracing the call site
-            load_imgs  : Whether to embed user images via cached binary data
-            imgs_cache : Cache mapping image names to their byte payloads
-            output_st  : Structured output schema (pydantic class or 'json')
-            max_tokens : Optional completion cap passed to the API
-            debug      : Dump raw API input/output if True
-        Returns:
-            AssistantMsg with text/tool calls/structured output, or None on failure.
+            load_imgs  : Whether images should be loaded into the request
+            imgs_cache : Cache mapping image names to bytes
         """
-        
-        # If loading images then arguments must include images cache
         if load_imgs and not imgs_cache :
             msg = "Requested image loading but passed no images cache."
             raise ValueError(f"In Agent get_response: {msg}")
         
-        # Merge prompts
-        self.merge_prompts()
-        
-        # Call API and request response
-        ag_resp_obj = self.call_openai_chat_completion( context    = context,
-                                                        origin     = origin,
-                                                        load_imgs  = load_imgs,
-                                                        imgs_cache = imgs_cache,
-                                                        output_st  = output_st,
-                                                        max_tokens = max_tokens,
-                                                        debug      = debug )
-        
-        # If no response received then print warning
-        if not ag_resp_obj :
-            print_sep()
-            print(f"In Agent get_response: No response received.")
-            return None
-        elif ag_resp_obj.is_empty() :
-            print_sep()
-            print(f"In Agent get_response: Response received is empty.")
-            return None
-        
-        # Else apply post processing
-        if ag_resp_obj.text :
-            for post_processor_ in self.post_processors :
-                ag_resp_obj.text = post_processor_(ag_resp_obj.text)
-        
-        return ag_resp_obj
+        return
     
-    def debug_print( self,
-                     mode : Literal[ "input", "output"],
-                     data : Any,
-                     client_call : str | None = None ) -> None :
+    def debug_print(
+        self,
+        mode : Literal[ "input", "output"],
+        data : Any,
+        client_call : str | None = None,
+    ) -> None :
         """
         Pretty-print API payloads/responses for debugging sessions \\
         Args:
@@ -250,7 +211,6 @@ class Agent :
             data        : Arbitrary payload to print recursively
             client_call : Helpful string with the client call being made
         """
-        
         print_sep()
         print(f"{self.api.upper()} API {mode.upper()}:")
         print_sep()
@@ -262,42 +222,21 @@ class Agent :
         
         return
     
-    # =====================================================================================
-    def call_openai_chat_completion( self,
-                                     context : list[Message],
-                                     *,
-                                     origin     : str | None = None,
-                                     load_imgs  : bool = False,
-                                     imgs_cache : dict[ str : bytes] = {},
-                                     output_st  : str | Type[BaseModel] | None = None,
-                                     max_tokens : int | None = None,
-                                     debug      : bool = False
-                                   ) -> AssistantMsg | None :
+    def build_messages(
+        self,
+        context    : list[Message],
+        load_imgs  : bool,
+        imgs_cache : dict[ str, bytes],
+    ) -> list[dict] :
         """
-        Build the chat payload and call the backing API client \\
+        Serialize message context into OpenRouter chat messages \\
         Args:
-            context    : Message history to serialize per API expectations
-            origin     : Identifier describing who triggered the request
+            context    : Message history to serialize
             load_imgs  : Whether to include user-provided images
             imgs_cache : Cache used when `load_imgs` is enabled
-            output_st  : Structured output schema (json or BaseModel subclass)
-            max_tokens : Optional completion cap passed to the API
-            debug      : Print verbose request/response dumps
         Returns:
-            AssistantMsg parsed from the API response, or None on failure.
+            List of chat completion messages
         """
-        
-        # Determine message origin if not provided
-        origin = origin or f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-        
-        # Initialize API flag
-        api_is_openrouter = ( self.api == "openrouter" )
-        
-        # ---------------------------------------------------------------------------------
-        # BEFORE API CALL: FORMAT CONTEXT
-        # ---------------------------------------------------------------------------------
-        
-        # Initialize list of messages
         messages : list[dict] = []
         
         # Add system message if prompts are available
@@ -342,10 +281,10 @@ class Agent :
                         image_bin = imgs_cache.get(media.name)
                         # If retrieval successful then encode and insert
                         if image_bin and isinstance( image_bin, bytes) :
-                            image_b64 = b64encode(image_bin).decode('utf-8')
-                            image_url = f"data:{media.mime};base64,{image_b64}"
-                            if api_is_openrouter :
-                                image_url = { "url" : image_url }
+                            image_b64 = b64encode(image_bin).decode("utf-8")
+                            image_url = {
+                                "url" : f"data:{media.mime};base64,{image_b64}"
+                            }
                             msg["content"].append( { "type"      : "image_url",
                                                      "image_url" : image_url } )
                         else :
@@ -353,9 +292,8 @@ class Agent :
                     else :
                         msg["content"].append(text_cb)
                 
-                # If using OpenRouter API and message is pure text then simplify
-                if api_is_openrouter \
-                and len(msg["content"]) == 1 \
+                # If message is only text then simplify structure
+                if len(msg["content"]) == 1 \
                 and msg["content"][0]["type"] == "text" :
                     msg["content"] = msg["content"][0]["text"]
                 
@@ -364,11 +302,9 @@ class Agent :
                 
                 # PROCESS ASSISTANT MESSAGE TOOL CALLS
                 if isinstance( message, AssistantMsg) and message.tool_calls :
-                    # Prepare message for tool calls
-                    msg = { "role" : "assistant", "tool_calls" : [] }
-                    if api_is_openrouter :
-                        msg["content"] = ""
-                    # Iterate through tool calls
+                    
+                    msg = { "role" : "assistant", "content" : "", "tool_calls" : [] }
+                    
                     for tc in message.tool_calls :
                         # Convert tool call arguments to JSON string if needed
                         if not isinstance( tc.input, str) :
@@ -379,6 +315,7 @@ class Agent :
                                   "function" : { "name"      : tc.name,
                                                  "arguments" : tc.input } }
                         msg["tool_calls"].append(tc_cb)
+                    
                     # Add single assistant message with all tool calls
                     messages.append(msg)
             
@@ -394,105 +331,91 @@ class Agent :
                                        "content"      : tr.content,
                                        "tool_call_id" : tr.id } )
         
-        # ---------------------------------------------------------------------------------
-        # MAKE API CALL
-        # ---------------------------------------------------------------------------------
+        return messages
         
-        # Prepare API response request parameters
-        resp_req_parms = { "model"      : self.model,
-                           "tools"      : self.tools,
-                           "messages"   : messages }
-        # Setup max tokens
+    def build_request_params(
+        self,
+        context : list[Message],
+        *,
+        load_imgs  : bool = False,
+        imgs_cache : dict[ str, bytes] = {},
+        output_st  : str | type[BaseModel] | None = None,
+        max_tokens : int | None = None,
+    ) -> tuple[ dict, bool] :
+        """
+        Build OpenRouter chat completion request parameters \\
+        Args:
+            context    : Message history to serialize
+            load_imgs  : Whether to include user-provided images
+            imgs_cache : Cache used when `load_imgs` is enabled
+            output_st  : Structured output schema (json or BaseModel subclass)
+            max_tokens : Optional completion cap passed to the API
+        Returns:
+            Tuple of request parameters and parse mode flag.
+        """
+        resp_req_parms = {
+            "model"    : self.model,
+            "tools"    : self.tools,
+            "messages" : self.build_messages( context, load_imgs, imgs_cache),
+        }
+        
         if max_tokens and isinstance( max_tokens, int) and max_tokens > 0 :
             resp_req_parms["max_tokens"] = max_tokens
-        # Setup output structure
+        
         parse_mode = False
         if output_st :
-            if isinstance( output_st, str) and output_st == "json" :
-                resp_req_parms["response_format"] = { "type" : "json_object" }
-            elif issubclass( output_st, BaseModel) :
+            if isinstance( output_st, type) and issubclass( output_st, BaseModel) :
                 resp_req_parms["response_format"] = output_st
                 parse_mode = True
-        # Setup extra body (for OpenRouter fallback models)
-        if api_is_openrouter and self.model_fallbacks :
+            elif isinstance( output_st, str) and output_st == "json" :
+                resp_req_parms["response_format"] = { "type" : "json_object" }
+        
+        if self.model_fallbacks :
             resp_req_parms["extra_body"] = { "models" : self.model_fallbacks }
         
-        # Print debug info
-        if debug :
-            
-            client_call = "chat."
-            if api_is_openrouter or ( self.api == "openai" ) :
-                client_call += "completions."
-                client_call += "create" if not parse_mode else "parse"
-            else :
-                client_call += "complete" if not parse_mode else "parse"
-            
-            self.debug_print( "input", resp_req_parms, client_call)
+        return resp_req_parms, parse_mode
+    
+    def collect_response(
+        self,
+        response  : ChatCompletion | ParsedChatCompletion,
+        context   : list[Message],
+        origin    : str,
+        output_st : str | type[BaseModel] | None = None,
+    ) -> AssistantMsg :
+        """
+        Convert an OpenRouter response into an AssistantMsg \\
+        Args:
+            response  : Chat completion response object
+            context   : Context messages used for the request
+            origin    : Identifier describing who triggered the request
+            output_st : Structured output schema, when requested
+        Returns:
+            Parsed assistant response
+        """
+        origin = origin or f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
         
-        # Generate response using appropriate client
-        response = None
+        ag_resp_obj = AssistantMsg(
+            origin       = origin,
+            agent        = self.name,
+            api          = self.api,
+            model        = getattr( response, "model", None),
+            instructions = self.prompts_merged,
+            tools        = self.tools,
+            context      = [ message.id for message in context ],
+        )
         
-        if api_is_openrouter :
-            self.client = OpenAI( api_key  = os.environ.get("OPENROUTER_API_KEY"),
-                                  base_url = "https://openrouter.ai/api/v1" )
-            if not parse_mode :
-                response = self.client.chat.completions.create(**resp_req_parms)
-            else :
-                response = self.client.chat.completions.parse(**resp_req_parms)
-        
-        elif self.api == "openai" :
-            self.client = OpenAI( api_key = os.environ.get("OPENAI_API_KEY"))
-            if not parse_mode :
-                response = self.client.chat.completions.create(**resp_req_parms)
-            else :
-                response = self.client.chat.completions.parse(**resp_req_parms)
-        
-        elif self.api == "mistral" :
-            if Mistral is None :
-                raise ImportError(
-                    "Mistral client is unavailable. "
-                    "Install a compatible 'mistralai' package before using api='mistral'."
-                )
-            self.client = Mistral( api_key = os.environ.get("MISTRAL_API_KEY"))
-            if not parse_mode :
-                response = self.client.chat.complete(**resp_req_parms)
-            else :
-                response = self.client.chat.parse(**resp_req_parms)
-        
-        # Print debug info
-        self.debug_print( "output", response) if debug else None
-        
-        # If no response then return
-        if not response :
-            return None
-        
-        # ---------------------------------------------------------------------------------
-        # AFTER API CALL: COLLECT RESPONSE TEXT AND TOOL CALLS
-        # ---------------------------------------------------------------------------------
-        
-        # Initialize agent response object
-        ag_resp_obj = AssistantMsg(origin = origin)
-        
-        # Collect model and token usage
-        ag_resp_obj.agent = self.name
-        ag_resp_obj.api   = self.api
-        ag_resp_obj.model = getattr( response, "model", None)
         usage = getattr( response, "usage", None)
         if usage :
             ag_resp_obj.tokens_input  = getattr( usage, "prompt_tokens", None)
             ag_resp_obj.tokens_output = getattr( usage, "completion_tokens", None)
             ag_resp_obj.tokens_total  = getattr( usage, "total_tokens", None)
         
-        ag_resp_obj.instructions = self.prompts_merged
-        ag_resp_obj.tools        = self.tools
-        ag_resp_obj.context      = [ message.id for message in context ]
-        
-        # Select first choice because it is the only one generated
-        if hasattr( response, "choices") \
-        and isinstance( response.choices, list) and response.choices :
-            
-            choice = response.choices[0]
-            
+        if (
+            hasattr( response, "choices")
+            and isinstance( response.choices, list)
+            and response.choices
+            and ( choice := response.choices[0] )
+        ) :
             # Collect text
             content = getattr( choice.message, "content", None)
             if isinstance( content, str) :
@@ -525,7 +448,7 @@ class Agent :
                     ag_resp_obj.tool_calls.append(tc)
             
             # Collect structured output
-            if output_st and issubclass( output_st, BaseModel) :
+            if isinstance( output_st, type) and issubclass( output_st, BaseModel) :
                 
                 parsed = getattr( choice.message, "parsed", None)
                 if parsed and isinstance( parsed, BaseModel) :
@@ -544,6 +467,164 @@ class Agent :
             if ag_resp_obj.st_output :
                 ag_resp_obj.text = None
         
-        # ---------------------------------------------------------------------------------
-        # The grand finale
         return ag_resp_obj
+    
+    def validate_and_post_process_response(
+        self,
+        ag_resp_obj : AssistantMsg | None,
+    ) -> AssistantMsg | None :
+        """
+        Validate and post-process an assistant response \\
+        Args:
+            ag_resp_obj : Response object returned by OpenRouter
+        Returns:
+            Post-processed response, or None if empty.
+        """
+        
+        if not ag_resp_obj :
+            print_sep()
+            print("In Agent get_response: No response received.")
+            return None
+        
+        elif ag_resp_obj.is_empty() :
+            print_sep()
+            print("In Agent get_response: Response received is empty.")
+            return None
+        
+        if ag_resp_obj.text :
+            for post_processor_ in self.post_processors :
+                ag_resp_obj.text = post_processor_(ag_resp_obj.text)
+        
+        return ag_resp_obj
+
+
+class Agent (AgentBase) :
+    """
+    Sequential OpenRouter chat-completion wrapper
+    """
+    
+    def get_response(
+        self,
+        context : list[Message],
+        *,
+        origin     : str | None = None,
+        load_imgs  : bool = False,
+        imgs_cache : dict[ str, bytes] = {},
+        output_st  : str | type[BaseModel] | None = None,
+        max_tokens : int | None = None,
+        debug      : bool = False,
+    ) -> AssistantMsg | None :
+        """
+        Request a response from OpenRouter and post-process outputs
+        """
+        origin = origin or f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
+        
+        self.validate_get_response_args( load_imgs, imgs_cache)
+        self.merge_prompts()
+        
+        resp_req_parms, parse_mode = self.build_request_params(
+            context    = context,
+            load_imgs  = load_imgs,
+            imgs_cache = imgs_cache,
+            output_st  = output_st,
+            max_tokens = max_tokens,
+        )
+        
+        if debug :
+            client_call = (
+                "chat.completions.create"
+                if not parse_mode else
+                "chat.completions.parse"
+            )
+            self.debug_print( "input", resp_req_parms, client_call)
+        
+        self.client : OpenAI = OpenAI(
+            api_key  = os.environ.get("OPENROUTER_API_KEY"),
+            base_url = self.BASE_URL,
+        )
+        
+        if not parse_mode :
+            response = cast(
+                ChatCompletion,
+                self.client.chat.completions.create(**resp_req_parms),
+            )
+        else :
+            response = cast(
+                ParsedChatCompletion,
+                self.client.chat.completions.parse(**resp_req_parms),
+            )
+        
+        self.debug_print( "output", response) if debug else None
+        
+        if not response :
+            return None
+        
+        response_ = self.collect_response( response, context, origin, output_st)
+        
+        return self.validate_and_post_process_response(response_)
+
+
+class AsyncAgent (AgentBase) :
+    """
+    Async OpenRouter chat-completion wrapper
+    """
+    
+    async def get_response(
+        self,
+        context : list[Message],
+        *,
+        origin     : str | None = None,
+        load_imgs  : bool = False,
+        imgs_cache : dict[ str, bytes] = {},
+        output_st  : str | type[BaseModel] | None = None,
+        max_tokens : int | None = None,
+        debug      : bool = False,
+    ) -> AssistantMsg | None :
+        """
+        Request a response from OpenRouter and post-process outputs asynchronously
+        """
+        origin = origin or f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
+        
+        self.validate_get_response_args( load_imgs, imgs_cache)
+        self.merge_prompts()
+        
+        resp_req_parms, parse_mode = self.build_request_params(
+            context    = context,
+            load_imgs  = load_imgs,
+            imgs_cache = imgs_cache,
+            output_st  = output_st,
+            max_tokens = max_tokens,
+        )
+        
+        if debug :
+            client_call = (
+                "chat.completions.create"
+                if not parse_mode else
+                "chat.completions.parse"
+            )
+            self.debug_print( "input", resp_req_parms, client_call)
+        
+        self.client : AsyncOpenAI = AsyncOpenAI(
+            api_key  = os.environ.get("OPENROUTER_API_KEY"),
+            base_url = self.BASE_URL,
+        )
+        
+        if not parse_mode :
+            response = cast(
+                ChatCompletion,
+                await self.client.chat.completions.create(**resp_req_parms),
+            )
+        else :
+            response = cast(
+                ParsedChatCompletion,
+                await self.client.chat.completions.parse(**resp_req_parms),
+            )
+        
+        self.debug_print( "output", response) if debug else None
+        
+        if not response :
+            return None
+        
+        response_ = self.collect_response( response, context, origin, output_st)
+        
+        return self.validate_and_post_process_response(response_)

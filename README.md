@@ -254,8 +254,12 @@ Also useful:
 Example branch logic in `process_message`:
 
 ```python
-def process_message(self, message: WhatsAppMsg, media_content: MediaContent | None=None) -> bool:
-    msg = self.dedup_and_ingest_message(message, media_content)
+def process_message(
+  self,
+  message       : WhatsAppMsg,
+  media_content : MediaContent | None = None,
+) -> bool:
+    msg = self.dedup_and_ingest_message( message, media_content)
     if not msg:
         return False
 
@@ -278,49 +282,47 @@ def process_message(self, message: WhatsAppMsg, media_content: MediaContent | No
 ## Agent Usage Recipes
 
 Constructor behavior:
-- pass a `list[str]` to use OpenRouter with optional fallback models.
-- pass a single `str` for direct API mode (`openai/...` or `mistral/...`).
+- pass a single OpenRouter model string, or
+- pass a `list[str]` to enable OpenRouter fallback models.
 
 ### 1) Plain text completion
 
 ```python
-from wa_agents.agent import Agent
+from wa_agents.agent import AsyncAgent
 from wa_agents.basemodels import UserContentMsg
 
-agent = Agent("main", ["openai/gpt-5-mini"])
+agent = AsyncAgent( "main", ["openai/gpt-5-mini"])
 agent.load_prompts(["prompts/main.md"])
 
-context = [UserContentMsg(text="Hello, summarize this ticket.")]
-resp    = agent.get_response(context=context, max_tokens=400)
+context = [ UserContentMsg( text = "Hello, summarize this ticket.") ]
+resp    = await agent.get_response( context = context, max_tokens = 400)
 ```
 
 ### 2) With tools
 
 ```python
-agent = Agent("main", ["openai/gpt-5-mini"])
+agent = AsyncAgent( "main", ["openai/gpt-5-mini"])
 agent.load_prompts(["prompts/main.md"])
 agent.load_tools(["agent_tools/main_openai.json"])
 
-resp = agent.get_response(context=context)
+resp = await agent.get_response( context = context)
 if resp and resp.tool_calls:
     # execute tool calls, create ToolResultsMsg, append to context, call again
     ...
 ```
 
-Notes:
-- Mistral is blocked for tool calls in `Agent.load_tools()`.
-- For OpenRouter, pass a list of models to enable fallback models.
+Note: pass a list of models to enable OpenRouter fallback models.
 
 ### 3) Structured output
 
 ```python
 from pydantic import BaseModel
 
-class TicketSummary(BaseModel):
-    summary: str
-    severity: str
+class TicketSummary (BaseModel):
+    summary  : str
+    severity : str
 
-resp = agent.get_response(context=context, output_st=TicketSummary)
+resp = await agent.get_response( context = context, output_st = TicketSummary)
 if resp and resp.st_output:
     data = resp.st_output
 ```
@@ -330,13 +332,15 @@ if resp and resp.st_output:
 ```python
 from wa_agents.basemodels import UserContentMsg, load_media
 
-md, mc = load_media("tests/photo.jpg")
-context    = [UserContentMsg(text="Describe this issue.", media=md)]
-imgs_cache = {md.name: mc.content}
+md, mc     = load_media("tests/photo.jpg")
+context    = [ UserContentMsg( text = "Describe this issue.", media = md) ]
+imgs_cache = { md.name: mc.content }
 
-resp = agent.get_response(context=context,
-                          load_imgs=True,
-                          imgs_cache=imgs_cache)
+resp = await agent.get_response(
+  context    = context,
+  load_imgs  = True,
+  imgs_cache = imgs_cache,
+)
 ```
 
 ## Case and Storage Behavior (built in)

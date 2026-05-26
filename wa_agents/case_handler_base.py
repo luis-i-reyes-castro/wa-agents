@@ -1,39 +1,51 @@
 """
 Case Handler Base Class
 """
-from abc import ( ABC,
-                  abstractmethod )
+from abc import (
+    ABC,
+    abstractmethod,
+)
 from copy import deepcopy
-from datetime import ( datetime,
-                       timezone,
-                       timedelta )
+from datetime import (
+    datetime,
+    timezone,
+    timedelta,
+)
 from inspect import currentframe
-from transitions import ( Machine,
-                          State )
+from transitions import (
+    Machine,
+    State,
+)
 from types import SimpleNamespace
 from typing import Literal
 
 from sofia_utils.stamps import *
 from sofia_utils.io import write_to_json_string
 
-from .basemodels import ( AssistantMsg,
-                          CaseIndex,
-                          CaseManifest,
-                          MediaData,
-                          MediaContent,
-                          Message,
-                          ServerInteractiveOptsMsg,
-                          ServerTextMsg,
-                          ToolResultsMsg,
-                          UserContentMsg,
-                          UserData,
-                          UserInteractiveReplyMsg,
-                          UserMsg,
-                          WhatsAppContact,
-                          WhatsAppMetaData,
-                          WhatsAppMsg )
-from .whatsapp_functions import ( send_whatsapp_text,
-                                  send_whatsapp_interactive)
+from .basemodels import (
+    AssistantMsg,
+    CaseIndex,
+    CaseManifest,
+    MediaData,
+    MediaContent,
+    Message,
+    ServerInteractiveOptsMsg,
+    ServerTextMsg,
+    ToolResultsMsg,
+    UserContentMsg,
+    UserData,
+    UserInteractiveReplyMsg,
+    UserMsg,
+    WhatsAppContact,
+    WhatsAppMetaData,
+    WhatsAppMsg,
+)
+from .whatsapp_functions import (
+    async_send_whatsapp_interactive,
+    async_send_whatsapp_text,
+    send_whatsapp_text,
+    send_whatsapp_interactive,
+)
 
 
 type TransitionDK = Literal[ "source", "trigger", "dest" ]
@@ -61,15 +73,16 @@ class CH_State ( State ) :
     state. Keeping `while_in` separate avoids that coupling.
     """
     
-    def __init__( self,
-                  name : str,
-                  *,
-                  on_enter                : str | list[str] | None = None,
-                  while_in                : str | list[str] | None = None,
-                  on_exit                 : str | list[str] | None = None,
-                  ignore_invalid_triggers : bool | None            = None,
-                  final                   : bool                   = False
-                ) -> None :
+    def __init__(
+        self,
+        name : str,
+        *,
+        on_enter                : str | list[str] | None = None,
+        while_in                : str | list[str] | None = None,
+        on_exit                 : str | list[str] | None = None,
+        ignore_invalid_triggers : bool | None            = None,
+        final                   : bool                   = False
+    ) -> None :
         
         super().__init__( name,
                           on_enter                = on_enter,
@@ -103,10 +116,12 @@ class CaseHandlerBase ( Machine, ABC) :
     TIME_LIMIT_STALE = 48
     """ Case staleness time limit (in hours) """
     
-    def __init__( self,
-                  operator : WhatsAppMetaData,
-                  user     : WhatsAppContact,
-                  debug    : bool = False ) -> None :
+    def __init__(
+        self,
+        operator : WhatsAppMetaData,
+        user     : WhatsAppContact,
+        debug    : bool = False,
+    ) -> None :
         """
         Initialize the handler with WhatsApp metadata and user info \\
         Args:
@@ -170,14 +185,16 @@ class CaseHandlerBase ( Machine, ABC) :
         states, initial, transitions = self.define_state_machine_config()
         attach_state_callbacks( self, states)
         
-        Machine.__init__( self,
-                          model                   = self,
-                          states                  = states,
-                          initial                 = initial,
-                          transitions             = transitions,
-                          auto_transitions        = False,
-                          ignore_invalid_triggers = True,
-                          **machine_kwargs )
+        Machine.__init__(
+            self,
+            model                   = self,
+            states                  = states,
+            initial                 = initial,
+            transitions             = transitions,
+            auto_transitions        = False,
+            ignore_invalid_triggers = True,
+            **machine_kwargs,
+        )
         self.machine = self
         
         return
@@ -221,7 +238,6 @@ class CaseHandlerBase ( Machine, ABC) :
         Load or initialize UserData for the WhatsApp contact \\
         Ensures the latest name list persists back to storage with locking.
         """
-        
         # Initialize user data update flag
         need_to_update = False
         # Look for user data
@@ -261,7 +277,6 @@ class CaseHandlerBase ( Machine, ABC) :
         Returns:
             Tuple of `(case_id, CaseManifest)` describing the active case.
         """
-        
         # Initialize open case index
         index = CaseIndex( open_case_id = None)
         # Look for open case index
@@ -284,9 +299,11 @@ class CaseHandlerBase ( Machine, ABC) :
             return self.case_open_new()
         
         # 2-3) If stale then open new case
+        
         now  = datetime.now(timezone.utc)
         last = utc_iso_to_dt(manifest.time_last_message) or \
                utc_iso_to_dt(manifest.time_opened) or now
+        
         if ( now - last ) > timedelta( hours = self.TIME_LIMIT_STALE) :
             manifest.status = "timeout"
             self.storage.manifest_write(manifest)
@@ -332,7 +349,6 @@ class CaseHandlerBase ( Machine, ABC) :
         Args:
             case_id : Either open case ID or None
         """
-        
         # Update root / <user_id> / index.json
         p = self.storage.path_case_index()
         self.storage.json_write( p, { "open_case_id": case_id })
@@ -350,7 +366,6 @@ class CaseHandlerBase ( Machine, ABC) :
         Args:
             truncate : Whether to limit context to the last `MAX_CONTEXT_LEN` messages
         """
-        
         # Ensure we know which case to load
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = self.case_decide()
@@ -363,8 +378,12 @@ class CaseHandlerBase ( Machine, ABC) :
                 self.case_context.append(message)
         
         # Sort by time_created and time_received
-        self.case_context.sort( key = lambda m : ( utc_iso_to_dt(m.time_created),
-                                                   utc_iso_to_dt(m.time_received) ) )
+        self.case_context.sort(
+            key = lambda message : (
+                utc_iso_to_dt(message.time_created),
+                utc_iso_to_dt(message.time_received),
+            )
+        )
         
         # Enforce max context length
         if truncate and ( len(self.case_context) > self.MAX_CONTEXT_LEN ) :
@@ -392,7 +411,6 @@ class CaseHandlerBase ( Machine, ABC) :
         Args:
             message : Instance of a Message subclass
         """
-        
         # Get user store and lock it
         with self.storage_lock(self.user_root) :
             # Write message JSON and append message to manifest
@@ -416,10 +434,11 @@ class CaseHandlerBase ( Machine, ABC) :
     # MESSAGE DEDUP AND INGESTION
     # =====================================================================================
     
-    def dedup_and_ingest_message( self,
-                                  message       : WhatsAppMsg,
-                                  media_content : MediaContent | None = None,
-                                ) -> UserMsg | None :
+    def dedup_and_ingest_message(
+        self,
+        message       : WhatsAppMsg,
+        media_content : MediaContent | None = None,
+    ) -> UserMsg | None :
         """
         Convert a webhook payload into domain messages, skipping duplicates \\
         Args:
@@ -428,7 +447,7 @@ class CaseHandlerBase ( Machine, ABC) :
         Returns:
             User message object queued for processing, or None if duplicate.
         """
-        _orig_ = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
+        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
         
         # If message already processed then return None
         if self.storage.dedup_exists(message.id) :
@@ -450,7 +469,7 @@ class CaseHandlerBase ( Machine, ABC) :
                 media_data = MediaData.from_content(media_content)
             
             msg = UserContentMsg(
-                    origin          = _orig_,
+                    origin          = here,
                     idempotency_key = message.id,
                     time_created    = unix_to_utc_iso(message.timestamp),
                     text            = text,
@@ -461,7 +480,7 @@ class CaseHandlerBase ( Machine, ABC) :
         elif message.interactive :
             
             msg = UserInteractiveReplyMsg(
-                    origin          = _orig_,
+                    origin          = here,
                     idempotency_key = message.id,
                     time_created    = unix_to_utc_iso(message.timestamp),
                     choice          = message.interactive.choice )
@@ -482,9 +501,10 @@ class CaseHandlerBase ( Machine, ABC) :
     # MESSAGE SENDING FUNCTIONS
     # =====================================================================================
     
-    def send_text( self,
-                   message : ServerTextMsg | AssistantMsg | ToolResultsMsg
-                 ) -> bool :
+    def send_text(
+        self,
+        message : ServerTextMsg | AssistantMsg | ToolResultsMsg,
+    ) -> bool :
         """
         Send textual assistant output or debugging artifacts via WhatsApp \\
         Args:
@@ -492,6 +512,7 @@ class CaseHandlerBase ( Machine, ABC) :
         Returns:
             True on success; False if sending fails.
         """
+        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
         
         try :
             # If not in debug mode: Send only Assistant Message text
@@ -527,11 +548,14 @@ class CaseHandlerBase ( Machine, ABC) :
             return True
         
         except Exception as ex :
-            print(f"In {self.__class__.__name__} send_message: {ex}")
+            print(f"In {here}: {str(ex)}")
         
         return False
     
-    def send_interactive( self, message : ServerInteractiveOptsMsg) -> bool :
+    def send_interactive(
+        self,
+        message : ServerInteractiveOptsMsg,
+    ) -> bool :
         """
         Send WhatsApp interactive messages or their debug copy \\
         Args:
@@ -539,6 +563,7 @@ class CaseHandlerBase ( Machine, ABC) :
         Returns:
             True on success; False otherwise.
         """
+        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
         
         if isinstance( message, ServerInteractiveOptsMsg) :
             try :
@@ -553,19 +578,20 @@ class CaseHandlerBase ( Machine, ABC) :
                 return True
             
             except Exception as ex :
-                print(f"In {self.__class__.__name__} send_interactive: {ex}")
+                print(f"In {here}: {str(ex)}")
         
         return False
     
     # =====================================================================================
-    # ABSTRACT METHODS TO BE IMPLEMENTED BY THE CHILD CASEHANDLE
+    # ABSTRACT METHODS TO BE IMPLEMENTED BY THE CHILD CASEHANDLER
     # =====================================================================================
     
     @abstractmethod
-    def process_message( self,
-                         message       : WhatsAppMsg,
-                         media_content : MediaContent | None = None
-                       ) -> bool :
+    def process_message(
+        self,
+        message       : WhatsAppMsg,
+        media_content : MediaContent | None = None,
+    ) -> bool :
         """
         Process a single WhatsApp webhook message \\
         Args:
@@ -574,13 +600,13 @@ class CaseHandlerBase ( Machine, ABC) :
         Returns:
             True if additional responses should be generated; else False.
         """
-        
         raise NotImplementedError
     
     @abstractmethod
-    def generate_response( self,
-                           max_tokens : int | None = None
-                         ) -> bool :
+    def generate_response(
+        self,
+        max_tokens : int | None = None,
+    ) -> bool :
         """
         Generate an assistant reply (potentially multi-turn) \\
         Args:
@@ -588,7 +614,401 @@ class CaseHandlerBase ( Machine, ABC) :
         Returns:
             True if another response pass is required; else False.
         """
+        raise NotImplementedError
+
+
+class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
+    """
+    Async case handler base class. \\
+    Uses async bucket storage/locks and async WhatsApp send helpers while
+    preserving the same case/context semantics as `CaseHandlerBase`.
+    """
+    
+    def __init__(
+        self,
+        operator : WhatsAppMetaData,
+        user     : WhatsAppContact,
+        debug    : bool = False,
+    ) -> None :
+        """
+        Initialize the async handler without doing await-only storage I/O \\
+        Args:
+            operator : WhatsApp metadata payload describing the business account
+            user     : WhatsApp contact representing the end user
+            debug    : When True, send verbose WhatsApp copies of assistant output
+        """
         
+        self.operator_num = operator.display_phone_number
+        self.operator_id  = operator.phone_number_id
+        self.user_id      = user.wa_id
+        self.user_name    = user.profile.name
+        self.debug        = debug
+        
+        self.user_data     : UserData      = None
+        self.case_id       : int           = None
+        self.case_manifest : CaseManifest  = None
+        self.case_context  : list[Message] = None
+        self.machine       : Machine       = None
+        self.states        : list[State]   = []
+        self.transitions   : list[dict]    = []
+        self.state         : str           = None
+        
+        from .do_bucket_storage import AsyncDOBucketStorage
+        from .do_bucket_lock import AsyncDOBucketLock
+        
+        self.storage      = AsyncDOBucketStorage( self.operator_num, self.user_id)
+        self.storage_lock = AsyncDOBucketLock
+        
+        self.user_root    = self.storage.dir_user()
+        self._async_ready = False
+        
+        return
+    
+    async def _ensure_async_ready(self) -> None :
+        """
+        Lazily run async initialization that cannot happen in `__init__`.
+        """
+        if not self._async_ready :
+            await self.user_data_lookup()
+            self._async_ready = True
+        
+        return
+    
+    # =====================================================================================
+    # CASE MANAGEMENT
+    # =====================================================================================
+    
+    async def user_data_lookup(self) -> None :
+        """
+        Load or initialize UserData for the WhatsApp contact asynchronously.
+        """
+        need_to_update = False
+        p              = self.storage.path_user_data()
+        data           = await self.storage.json_read(p)
+        
+        if data and isinstance( data, dict) :
+            self.user_data = UserData.model_validate(data)
+        else :
+            self.user_data = UserData.from_phone_number(self.user_id)
+            need_to_update = True
+        
+        if self.user_name and ( self.user_name not in self.user_data.names ) :
+            self.user_data.names.append(self.user_name)
+            need_to_update = True
+        
+        if need_to_update :
+            async with self.storage_lock(self.user_root) :
+                await self.storage.json_write( p, self.user_data.model_dump())
+        
+        return
+    
+    async def case_decide(self) -> tuple[ int, CaseManifest] :
+        """
+        Decide whether to continue on the open case or create a new one asynchronously.
+        """
+        await self._ensure_async_ready()
+        
+        index = CaseIndex( open_case_id = None)
+        p     = self.storage.path_case_index()
+        data  = await self.storage.json_read(p)
+        if data and isinstance( data, dict) :
+            index = CaseIndex( open_case_id = data.get("open_case_id"))
+        
+        if not index.open_case_id :
+            return await self.case_open_new()
+        
+        self.storage.set_case_id(index.open_case_id)
+        manifest = await self.storage.manifest_load()
+        
+        if manifest.status != "open" :
+            return await self.case_open_new()
+        
+        now  = datetime.now(timezone.utc)
+        last = utc_iso_to_dt(manifest.time_last_message) or \
+               utc_iso_to_dt(manifest.time_opened) or now
+        
+        if ( now - last ) > timedelta( hours = self.TIME_LIMIT_STALE) :
+            manifest.status = "timeout"
+            await self.storage.manifest_write(manifest)
+            return await self.case_open_new()
+        
+        return manifest.case_id, manifest
+    
+    async def case_open_new(self) -> tuple[ int, CaseManifest] :
+        """
+        Create a new case manifest and update the open-case index asynchronously.
+        """
+        await self._ensure_async_ready()
+        
+        case_id = await self.storage.get_next_case_id()
+        self.storage.set_case_id(case_id)
+        
+        manifest = CaseManifest( case_id = case_id)
+        
+        await self.storage.manifest_write(manifest)
+        await self.case_set_open_case_id(case_id)
+        
+        return case_id, manifest
+    
+    async def case_mark_as_resolved(self) -> None :
+        """
+        Mark the active case as resolved and persist the closing timestamp asynchronously.
+        """
+        await self._ensure_async_ready()
+        
+        self.case_manifest.status      = "resolved"
+        self.case_manifest.time_closed = get_now_utc_iso()
+        
+        await self.storage.manifest_write(self.case_manifest)
+        await self.case_set_open_case_id(None)
+        
+        return
+    
+    async def case_set_open_case_id( self, case_id : int | None) -> None :
+        """
+        Update the open case index asynchronously.
+        """
+        await self._ensure_async_ready()
+        
+        p = self.storage.path_case_index()
+        await self.storage.json_write( p, { "open_case_id": case_id })
+        
+        return
+    
+    # =====================================================================================
+    # CONTEXT
+    # =====================================================================================
+    
+    async def context_build( self, truncate : bool = True) -> None :
+        """
+        Build the ordered case context asynchronously.
+        """
+        await self._ensure_async_ready()
+        
+        if not ( self.case_id and self.case_manifest ) :
+            self.case_id, self.case_manifest = await self.case_decide()
+        
+        self.case_context = []
+        for msg_id in self.case_manifest.message_ids:
+            message = await self.storage.message_read(msg_id)
+            if message :
+                self.case_context.append(message)
+        
+        self.case_context.sort(
+            key = lambda message : (
+                utc_iso_to_dt(message.time_created),
+                utc_iso_to_dt(message.time_received),
+            )
+        )
+        
+        if truncate and ( len(self.case_context) > self.MAX_CONTEXT_LEN ) :
+            self.case_context = self.case_context[ -self.MAX_CONTEXT_LEN : ]
+        
+        if self.machine :
+            self.reset_state_machine()
+            for message in self.case_context :
+                self.ingest_message(message)
+        
+        return
+    
+    async def context_update( self, message : Message) -> None :
+        """
+        Persist a new message and refresh the in-memory context asynchronously.
+        """
+        await self._ensure_async_ready()
+        
+        async with self.storage_lock(self.user_root) :
+            await self.storage.message_write(message)
+            await self.storage.manifest_append( self.case_manifest, message)
+            if message.idempotency_key :
+                await self.storage.dedup_write(message.idempotency_key)
+        
+        if self.case_context :
+            self.case_context.append(message)
+        
+        if self.machine :
+            self.ingest_message(message)
+        
+        return
+    
+    # =====================================================================================
+    # MESSAGE DEDUP AND INGESTION
+    # =====================================================================================
+    
+    async def dedup_and_ingest_message(
+        self,
+        message       : WhatsAppMsg,
+        media_content : MediaContent | None = None,
+    ) -> UserMsg | None :
+        """
+        Convert a webhook payload into domain messages asynchronously, skipping duplicates.
+        """
+        _orig_ = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
+        
+        await self._ensure_async_ready()
+        
+        if await self.storage.dedup_exists(message.id) :
+            return None
+        
+        self.case_id, self.case_manifest = await self.case_decide()
+        
+        msg = None
+        if message.text or message.media_data :
+            
+            text       = None
+            media_data = None
+            if message.text :
+                text = message.text.body
+            elif message.media_data :
+                text       = message.media_data.caption
+                media_data = MediaData.from_content(media_content)
+            
+            msg = UserContentMsg(
+                    origin          = _orig_,
+                    idempotency_key = message.id,
+                    time_created    = unix_to_utc_iso(message.timestamp),
+                    text            = text,
+                    media           = media_data )
+            msg.print()
+        
+        elif message.interactive :
+            
+            msg = UserInteractiveReplyMsg(
+                    origin          = _orig_,
+                    idempotency_key = message.id,
+                    time_created    = unix_to_utc_iso(message.timestamp),
+                    choice          = message.interactive.choice )
+            msg.print()
+        
+        if msg :
+            await self.context_update(msg)
+            if isinstance( msg, UserContentMsg) and msg.media :
+                async with self.storage_lock(self.user_root) :
+                    await self.storage.media_write( msg, media_content)
+        
+        return msg
+    
+    # =====================================================================================
+    # MESSAGE SENDING FUNCTIONS
+    # =====================================================================================
+    
+    async def send_text(
+        self,
+        message : ServerTextMsg | AssistantMsg | ToolResultsMsg,
+    ) -> bool :
+        """
+        Send textual assistant output or debugging artifacts asynchronously.
+        """
+        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
+        
+        try :
+            if not self.debug :
+                if isinstance( message, ( ServerTextMsg, AssistantMsg)) \
+                and message.text :
+                    await async_send_whatsapp_text(
+                        self.operator_id,
+                        self.user_id,
+                        message.text,
+                    )
+                return True
+            
+            elif isinstance( message, ( ServerTextMsg, AssistantMsg)) :
+                if message.text :
+                    text_str = message.text
+                    if len(text_str) > 4096 :
+                        text_str = "[Result too long to display here]"
+                    msg_display = "📝 Text:\n" + text_str
+                    await async_send_whatsapp_text(
+                        self.operator_id,
+                        self.user_id,
+                        msg_display,
+                    )
+                if isinstance( message, AssistantMsg) :
+                    for tc in message.tool_calls :
+                        msg_display = "🔧 Tool call:\n" \
+                                    + write_to_json_string(tc.model_dump())
+                        await async_send_whatsapp_text(
+                            self.operator_id,
+                            self.user_id,
+                            msg_display,
+                        )
+            
+            elif isinstance( message, ToolResultsMsg) :
+                for tr in message.tool_results :
+                    tr_str = write_to_json_string(tr.model_dump())
+                    if len(tr_str) > 4096 :
+                        tr_str = "[Result too long to display here]"
+                    msg_display = "📊 Tool result:\n" + tr_str
+                    await async_send_whatsapp_text(
+                        self.operator_id,
+                        self.user_id,
+                        msg_display,
+                    )
+            
+            return True
+        
+        except Exception as ex :
+            print(f"In {here}: {str(ex)}")
+        
+        return False
+    
+    async def send_interactive(
+        self,
+        message : ServerInteractiveOptsMsg,
+    ) -> bool :
+        """
+        Send WhatsApp interactive messages asynchronously.
+        """
+        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
+        
+        if isinstance( message, ServerInteractiveOptsMsg) :
+            try :
+                if not self.debug :
+                    await async_send_whatsapp_interactive(
+                        self.operator_id,
+                        self.user_id,
+                        message,
+                    )
+                else :
+                    message_cp      = deepcopy(message)
+                    message_cp.body = "📝 Interactive Message:\n" \
+                                    + str(message_cp.body)
+                    await async_send_whatsapp_interactive(
+                        self.operator_id,
+                        self.user_id,
+                        message,
+                    )
+                
+                return True
+            
+            except Exception as ex :
+                print(f"In {here}: {str(ex)}")
+        
+        return False
+    
+    # =====================================================================================
+    # ABSTRACT METHODS TO BE IMPLEMENTED BY THE CHILD CASEHANDLER
+    # =====================================================================================
+    
+    @abstractmethod
+    async def process_message(
+        self,
+        message       : WhatsAppMsg,
+        media_content : MediaContent | None = None,
+    ) -> bool :
+        """
+        Process a single WhatsApp webhook message asynchronously.
+        """
+        raise NotImplementedError
+    
+    @abstractmethod
+    async def generate_response(
+        self,
+        max_tokens : int | None = None
+    ) -> bool :
+        """
+        Generate an assistant reply asynchronously.
+        """
         raise NotImplementedError
 
 
