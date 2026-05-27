@@ -17,15 +17,8 @@ from .basemodels import ( OutgoingMediaMsg,
                           WhatsAppMediaData )
 
 
-# -----------------------------------------------------------------------------------------
-# CONSTANTS AND ENVIRONMENT VARIABLES
+API_URL = "https://graph.facebook.com/v25.0/"
 
-API_URL = "https://graph.facebook.com/v23.0/"
-
-if not ( WA_APP_SECRET := os.getenv("WA_APP_SECRET") ) :
-    raise RuntimeError("Environment variable 'WA_APP_SECRET' was not found")
-if not ( WA_TOKEN      := os.getenv("WA_TOKEN")      ) :
-    raise RuntimeError("Environment variable 'WA_TOKEN' was not found")
 
 # -----------------------------------------------------------------------------------------
 # MESSAGES: INCOMING
@@ -88,6 +81,9 @@ def verify_payload_signature(
     
     if not ( signature and signature.startswith("sha256=") ) :
         return False
+    
+    if not ( WA_APP_SECRET := os.getenv("WA_APP_SECRET") ) :
+        raise RuntimeError("Environment variable 'WA_APP_SECRET' was not found")
     
     expected = hmac.new(
         key       = WA_APP_SECRET.encode("utf-8"),
@@ -410,6 +406,9 @@ def write_headers( content_type : bool = False) -> dict :
     Returns:
         Headers dictionary for Graph API HTTP calls
     """
+    
+    if not ( WA_TOKEN := os.getenv("WA_TOKEN") ) :
+        raise RuntimeError("Environment variable 'WA_TOKEN' was not found")
     
     headers = { "Authorization": f"Bearer {WA_TOKEN}" }
     if content_type :
