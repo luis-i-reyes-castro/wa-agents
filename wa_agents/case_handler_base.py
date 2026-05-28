@@ -16,8 +16,12 @@ from transitions import (
     Machine,
     State,
 )
+from transitions.extensions.asyncio import (
+    AsyncMachine,
+    AsyncState,
+)
 from types import SimpleNamespace
-from typing import Literal
+from typing import TypedDict
 
 from sofia_utils.stamps import *
 from sofia_utils.io import write_to_json_string
@@ -48,13 +52,16 @@ from .whatsapp_functions import (
 )
 
 
-type TransitionDK = Literal[ "source", "trigger", "dest" ]
-"""
-Transition Dictionary Key
-"""
+class TransitionDict (TypedDict) :
+    """
+    Transition Dictionary
+    """
+    source  : str
+    trigger : str
+    dest    : str
 
 
-class CH_State ( State ) :
+class CH_State (State) :
     """
     State with manually-dispatched `while_in` actions. \\
     Use `on_enter` / `on_exit` for true FSM callbacks that should run only when a
@@ -100,6 +107,38 @@ class CH_State ( State ) :
         return
 
 
+class Async_CH_State (AsyncState) :
+    """
+    Async version of `CH_State` for `AsyncMachine`.
+    """
+    
+    def __init__(
+        self,
+        name : str,
+        *,
+        on_enter                : str | list[str] | None = None,
+        while_in                : str | list[str] | None = None,
+        on_exit                 : str | list[str] | None = None,
+        ignore_invalid_triggers : bool | None            = None,
+        final                   : bool                   = False
+    ) -> None :
+        
+        super().__init__( name,
+                          on_enter                = on_enter,
+                          on_exit                 = on_exit,
+                          ignore_invalid_triggers = ignore_invalid_triggers,
+                          final                   = final )
+        
+        if while_in is None :
+            self.while_in = []
+        elif isinstance( while_in, str) :
+            self.while_in = [ while_in ]
+        else :
+            self.while_in = list(while_in)
+        
+        return
+
+
 class CaseHandlerBase ( Machine, ABC) :
     """
     Class for case and context management
@@ -110,10 +149,10 @@ class CaseHandlerBase ( Machine, ABC) :
     * Provides unified message sending
     """
     
-    MAX_CONTEXT_LEN  = 20
+    MAX_CONTEXT_LEN : int | None = 20
     """ Maximum context length (in number of messages) """
     
-    TIME_LIMIT_STALE = 48
+    TIME_LIMIT_STALE : int | None = 48
     """ Case staleness time limit (in hours) """
     
     def __init__(
@@ -161,8 +200,11 @@ class CaseHandlerBase ( Machine, ABC) :
     # =====================================================================================
     
     @classmethod
-    def define_state_machine_config(cls) \
-    -> tuple[ list[ CH_State ], str, list[ dict[ TransitionDK, str] ] ] :
+    def define_state_machine_config(cls) -> tuple[
+        list[CH_State],
+        str,
+        list[TransitionDict],
+    ] :
         """
         Overload this method to define state machine states and transitions. \\
         Returns:
@@ -183,6 +225,7 @@ class CaseHandlerBase ( Machine, ABC) :
         """
         
         states, initial, transitions = self.define_state_machine_config()
+        states                       = ensure_homogeneous_states(states)
         attach_state_callbacks( self, states)
         
         Machine.__init__(
@@ -208,11 +251,11 @@ class CaseHandlerBase ( Machine, ABC) :
         states, initial, transitions = cls.define_state_machine_config()
         
         return draw_state_machine_graph(
-            states      = states,
+            states      = ensure_homogeneous_states(states),
             transitions = transitions,
             initial     = initial,
             filename    = filename,
-            class_name  = cls.__name__
+            class_name  = cls.__name__,
         )
     
     def ingest_message( self, message : Message) -> None :
@@ -299,15 +342,16 @@ class CaseHandlerBase ( Machine, ABC) :
             return self.case_open_new()
         
         # 2-3) If stale then open new case
-        
-        now  = datetime.now(timezone.utc)
-        last = utc_iso_to_dt(manifest.time_last_message) or \
-               utc_iso_to_dt(manifest.time_opened) or now
-        
-        if ( now - last ) > timedelta( hours = self.TIME_LIMIT_STALE) :
-            manifest.status = "timeout"
-            self.storage.manifest_write(manifest)
-            return self.case_open_new()
+        if self.TIME_LIMIT_STALE :
+            
+            now  = datetime.now(timezone.utc)
+            last = utc_iso_to_dt(manifest.time_last_message) or \
+                   utc_iso_to_dt(manifest.time_opened) or now
+            
+            if ( now - last ) > timedelta( hours = self.TIME_LIMIT_STALE) :
+                manifest.status = "timeout"
+                self.storage.manifest_write(manifest)
+                return self.case_open_new()
         
         # 2-4) Else return case ID and manifest
         return manifest.case_id, manifest
@@ -386,7 +430,10 @@ class CaseHandlerBase ( Machine, ABC) :
         )
         
         # Enforce max context length
-        if truncate and ( len(self.case_context) > self.MAX_CONTEXT_LEN ) :
+        if (
+            truncate and self.MAX_CONTEXT_LEN and
+            ( len(self.case_context) > self.MAX_CONTEXT_LEN )
+        ):
             self.case_context = self.case_context[ -self.MAX_CONTEXT_LEN : ]
         
         # Feed context to state machine
@@ -621,12 +668,18 @@ class CaseHandlerBase ( Machine, ABC) :
         raise NotImplementedError
 
 
-class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
+class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     """
     Async case handler base class. \\
     Uses async bucket storage/locks and async WhatsApp send helpers while
     preserving the same case/context semantics as `CaseHandlerBase`.
     """
+    
+    MAX_CONTEXT_LEN : int | None = 20
+    """ Maximum context length (in number of messages) """
+    
+    TIME_LIMIT_STALE : int | None = 48
+    """ Case staleness time limit (in hours) """
     
     def __init__(
         self,
@@ -652,7 +705,7 @@ class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
         self.case_id       : int           = None
         self.case_manifest : CaseManifest  = None
         self.case_context  : list[Message] = None
-        self.machine       : Machine       = None
+        self.machine       : AsyncMachine  = None
         self.states        : list[State]   = []
         self.transitions   : list[dict]    = []
         self.state         : str           = None
@@ -682,11 +735,79 @@ class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
     # STATE MACHINE
     # =====================================================================================
     
+    @classmethod
+    def define_state_machine_config(cls) -> tuple[
+        list[ CH_State | Async_CH_State ],
+        str,
+        list[TransitionDict],
+    ] :
+        """
+        Overload this method to define state machine states and transitions. \\
+        Returns:
+            * List of states.
+                * Each state must have `name`.
+                * Optional: `on_enter`, `while_in`, `on_exit`.
+            * List of transitions as dicts with keys `source`, `trigger` and `dest`.
+            * Initial state name.
+        """
+        return [], str(None), []
+    
+    def init_machine( self, **machine_kwargs) -> None :
+        """
+        Initialize the handler itself as an async `transitions.AsyncMachine` model \\
+        Args:
+            states       : State definitions
+            transitions  : Transition definitions
+            initial      : Initial state name
+            machine_kwargs : Extra kwargs forwarded to `AsyncMachine`
+        """
+        
+        states, initial, transitions = self.define_state_machine_config()
+        async_states                 = to_async_states(states)
+        
+        attach_state_callbacks( self, async_states)
+        
+        AsyncMachine.__init__(
+            self,
+            model                   = self,
+            states                  = async_states,
+            initial                 = initial,
+            transitions             = transitions,
+            auto_transitions        = False,
+            ignore_invalid_triggers = True,
+            **machine_kwargs,
+        )
+        self.machine = self
+        
+        return
+    
+    @classmethod
+    def draw_state_machine_graph(
+        cls,
+        filename : str | None = "state_machine.png",
+    ) -> None :
+        
+        states, initial, transitions = cls.define_state_machine_config()
+        
+        return draw_state_machine_graph(
+            states      = to_async_states(states),
+            transitions = transitions,
+            initial     = initial,
+            filename    = filename,
+            class_name  = cls.__name__,
+        )
+    
     async def ingest_message( self, message : Message) -> None :
         """
         Overload this method to ingest a single message and fire triggers. \\
         Args:
             message : Instance of a subclass of Message
+        """
+        return
+    
+    def reset_state_machine(self) -> None :
+        """
+        Overload this method to reset handler-specific state-machine data.
         """
         return
     
@@ -739,14 +860,16 @@ class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
         if manifest.status != "open" :
             return await self.case_open_new()
         
-        now  = datetime.now(timezone.utc)
-        last = utc_iso_to_dt(manifest.time_last_message) or \
-               utc_iso_to_dt(manifest.time_opened) or now
-        
-        if ( now - last ) > timedelta( hours = self.TIME_LIMIT_STALE) :
-            manifest.status = "timeout"
-            await self.storage.manifest_write(manifest)
-            return await self.case_open_new()
+        if self.TIME_LIMIT_STALE :
+            
+            now  = datetime.now(timezone.utc)
+            last = utc_iso_to_dt(manifest.time_last_message) or \
+                utc_iso_to_dt(manifest.time_opened) or now
+            
+            if ( now - last ) > timedelta( hours = self.TIME_LIMIT_STALE) :
+                manifest.status = "timeout"
+                await self.storage.manifest_write(manifest)
+                return await self.case_open_new()
         
         return manifest.case_id, manifest
     
@@ -817,7 +940,10 @@ class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
             )
         )
         
-        if truncate and ( len(self.case_context) > self.MAX_CONTEXT_LEN ) :
+        if (
+            truncate and self.MAX_CONTEXT_LEN and
+            ( len(self.case_context) > self.MAX_CONTEXT_LEN )
+        ):
             self.case_context = self.case_context[ -self.MAX_CONTEXT_LEN : ]
         
         if self.machine :
@@ -1033,30 +1159,39 @@ class AsyncCaseHandlerBase ( CaseHandlerBase, ABC) :
 # =========================================================================================
 
 def attach_state_callbacks(
-    machine : object,
-    states  : list[State],
+    machine  : object,
+    states   : list[State] | list[AsyncState],
 ) -> object :
     """
     Ensure every real `on_enter` / `on_exit` callback exists on `machine`. \\
-    `while_in` actions are intentionally excluded because they are dispatched
+    NOTE: `while_in` actions are intentionally excluded because they are dispatched
     manually from `generate_response()` and are not FSM callbacks.
     """
     
+    if all( isinstance( state, CH_State) for state in states ) :
+        def dummy_callback() -> None :
+            return
+    else :
+        async def dummy_callback() -> None :
+            return
+    
     for state in states :
+        
         for callback_name in state.on_enter :
             if not hasattr( machine, callback_name) :
-                setattr( machine, callback_name, lambda : None)
+                setattr( machine, callback_name, dummy_callback)
+        
         for callback_name in state.on_exit :
             if not hasattr( machine, callback_name) :
-                setattr( machine, callback_name, lambda : None)
+                setattr( machine, callback_name, dummy_callback)
     
     return machine
 
 def draw_state_machine_graph(
     *,
-    states      : list[State],
+    states      : list[State] | list[AsyncState],
     initial     : str | None,
-    transitions : list[ dict[ TransitionDK, str] ],
+    transitions : list[TransitionDict],
     filename    : str        = "state_machine.png",
     class_name  : str | None = None,
 ) -> None :
@@ -1148,3 +1283,40 @@ def draw_state_machine_graph(
     graph.draw( filename, prog = 'dot')
     
     return
+
+def ensure_homogeneous_states(
+    states : list[ CH_State | AsyncState ],
+) -> list[CH_State] | list[Async_CH_State] :
+    
+    if not (
+        all( isinstance( state, CH_State)       for state in states ) or
+        all( isinstance( state, Async_CH_State) for state in states )
+    ) :
+        raise ValueError("List of states is not homogeneous.")
+    
+    return states
+
+def to_async_states(
+    states : list[ State | Async_CH_State ],
+) -> list[AsyncState] :
+    """
+    Convert regular state objects into async state objects for `AsyncMachine`.
+    """
+    async_states = []
+    
+    for state in states :
+        if isinstance( state, AsyncState) :
+            async_states.append(state)
+        else :
+            async_states.append(
+                Async_CH_State(
+                    name     = state.name,
+                    on_enter = list( state.on_enter ),
+                    while_in = list( getattr( state, "while_in", []) ),
+                    on_exit  = list( state.on_exit ),
+                    ignore_invalid_triggers = state.ignore_invalid_triggers,
+                    final                   = state.final,
+                )
+            )
+    
+    return async_states

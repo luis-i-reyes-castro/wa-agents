@@ -692,7 +692,8 @@ class Message( BaseModel, ABC) :
         Print itself
         """
         print_sep()
-        print( "[INFO] Message:\n" + self.model_dump_json( indent= JSON_INDENT) )
+        print("[INFO] WA-AGENTS MESSAGE:")
+        print(self.model_dump_json( indent = JSON_INDENT))
         return
     
     @property

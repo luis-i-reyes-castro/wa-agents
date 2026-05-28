@@ -203,6 +203,9 @@ Template:
 Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py).
 
 - Initialize `CaseHandlerBase` itself as a `transitions.Machine` with `init_machine(...)`.
+- Initialize `AsyncCaseHandlerBase` itself as a `transitions.AsyncMachine`.
+  Async handlers that fire triggers from `async` methods must use
+  `await self.trigger(...)`.
 - [`context_build()`](wa_agents/case_handler_base.py) replays stored case messages into the handler state machine.
 - [`context_update()`](wa_agents/case_handler_base.py) incrementally feeds new messages into the handler state machine.
 - [`generate_response()`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) checks the current state's `while_in` actions and routes to step handlers.

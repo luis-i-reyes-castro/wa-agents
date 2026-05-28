@@ -17,7 +17,10 @@ from .basemodels import ( MediaContent,
                           WhatsAppContact,
                           WhatsAppMetaData,
                           WhatsAppPayload )
-from .case_handler_base import CaseHandlerBase
+from .case_handler_base import (
+    AsyncCaseHandlerBase,
+    CaseHandlerBase,
+)
 from .queue_db import (
     AsyncQueueDB,
     QueueDB,
@@ -223,12 +226,12 @@ class AsyncQueueWorker :
     
     def __init__( self,
                   queue_db    : AsyncQueueDB,
-                  handler_cls : Type[CaseHandlerBase]) -> None :
+                  handler_cls : Type[AsyncCaseHandlerBase]) -> None :
         """
         Configure the worker with its queue database and handler class \\
         Args:
             queue_db    : AsyncQueueDB instance
-            handler_cls : CaseHandlerBase subclass invoked per user/operator
+            handler_cls : AsyncCaseHandlerBase subclass invoked per user/operator
         """
         self.queue       = queue_db
         self.handler_cls = handler_cls
