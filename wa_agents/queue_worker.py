@@ -137,6 +137,9 @@ class QueueWorker :
         row_id : str = item["row_id"]
         try :
             payload : WhatsAppPayload = item["payload"]
+            if not payload.has_messages() :
+                self.queue.mark_done(row_id)
+                return True
             
             for wa_changes in payload.entry :
                 for wa_change_ in wa_changes.changes :
@@ -306,6 +309,9 @@ class AsyncQueueWorker :
         row_id : int = item["row_id"]
         try :
             payload : WhatsAppPayload = item["payload"]
+            if not payload.has_messages() :
+                await self.queue.mark_done(row_id)
+                return True
             
             for wa_changes in payload.entry :
                 for wa_change_ in wa_changes.changes :
