@@ -999,8 +999,45 @@ class CaseManifest(BaseModel) :
     message_ids       : Annotated[ list[NE_str], Field( default_factory = list)]
 
 # =========================================================================================
-# VALIDATION ERROR PRINTING
+# UTILITY FUNCTIONS
 # =========================================================================================
+
+def is_llm_readable( message : Message) -> bool :
+    
+    return not ( isinstance( message, ServerTextMsg) and message.user_eyes )
+
+def llm_context_len( context : list[Message]) -> int :
+    
+    return sum( is_llm_readable(message) for message in context )
+
+def llm_context_truncate(
+    messages : list[Message],
+    max_len  : int | None,
+) -> list[Message] :
+    
+    if ( not max_len ) or ( llm_context_len(messages) <= max_len ) :
+        return messages
+    
+    pending_tool_result = False
+    context             = []
+    count               = 0
+    
+    for message in reversed(messages) :
+        
+        context.append(message)
+        
+        if is_llm_readable(message) :
+            count += 1
+        
+        if isinstance( message, ToolResultsMsg) :
+            pending_tool_result = True
+        elif isinstance( message, AssistantMsg) and message.tool_calls :
+            pending_tool_result = False
+        
+        if count >= max_len and not pending_tool_result :
+            break
+    
+    return list(reversed(context))
 
 def print_validation_errors( validation_error : ValidationError,
                              indent           : int = JSON_INDENT) -> None :

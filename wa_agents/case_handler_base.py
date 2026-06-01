@@ -43,6 +43,7 @@ from .basemodels import (
     WhatsAppContact,
     WhatsAppMetaData,
     WhatsAppMsg,
+    llm_context_truncate,
 )
 from .whatsapp_functions import (
     async_send_whatsapp_interactive,
@@ -430,11 +431,11 @@ class CaseHandlerBase ( Machine, ABC) :
         )
         
         # Enforce max context length
-        if (
-            truncate and self.MAX_CONTEXT_LEN and
-            ( len(self.case_context) > self.MAX_CONTEXT_LEN )
-        ):
-            self.case_context = self.case_context[ -self.MAX_CONTEXT_LEN : ]
+        if truncate :
+            self.case_context = llm_context_truncate(
+                self.case_context,
+                self.MAX_CONTEXT_LEN,
+            )
         
         # Feed context to state machine
         if self.machine :
@@ -940,11 +941,11 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
             )
         )
         
-        if (
-            truncate and self.MAX_CONTEXT_LEN and
-            ( len(self.case_context) > self.MAX_CONTEXT_LEN )
-        ):
-            self.case_context = self.case_context[ -self.MAX_CONTEXT_LEN : ]
+        if truncate :
+            self.case_context = llm_context_truncate(
+                self.case_context,
+                self.MAX_CONTEXT_LEN,
+            )
         
         if self.machine :
             self.reset_state_machine()
