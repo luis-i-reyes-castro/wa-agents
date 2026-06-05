@@ -10,11 +10,14 @@ from typing import Any
 
 from sofia_utils.printing import print_sep
 
-from .basemodels import ( OutgoingMediaMsg,
-                          ServerInteractiveOptsMsg,
-                          WhatsAppContactPayload,
-                          WhatsAppLocation,
-                          WhatsAppMediaData )
+from .basemodels import (
+    OutgoingDocumentMsg,
+    OutgoingMediaMsg,
+    ServerInteractiveOptsMsg,
+    WhatsAppContactPayload,
+    WhatsAppLocation,
+    WhatsAppMediaData,
+)
 
 
 API_URL = "https://graph.facebook.com/v25.0/"
@@ -273,9 +276,9 @@ def send_whatsapp_media(
     # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media/
     
     try:
-        # 1) UPLOAD THE IMAGE TO GET A MEDIA ID
+        # 1) UPLOAD THE MEDIA TO GET A MEDIA ID
         print_sep()
-        print(f"Uploading image: {media.filepath}")
+        print(f"Uploading media: {media.filepath}")
         
         # Post upload
         upload_url  = f"{API_URL}{operator_id}/media"
@@ -308,8 +311,8 @@ def send_whatsapp_media(
         media.upload_id = upload_data["id"]
         print(f"Uploaded media with ID: {media.upload_id}")
         
-        # 2) SEND THE IMAGE MESSAGE WITH THE CORRESPONDING MEDIA ID
-        print(f"Sending image message...")
+        # 2) SEND THE MEDIA MESSAGE WITH THE CORRESPONDING MEDIA ID
+        print("Sending media message...")
         
         # Declare message URL and headers
         msg_url     = f"{API_URL}{operator_id}/messages"
@@ -320,13 +323,13 @@ def send_whatsapp_media(
         response = httpx.post( msg_url, headers = msg_headers, json = payload)
         
         # Print response
-        print(f"Image message response status: {response.status_code}")
-        print( "Image reply response:", response.json())
+        print(f"Media message response status: {response.status_code}")
+        print(f"Media reply response: {response.json()}")
         
         return True
     
     except Exception as ex:
-        print(f"Error sending image: {ex}")
+        print(f"Error sending media: {ex}")
     
     return False
 
@@ -347,7 +350,7 @@ async def async_send_whatsapp_media(
     
     try:
         print_sep()
-        print(f"Uploading image: {media.filepath}")
+        print(f"Uploading media: {media.filepath}")
         
         upload_url  = f"{API_URL}{operator_id}/media"
         upload_head = write_headers()
@@ -377,7 +380,7 @@ async def async_send_whatsapp_media(
             
             media.upload_id = upload_data["id"]
             print(f"Uploaded media with ID: {media.upload_id}")
-            print("Sending image message...")
+            print("Sending media message...")
             
             msg_url     = f"{API_URL}{operator_id}/messages"
             msg_headers = write_headers( content_type = True)
@@ -388,13 +391,13 @@ async def async_send_whatsapp_media(
                 json    = payload,
             )
         
-        print(f"Image message response status: {response.status_code}")
-        print( "Image reply response:", response.json())
+        print(f"Media message response status: {response.status_code}")
+        print(f"Media reply response: {response.json()}")
         
         return True
     
     except Exception as ex:
-        print(f"Error sending image: {ex}")
+        print(f"Error sending media: {ex}")
     
     return False
 
@@ -505,6 +508,11 @@ def write_payload(
         payload[content.type] = { "id" : content.upload_id }
         if content.caption :
             payload[content.type]["caption"] = content.caption
+        if (
+            isinstance( content, OutgoingDocumentMsg) and
+            ( filename := content.filename )
+        ) :
+            payload[content.type]["filename"] = filename
     
     else :
         raise ValueError(f"In write_payload: Invalid content type '{type(content)}'")

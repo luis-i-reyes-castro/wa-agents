@@ -791,12 +791,30 @@ def load_media( path : str | Path) -> tuple[ MediaData, MediaContent] :
 
 class OutgoingMediaMsg(MediaBase) :
     """
-    Outgoint Media Message
+    Outgoing Media Message
     """
     filepath  : NE_str
     content   : bytes
     caption   : NE_str | None = None
     upload_id : NE_str | None = None
+
+class OutgoingDocumentMsg(OutgoingMediaMsg) :
+    """
+    Outgoing PDF Document Message
+    """
+    mime     : Literal["application/pdf"] = "application/pdf"
+    filename : NE_str | None = None
+    
+    def model_post_init( self, __context : Any) -> None :
+        
+        if not self.filename :
+            self.filename = Path(self.filepath).name
+        
+        return
+    
+    @property
+    def type(self) -> str :
+        return "document"
 
 class ToolCall(BaseModel) :
     """
