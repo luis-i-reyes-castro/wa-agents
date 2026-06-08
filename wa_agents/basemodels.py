@@ -837,6 +837,7 @@ class ToolResult(BaseModel) :
     id      : NE_str
     content : Any  | None = None
     error   : bool | None = False
+    _silent : bool | None = None
 
 # -----------------------------------------------------------------------------------------
 # USER MESSAGES
