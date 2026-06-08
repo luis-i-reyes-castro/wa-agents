@@ -71,6 +71,11 @@ class AgentBase (ABC) :
             name   : Friendly name to attach to generated responses
             models : One OpenRouter model string or ordered model fallback list
         """
+        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
+        if not os.getenv("OPENROUTER_API_KEY") :
+            raise RuntimeError(
+                f"In {here}: Environment variable 'OPENROUTER_API_KEY' was not found"
+            )
         
         if isinstance( models, str) :
             models = [models]
@@ -81,8 +86,7 @@ class AgentBase (ABC) :
             and all( isinstance( m, str) for m in models )
             and all( bool( match( self.API_DATA_PATTERN, m) ) for m in models )
         ) :
-            e_prefix = f"In class {self.__class__.__name__} method __init__"
-            raise ValueError(f"{e_prefix}: Invalid argument '{models}'")
+            raise ValueError(f"In {here}: Invalid argument '{models}'")
         
         self.name            = name
         self.api             = "openrouter"
