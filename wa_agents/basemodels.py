@@ -2,27 +2,37 @@
 BaseModel Classes
 """
 
-from abc import ( ABC,
-                  abstractmethod )
+from abc import (
+    ABC,
+    abstractmethod,
+)
 from decimal import Decimal
 from mimetypes import guess_type
 from pathlib import Path
-from pydantic import ( BaseModel,
-                       ConfigDict,
-                       Field,
-                       model_validator,
-                       ValidationError )
-from typing import ( Annotated,
-                     Any,
-                     Literal,
-                     Self )
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    model_validator,
+)
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    Self,
+)
 
 from sofia_utils.io import JSON_INDENT
-from sofia_utils.printing import ( print_ind,
-                                   print_sep )
-from sofia_utils.stamps import ( generate_UUID,
-                                 get_now_utc_iso,
-                                 get_sha256 )
+from sofia_utils.printing import (
+    print_ind,
+    print_sep,
+)
+from sofia_utils.stamps import (
+    generate_UUID,
+    get_now_utc_iso,
+    get_sha256,
+)
 
 from .phone_numbers import get_country_and_language
 
@@ -40,6 +50,9 @@ type NN_int = Annotated[ int, Field( ge = 0)]
 type NE_str = Annotated[ str, Field( min_length = 2)]
 """ Non-empty string (at least 2 chars) """
 
+type NE_var_name = Annotated[ str, Field( pattern = r"^[A-Za-z\_]\w+$")]
+""" Non-empty variable name (at least 2 chars) """
+
 type NE_list_str = Annotated[ list[ NE_str ], Field( min_length = 1)]
 """ Non-empty list of strings (at least 1 string) """
 
@@ -54,7 +67,7 @@ class InteractiveOption(BaseModel) :
     """
     model_config = ConfigDict( frozen = True)
     
-    id    : NE_str
+    id    : NE_var_name
     title : NE_str
 
 # =========================================================================================
@@ -908,8 +921,8 @@ class ServerInteractiveOptsMsg( ServerMsg, StructuredDataMsg) :
     body    : NE_str
     footer  : NE_str | None = None
     button  : NE_str | None = None
-    options : Annotated [ list[InteractiveOption],
-                          Field( min_length = 2, default_factory = list)]
+    options : Annotated[ list[InteractiveOption],
+                         Field( min_length = 2, default_factory = list)]
     
     @model_validator( mode = "after")
     def validate_message(self) -> Self :
@@ -932,6 +945,10 @@ class ServerInteractiveOptsMsg( ServerMsg, StructuredDataMsg) :
     
     def as_text(self) -> str :
         return self.model_dump_json( include = { "header", "body", "options" })
+    
+    @property
+    def opts_str(self) -> str :
+        return "_".join( opt.id for opt in self.options )
 
 # -----------------------------------------------------------------------------------------
 # ASSISTANT MESSAGES
