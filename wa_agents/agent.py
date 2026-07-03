@@ -15,6 +15,7 @@ from openai.types.chat import (
     ChatCompletion,
     ParsedChatCompletion,
 )
+from pathlib import Path
 from pydantic import BaseModel
 from re import match
 from typing import (
@@ -103,41 +104,63 @@ class AgentBase (ABC) :
     
     def load_prompts(
         self,
-        list_prompt_paths : list[ str | dict ],
+        list_prompt_paths : list[ str | Path | dict ],
     ) -> None :
         """
-        Load prompt snippets from strings or {path, replace} dictionaries \\
+        Load prompt snippets from strings, paths or replacement dicts \\
         Args:
-            list_prompt_paths : Sequence with file paths or descriptor dicts
+            list_prompt_paths : Sequence with file names, paths or replacement dicts.
+            For replacement dicts, keys `path` and `replace` are required;
+            key `path` must be a file name (`str`) or path (`Path`), and
+            key `replace` must be a dict mapping strings to strings.
         """
+        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
         
         for prompt_obj in list_prompt_paths :
-            # If prompt object is string then assume it is path
-            if isinstance( prompt_obj, str) :
-                prompt_as_str = load_file_as_string(prompt_obj)
+            
+            if (
+                isinstance( prompt_obj, ( str, Path)) and
+                ( prompt_as_str := load_file_as_string(prompt_obj) )
+            ) :
                 self.prompts.append(prompt_as_str)
             
-            # If prompt object is dictionary it should have "path" and "replace"
-            elif isinstance( prompt_obj, dict) :
-                prompt_path = prompt_obj.get("path")
-                if prompt_path and isinstance( prompt_path, str) :
-                    prompt_as_str = load_file_as_string(prompt_obj["path"])
-                    replacements  = prompt_obj.get("replace")
-                    if replacements :
-                        for key, val in replacements.items() :
-                            prompt_as_str = prompt_as_str.replace( key, val)
-                    self.prompts.append(prompt_as_str)
+            elif (
+                isinstance( prompt_obj, dict)               and
+                ( prompt_path   := prompt_obj.get("path") ) and
+                isinstance( prompt_path, ( str, Path))      and
+                ( prompt_as_str := load_file_as_string(prompt_path) )
+            ) :
+                replacements = prompt_obj.get("replace")
+                if (
+                    isinstance( replacements, dict) and
+                    all(
+                        ( isinstance( key, str) and isinstance( val, str) )
+                        for key, val in replacements.items()
+                    )
+                ) :
+                    for key, val in replacements.items() :
+                        prompt_as_str = prompt_as_str.replace( key, val)
+                else :
+                    raise ValueError(
+                        f"In {here}: Prompt path '{str(prompt_path)}' "
+                        f"is assigned to invalid replacements dict '{str(replacements)}'."
+                    )
+                
+                self.prompts.append(prompt_as_str)
             
             # Else raise exception
             else :
-                msg = f"Invalid prompt object of type '{type(prompt_obj)}'"
-                raise ValueError(f"In Agent load_prompts: {msg}")
+                raise ValueError(
+                    f"In {here}: Argument 'list_prompt_paths' has an invalid "
+                    f"item of type '{type(prompt_obj)}'; "
+                    f"contents: '{str(prompt_obj)}'."
+                )
         
         return
     
     def load_tools(
         self,
-        list_tool_paths : list[str],
+        list_tool_paths : list[ str | Path ],
     ) -> None :
         """
         Load JSON tool schemas \\
