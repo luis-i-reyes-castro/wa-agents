@@ -53,16 +53,18 @@ pip install -r requirements.txt
 
 ## Required Environment Variables
 
-### DigitalOcean Spaces (required)
+### S3-compatible bucket storage (required)
 
 These names must match the current code:
 
 | Variable | Description |
 | --- | --- |
-| `BUCKET_NAME` | Space name |
-| `BUCKET_REGION` | Region code, for example `atl1` |
+| `BUCKET_NAME` | Bucket name |
+| `BUCKET_REGION` | Region code, for example `atl1` or `us-east-1` |
 | `BUCKET_KEY_ID` | Access key ID |
 | `BUCKET_KEY_SECRET` | Secret access key |
+| `BUCKET_ENDPOINT` | Optional endpoint URL.<br>Defaults to Digital Ocean Spaces for `BUCKET_REGION`.<br>Set this for other S3-compatible services. |
+| `BUCKET_ADDRESSING_STYLE` | Optional `path`, `virtual`, or `auto`.<br>Defaults to `virtual` for DigitalOcean Spaces endpoints and `path` for custom endpoints. |
 
 ### WhatsApp (required)
 

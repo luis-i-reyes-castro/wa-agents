@@ -1,5 +1,8 @@
 """
-Digital Ocean Spaces S3 Bucket: Input/Output (IO) Functions
+S3 Bucket Input/Output (IO) Functions \\
+Now compatible with (at least):
+* Digital Ocean Spaces
+* Supabase File Storage
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from typing import (
     Any,
     cast,
 )
+from urllib.parse import urlparse
 
 from sofia_utils.io import write_to_json_string
 
@@ -48,10 +52,38 @@ if missing :
     missing_str = ", ".join(missing)
     raise RuntimeError(f"Missing S3 bucket environment variables: {missing_str}")
 
+BUCKET_ENDPOINT = (
+    os.getenv("BUCKET_ENDPOINT") or
+    f"https://{BUCKET_REGION}.digitaloceanspaces.com"
+)
+parsed_bucket_endpoint = urlparse(BUCKET_ENDPOINT)
+if not (
+    parsed_bucket_endpoint.scheme in ( "http", "https" ) and
+    parsed_bucket_endpoint.netloc
+) :
+    raise RuntimeError(f"Invalid S3 bucket endpoint '{BUCKET_ENDPOINT}'")
+
+BUCKET_ADDRESSING_STYLE = os.getenv("BUCKET_ADDRESSING_STYLE")
+if BUCKET_ADDRESSING_STYLE :
+    BUCKET_ADDRESSING_STYLE = BUCKET_ADDRESSING_STYLE.lower()
+else :
+    is_DO_bucket = (
+        ( parsed_bucket_endpoint.hostname or "" ).endswith(".digitaloceanspaces.com")
+    )
+    BUCKET_ADDRESSING_STYLE = "path" if ( not is_DO_bucket ) else "virtual"
+
+if BUCKET_ADDRESSING_STYLE not in ( "path", "virtual", "auto") :
+    raise RuntimeError(
+        f"Invalid S3 bucket addressing style '{BUCKET_ADDRESSING_STYLE}'. "
+        f"Expected 'path', 'virtual', or 'auto'."
+    )
+
 boto3_client_args = {
-    "config"                : Config( s3 = { "addressing_style" : "virtual" } ),
+    "config"                : Config(
+        s3 = { "addressing_style" : BUCKET_ADDRESSING_STYLE },
+    ),
     "region_name"           : BUCKET_REGION,
-    "endpoint_url"          : f"https://{BUCKET_REGION}.digitaloceanspaces.com",
+    "endpoint_url"          : BUCKET_ENDPOINT,
     "aws_access_key_id"     : BUCKET_KEY,
     "aws_secret_access_key" : BUCKET_KEY_SECRET
 }
