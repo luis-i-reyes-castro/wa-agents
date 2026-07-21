@@ -5,7 +5,8 @@ A Python toolkit for building WhatsApp chatbot backends.
 It gives you reusable building blocks for:
 - webhook validation and payload parsing,
 - queued processing,
-- per-user case/context storage in DigitalOcean Spaces,
+- per-user case/context storage in Supabase Postgres,
+- media storage in S3-compatible buckets,
 - idempotent ingestion,
 - multi-turn orchestration,
 - optional LLM calls (text, images, tools, structured output).
@@ -53,9 +54,23 @@ pip install -r requirements.txt
 
 ## Required Environment Variables
 
-### S3-compatible bucket storage (required)
+### Storage backend
 
-These names must match the current code:
+| Variable | Description |
+| --- | --- |
+| `WA_AGENTS_STORAGE_BACKEND` | Optional `supabase` or `s3`.<br>Defaults to `supabase`. |
+
+### Supabase Postgres storage (required when using `supabase`)
+
+| Variable | Description |
+| --- | --- |
+| `SUPABASE_DB_CONNECTION_URL_IPv4` | Supabase session pooler URI for IPv4. |
+| `SUPABASE_DB_CONNECTION_URL_IPv6` | Optional fallback Supabase connection URI for IPv6. |
+
+Apply the schema in `wa_agents/sql/DDL.sql` before running with
+`WA_AGENTS_STORAGE_BACKEND=supabase`.
+
+### S3-compatible bucket storage (required for media and legacy `s3` mode)
 
 | Variable | Description |
 | --- | --- |

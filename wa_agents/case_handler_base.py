@@ -45,6 +45,10 @@ from .basemodels import (
     WhatsAppMsg,
     llm_context_truncate,
 )
+from .storage_backend import (
+    get_async_storage_classes,
+    get_sync_storage_classes,
+)
 from .whatsapp_functions import (
     async_send_whatsapp_interactive,
     async_send_whatsapp_text,
@@ -185,11 +189,10 @@ class CaseHandlerBase ( Machine, ABC) :
         self.transitions   : list[dict]    = []
         self.state         : str           = None
         
-        from .do_bucket_storage import DOBucketStorage
-        from .do_bucket_lock import DOBucketLock
+        Storage, StorageLock = get_sync_storage_classes()
         
-        self.storage      = DOBucketStorage( self.operator_num, self.user_id)
-        self.storage_lock = DOBucketLock
+        self.storage      = Storage( self.operator_num, self.user_id)
+        self.storage_lock = StorageLock
         
         self.user_root = self.storage.dir_user()
         self.user_data_lookup()
@@ -339,7 +342,7 @@ class CaseHandlerBase ( Machine, ABC) :
         manifest = self.storage.manifest_load()
         
         # 2-2) If manifest status is not open then open new case
-        if manifest.status != "open" :
+        if ( not manifest ) or manifest.status != "open" :
             return self.case_open_new()
         
         # 2-3) If stale then open new case
@@ -416,11 +419,14 @@ class CaseHandlerBase ( Machine, ABC) :
             self.case_id, self.case_manifest = self.case_decide()
         
         # Get messages in manifest
-        self.case_context = []
-        for msg_id in self.case_manifest.message_ids:
-            message = self.storage.message_read(msg_id)
-            if message :
-                self.case_context.append(message)
+        if hasattr( self.storage, "messages_load") :
+            self.case_context = self.storage.messages_load()
+        else :
+            self.case_context = []
+            for msg_id in self.case_manifest.message_ids:
+                message = self.storage.message_read(msg_id)
+                if message :
+                    self.case_context.append(message)
         
         # Sort by time_created and time_received
         self.case_context.sort(
@@ -711,11 +717,10 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         self.transitions   : list[dict]    = []
         self.state         : str           = None
         
-        from .do_bucket_storage import AsyncDOBucketStorage
-        from .do_bucket_lock import AsyncDOBucketLock
+        Storage, StorageLock = get_async_storage_classes()
         
-        self.storage      = AsyncDOBucketStorage( self.operator_num, self.user_id)
-        self.storage_lock = AsyncDOBucketLock
+        self.storage      = Storage( self.operator_num, self.user_id)
+        self.storage_lock = StorageLock
         
         self.user_root    = self.storage.dir_user()
         self._async_ready = False
@@ -858,7 +863,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         self.storage.set_case_id(index.open_case_id)
         manifest = await self.storage.manifest_load()
         
-        if manifest.status != "open" :
+        if ( not manifest ) or manifest.status != "open" :
             return await self.case_open_new()
         
         if self.TIME_LIMIT_STALE :
@@ -928,11 +933,14 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = await self.case_decide()
         
-        self.case_context = []
-        for msg_id in self.case_manifest.message_ids:
-            message = await self.storage.message_read(msg_id)
-            if message :
-                self.case_context.append(message)
+        if hasattr( self.storage, "messages_load") :
+            self.case_context = await self.storage.messages_load()
+        else :
+            self.case_context = []
+            for msg_id in self.case_manifest.message_ids:
+                message = await self.storage.message_read(msg_id)
+                if message :
+                    self.case_context.append(message)
         
         self.case_context.sort(
             key = lambda message : (

@@ -23,7 +23,7 @@ dependencies = [
   "openai>=2.9.0",
   "phonenumbers>=9.0.13",
   "pydantic>=2.12.5",
-  "sofia-utils>=1.0.0",
+  "sofia-utils[psycopg]>=1.0.0",
   "transitions>=0.9.3",
   "types-aiobotocore-s3==2.25.1",
 ]
@@ -31,3 +31,6 @@ dependencies = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["wa_agents*"]
+
+[tool.setuptools.package-data]
+wa_agents = ["sql/*.sql"]
