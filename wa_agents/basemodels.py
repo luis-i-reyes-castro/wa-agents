@@ -877,7 +877,14 @@ class ToolResult(BaseModel) :
     Tool Result
         `id`      : "<tool call ID>",
         `content` : "<tool call result>" | null,
-        `error`   : false | true | null
+        `error`   : false | true | null,
+        `_silent` : true | false | null
+    NOTE:
+        Set `_silent = True` when the tool already produced the intended
+        user-facing side effect on its own, for example sending a WhatsApp
+        contact card, location card, or interactive list. Case handlers can use
+        this flag to stop the agent loop after recording the tool result,
+        preventing an unnecessary follow-up assistant message.
     """
     id      : NE_str
     content : Any  | None = None
