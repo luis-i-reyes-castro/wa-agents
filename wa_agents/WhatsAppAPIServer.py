@@ -17,7 +17,10 @@ from fastapi import (
     Request,
     status,
 )
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import (
+    JSONResponse,
+    PlainTextResponse,
+)
 from pydantic import ValidationError
 from typing import (
     Any,
@@ -141,17 +144,20 @@ class WhatsAppAPIServer(FastAPI) :
         """
         return PlainTextResponse( "ok", status_code = status.HTTP_200_OK)
     
-    async def debugz(self) -> dict[str, str | bool] :
+    async def debugz(self) -> JSONResponse :
         """
         Return masked webhook verification configuration.
         """
         expected = os.getenv( "WA_VERIFY_TOKEN", default = "")
         masked   = ("*"*(len(expected)-4) + expected[-4:] ) if expected else ""
         
-        return {
-            "verify_token_set"  : bool(expected),
-            "verify_token_tail" : masked,
-        }
+        return JSONResponse(
+            content = {
+                "verify_token_set"  : bool(expected),
+                "verify_token_tail" : masked,
+            },
+            status = status.HTTP_200_OK,
+        )
     
     async def verify( self, request : Request) -> PlainTextResponse :
         """
@@ -173,7 +179,7 @@ class WhatsAppAPIServer(FastAPI) :
             status_code = status.HTTP_403_FORBIDDEN,
         )
     
-    async def webhook( self, request : Request) -> dict[ str, Any] :
+    async def webhook( self, request : Request) -> JSONResponse :
         """
         Validate, persist, and enqueue an incoming WhatsApp webhook payload.
         """
@@ -188,10 +194,13 @@ class WhatsAppAPIServer(FastAPI) :
         try :
             payload = WhatsAppPayload.model_validate(data)
         except ValidationError as ve :
-            return {
-                "status" : "error",
-                "error"  : f"Malformed payload: {ve}",
-            }
+            return JSONResponse(
+                content = {
+                    "status" : "error",
+                    "error"  : f"Malformed payload: {ve}",
+                },
+                status_code = status.HTTP_200_OK,
+            )
         
         stored        = False
         storage_error = None
@@ -217,7 +226,11 @@ class WhatsAppAPIServer(FastAPI) :
             }
             if storage_error :
                 response["storage_error"] = storage_error
-            return response
+            
+            return JSONResponse(
+                content     = response,
+                status_code = status.HTTP_200_OK,
+            )
         
         response = {
             "status"   : "ok",
@@ -228,4 +241,7 @@ class WhatsAppAPIServer(FastAPI) :
         if storage_error :
             response["storage_error"] = storage_error
         
-        return response
+        return JSONResponse(
+            content     = response,
+            status_code = status.HTTP_200_OK,
+        )
