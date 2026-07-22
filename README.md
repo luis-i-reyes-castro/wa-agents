@@ -44,7 +44,8 @@ pip install -r requirements.txt
 `wa-agents` is designed around this flow:
 
 1. `Listener` receives webhook payloads and validates them as `WhatsAppPayload`.
-2. Payloads are enqueued in `QueueDB` (SQLite) to decouple HTTP from processing.
+2. Payloads are enqueued in `QueueDB` (Supabase Postgres) to decouple HTTP from
+   processing.
 3. `QueueWorker` drains queue items and calls your `CaseHandler`.
 4. `CaseHandlerBase` handles dedup, case open/close logic, context persistence, and
    WhatsApp sending helpers.
@@ -60,15 +61,15 @@ pip install -r requirements.txt
 | --- | --- |
 | `WA_AGENTS_STORAGE_BACKEND` | Optional `supabase` or `s3`.<br>Defaults to `supabase`. |
 
-### Supabase Postgres storage (required when using `supabase`)
+### Supabase Postgres storage (required)
 
 | Variable | Description |
 | --- | --- |
 | `SUPABASE_DB_CONNECTION_URL_IPv4` | Supabase session pooler URI for IPv4. |
 | `SUPABASE_DB_CONNECTION_URL_IPv6` | Optional fallback Supabase connection URI for IPv6. |
 
-Apply the schema in `wa_agents/sql/DDL.sql` before running with
-`WA_AGENTS_STORAGE_BACKEND=supabase`.
+Supabase credentials are mandatory because webhook audit storage and `QueueDB`
+always use Postgres. Apply the schema in `wa_agents/sql/DDL.sql` before running.
 
 ### S3-compatible bucket storage (required for media and legacy `s3` mode)
 
@@ -99,8 +100,6 @@ Apply the schema in `wa_agents/sql/DDL.sql` before running with
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `QUEUE_DB_DIR` | app directory | where SQLite queue file lives |
-| `QUEUE_DB_NAME` | `queue.sqlite3` | SQLite file name |
 | `QUEUE_POLL_INTERVAL_BUSY` | `0.2` | worker sleep when active |
 | `QUEUE_POLL_INTERVAL_IDLE` | `1.0` | worker sleep when idle |
 | `QUEUE_RESPONSE_DELAY` | `1.0` | delay before running `generate_response` |
@@ -118,22 +117,14 @@ A production app typically has these three files:
 ```python
 #!/usr/bin/env python3
 
-import os
 from dotenv import load_dotenv
-from pathlib import Path
 
-from sofia_utils.io import ensure_dir
 from wa_agents.queue_db import QueueDB
 from wa_agents.listener import Listener
 
 load_dotenv()
 
-QUEUE_DB_DIR  = os.getenv("QUEUE_DB_DIR", str(Path(__file__).parent))
-QUEUE_DB_NAME = os.getenv("QUEUE_DB_NAME", "queue.sqlite3")
-QUEUE_DB_PATH = Path(QUEUE_DB_DIR).expanduser().resolve() / QUEUE_DB_NAME
-ensure_dir(QUEUE_DB_PATH.parent)
-
-queue_db = QueueDB(QUEUE_DB_PATH)
+queue_db = QueueDB()
 app      = Listener(__name__, queue_db)
 
 if __name__ == "__main__":
@@ -147,13 +138,10 @@ if __name__ == "__main__":
 
 import gc
 import logging
-import os
 import signal
 import sys
 from dotenv import load_dotenv
-from pathlib import Path
 
-from sofia_utils.io import ensure_dir
 from wa_agents.queue_db import QueueDB
 
 load_dotenv()
@@ -161,17 +149,12 @@ load_dotenv()
 from wa_agents.queue_worker import QueueWorker
 from casehandler import CaseHandler
 
-QUEUE_DB_DIR  = os.getenv("QUEUE_DB_DIR", str(Path(__file__).parent))
-QUEUE_DB_NAME = os.getenv("QUEUE_DB_NAME", "queue.sqlite3")
-QUEUE_DB_PATH = Path(QUEUE_DB_DIR).expanduser().resolve() / QUEUE_DB_NAME
-ensure_dir(QUEUE_DB_PATH.parent)
-
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
 
-    queue  = QueueDB(QUEUE_DB_PATH)
+    queue  = QueueDB()
     worker = QueueWorker(queue, CaseHandler)
 
     signal.signal(signal.SIGTERM, worker.stop)
@@ -368,22 +351,24 @@ resp = await agent.get_response(
 `CaseHandlerBase` already provides:
 - per-user data lookup from phone number (`UserData`),
 - stale-case rollover (`TIME_LIMIT_STALE`, default 48h),
-- case manifests with ordered `message_ids`,
-- idempotency (`dedup/<provider_message_id>.json`),
+- case manifests reconstructed from stored message rows,
+- idempotency through database uniqueness on message idempotency keys,
 - media persistence,
 - context replay into your optional handler state machine,
 - send helpers for text and interactive messages.
 
-Storage layout under DigitalOcean Spaces:
+Supabase stores:
+- incoming queue rows in `wa_incoming_queue`,
+- validated webhook payloads in `wa_webhook_payloads`,
+- exploded webhook messages/statuses in `wa_webhook_messages` and
+  `wa_webhook_statuses`,
+- caseflow users/cases/messages in `wa_users`, `wa_cases`, and `wa_messages`.
+
+S3-compatible bucket storage is only used for media bytes:
 
 ```txt
 <operator_id>/<user_id>/
-  user_data.json
-  case_index.json
-  dedup/<idempotency_key>.json
   cases/<case_id>/
-    case_manifest.json
-    messages/<message_id>.json
     media/<message_id>.<extension>
 ```
 

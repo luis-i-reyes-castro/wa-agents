@@ -13,4 +13,6 @@ VALUES (
   @user_id,
   @data
 )
-ON CONFLICT (operator_id, user_id) DO NOTHING;
+ON CONFLICT (operator_id, user_id)
+DO
+  NOTHING;

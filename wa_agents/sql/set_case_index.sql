@@ -16,7 +16,9 @@ VALUES (
   @data,
   @open_case_id
 )
-ON CONFLICT (operator_id, user_id) DO UPDATE
+ON CONFLICT (operator_id, user_id)
+DO
+  UPDATE
 SET
   open_case_id = EXCLUDED.open_case_id,
   updated_at   = now();

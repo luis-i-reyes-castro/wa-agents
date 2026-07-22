@@ -2,6 +2,7 @@
 Listener App
 """
 
+import logging
 import os
 from flask import ( Flask,
                     request )
@@ -90,14 +91,32 @@ class Listener(Flask) :
                 return { "status" : "error",
                          "error"  : f"Malformed payload: {ve}" }, 200
             
+            stored        = False
+            storage_error = None
+            try :
+                from .supabase_storage import webhook_payload_write
+                
+                stored = webhook_payload_write(payload)
+            except Exception as ex :
+                storage_error = str(ex)
+                logging.error(
+                    "Failed to store WhatsApp webhook payload: %s",
+                    storage_error,
+                )
+            
             try :
                 enqueue_result = self.queue_db.enqueue(payload)
             except Exception as ex :
                 return { "status" : "error",
                          "error"  : str(ex) }, 200
             
-            return { "status"   : "ok",
-                     "enqueued" : enqueue_result }, 200
+            response = { "status"   : "ok",
+                         "enqueued" : enqueue_result,
+                         "stored"   : stored }
+            if storage_error :
+                response["storage_error"] = storage_error
+            
+            return response, 200
         
         # ---------------------------------------------------------------------------------
         return

@@ -28,7 +28,9 @@ VALUES (
   @time_last_message,
   @time_closed
 )
-ON CONFLICT (operator_id, user_id, case_id) DO UPDATE
+ON CONFLICT (operator_id, user_id, case_id)
+DO
+  UPDATE
 SET
   model             = EXCLUDED.model,
   status            = EXCLUDED.status,

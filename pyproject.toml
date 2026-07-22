@@ -14,7 +14,6 @@ authors = [
 ]
 dependencies = [
   "aioboto3>=15.5.0,<16.0.0",
-  "aiosqlite>=0.21.0",
   "Babel>=2.17.0",
   "boto3>=1.40.46,<1.40.62",
   "botocore>=1.40.46,<1.40.62",

@@ -34,4 +34,6 @@ VALUES (
   @time_received,
   @payload
 )
-ON CONFLICT DO NOTHING;
+ON CONFLICT
+DO
+  NOTHING;

@@ -13,7 +13,9 @@ VALUES (
   @user_id,
   @data
 )
-ON CONFLICT (operator_id, user_id) DO UPDATE
+ON CONFLICT (operator_id, user_id)
+DO
+  UPDATE
 SET
   data       = EXCLUDED.data,
   updated_at = now();

@@ -1,386 +1,200 @@
 """
-Queue Database (SQLite3)
+Supabase-backed queue for incoming WhatsApp payloads.
 """
 
-import aiosqlite
-import asyncio
-import sqlite3
-import threading
+from __future__ import annotations
 
+from hashlib import sha256
 from pathlib import Path
+from typing import Any
+
+from sofia_utils.psycopg import (
+    Jsonb,
+    async_pooled_connection,
+    load_sql_script,
+    sync_pooled_conection,
+)
 
 from .basemodels import WhatsAppPayload
+from .supabase_storage import get_database_url
+
+
+SQL_DIR               = Path(__file__).parent / "sql"
+SQL_ENQUEUE_PAYLOAD   = load_sql_script( SQL_DIR / "enqueue_queue_payload.sql" )
+SQL_CLAIM_NEXT        = load_sql_script( SQL_DIR / "claim_next_queue_payload.sql" )
+SQL_MARK_QUEUE_DONE   = load_sql_script( SQL_DIR / "mark_queue_done.sql" )
+SQL_MARK_QUEUE_ERROR  = load_sql_script( SQL_DIR / "mark_queue_error.sql" )
+
+
+def _canonical_payload_json( payload : WhatsAppPayload) -> str :
+    
+    return payload.model_dump_json( by_alias = True)
+
+
+def _payload_hash( payload : WhatsAppPayload) -> str :
+    
+    payload_json = _canonical_payload_json(payload)
+    
+    return sha256( payload_json.encode("utf-8")).hexdigest()
+
+
+def _enqueue_params( payload : WhatsAppPayload) -> dict[str, Any] :
+    
+    return {
+        "payload_hash" : _payload_hash(payload),
+        "payload"      : Jsonb(payload.model_dump( mode = "json", by_alias = True)),
+    }
 
 
 class QueueDB :
     """
-    Lightweight SQLite-backed queue for incoming WhatsApp messages
+    Supabase-backed queue for incoming WhatsApp messages.
     """
     
-    def __init__( self, db_path : str | Path) -> None :
+    def __init__( self, db_path : str | Path | None = None) -> None :
         """
-        Initialize the queue database (creating schema if needed) \\
+        Initialize the queue object. \\
         Args:
-            db_path : Path to the SQLite database file
+            db_path : Ignored; kept for compatibility with older local queues.
         """
-        
-        self._db_path = Path(db_path)
-        self._lock    = threading.Lock()
-        self._init_db()
+        self._db_path      = Path(db_path) if db_path else None
+        self.database_url  = get_database_url()
         
         return
     
-    def _connect(self) -> sqlite3.Connection :
-        """
-        Connect to the queue database file \\
-        Returns:
-            SQLite connection configured with row factory
-        """
-        conn             = sqlite3.connect( self._db_path, timeout = 30)
-        conn.row_factory = sqlite3.Row
-        
-        return conn
-    
-    def _init_db(self) -> None :
-        """
-        Create the queue tables and indexes when missing
-        """
-        with self._connect() as conn :
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS incoming_queue (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    payload     TEXT NOT NULL,
-                    status      TEXT NOT NULL DEFAULT 'pending',
-                    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    last_error  TEXT
-                );
-                """
-            )
-            conn.execute(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_incoming_queue_payload
-                    ON incoming_queue(payload);
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_incoming_queue_status
-                    ON incoming_queue(status);
-                """
-            )
-    
     def enqueue( self, payload : WhatsAppPayload) -> bool :
         """
-        Insert a payload only if it has not been seen before \\
+        Insert a payload only if it has not been seen before. \\
         Args:
             payload : WhatsAppPayload object to enqueue
         Returns:
             True if the payload was enqueued; False if it was a duplicate.
         """
-        with self._lock, self._connect() as conn :
-            try :
-                conn.execute(
-                    """
-                    INSERT INTO incoming_queue (payload)
-                    VALUES (?)
-                    ON CONFLICT (payload) DO NOTHING
-                    """,
-                    (payload.model_dump_json(by_alias = True),),
-                )
-                return conn.total_changes > 0
-            
-            except sqlite3.Error :
-                return False
+        with sync_pooled_conection(self.database_url) as conn :
+            row = conn.execute(
+                SQL_ENQUEUE_PAYLOAD,
+                _enqueue_params(payload),
+            ).fetchone()
+        
+        return bool(row)
     
-    def claim_next(self) -> dict[ str, str | WhatsAppPayload] | None :
+    def claim_next(self) -> dict[ str, int | WhatsAppPayload] | None :
         """
-        Atomically claim the oldest pending payload \\
+        Atomically claim the oldest pending payload. \\
         Returns:
             Dict with keys `row_id` and `payload`, or None if queue empty.
         """
-        with self._lock, self._connect() as conn :
-            
-            conn.execute( "BEGIN IMMEDIATE;")
-            
-            row = conn.execute(
-                f"""
-                SELECT id, payload
-                  FROM incoming_queue
-                 WHERE status = 'pending'
-              ORDER BY created_at ASC
-                 LIMIT 1;
-                """,
-                (),
-            ).fetchone()
-            
-            if not row :
-                conn.execute( "COMMIT;")
-                return None
-            
-            conn.execute(
-                """
-                UPDATE incoming_queue
-                   SET status     = 'processing',
-                       updated_at = CURRENT_TIMESTAMP,
-                       last_error = NULL
-                 WHERE id = ?;
-                """,
-                ( row["id"],),
-            )
-            conn.execute("COMMIT;")
+        with sync_pooled_conection(self.database_url) as conn :
+            row = conn.execute( SQL_CLAIM_NEXT, {}).fetchone()
+        
+        if not row :
+            return None
         
         return {
-            "row_id"  : row["id"],
-            "payload" : WhatsAppPayload.model_validate_json(row["payload"]),
+            "row_id"  : row["row_id"],
+            "payload" : WhatsAppPayload.model_validate(row["payload"]),
         }
     
     def mark_done( self, row_id : int) -> None :
         """
-        Mark a queue row as processed successfully \\
+        Mark a queue row as processed successfully. \\
         Args:
             row_id : Queue row identifier
         """
-        with self._connect() as conn :
-            conn.execute(
-                """
-                UPDATE incoming_queue
-                   SET status     = 'done',
-                       updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ?;
-                """,
-                ( row_id,),
-            )
+        with sync_pooled_conection(self.database_url) as conn :
+            conn.execute( SQL_MARK_QUEUE_DONE, { "row_id" : row_id })
+        
         return
     
     def mark_error( self, row_id : int, error_msg : str) -> None :
         """
-        Mark a queue row as failed and store the error message \\
+        Mark a queue row as failed and store the error message. \\
         Args:
             row_id    : Queue row identifier
             error_msg : Error details to persist
         """
-        with self._connect() as conn :
+        with sync_pooled_conection(self.database_url) as conn :
             conn.execute(
-                """
-                UPDATE incoming_queue
-                   SET status     = 'error',
-                       updated_at = CURRENT_TIMESTAMP,
-                       last_error = ?
-                 WHERE id = ?;
-                """,
-                ( error_msg, row_id),
+                SQL_MARK_QUEUE_ERROR,
+                { "row_id" : row_id, "last_error" : error_msg },
             )
+        
         return
 
 
 class AsyncQueueDB :
     """
-    Async SQLite-backed queue for incoming WhatsApp messages
+    Async Supabase-backed queue for incoming WhatsApp messages.
     """
-    def __init__( self, db_path : str | Path) -> None :
+    
+    def __init__( self, db_path : str | Path | None = None) -> None :
         """
-        Configure the queue database path \\
+        Initialize the queue object. \\
         Args:
-            db_path : Path to the SQLite database file
+            db_path : Ignored; kept for compatibility with older local queues.
         """
-        self._db_path     = Path(db_path)
-        self._lock        = asyncio.Lock()
-        self._initialized = False
-        
-        return
-    
-    async def _connect(self) -> aiosqlite.Connection :
-        """
-        Connect to the queue database file \\
-        Returns:
-            SQLite connection configured with row factory
-        """
-        conn             = await aiosqlite.connect( self._db_path, timeout = 30)
-        conn.row_factory = sqlite3.Row
-        
-        return conn
-    
-    async def _ensure_db(self) -> None :
-        """
-        Create the queue tables and indexes when missing
-        """
-        if self._initialized :
-            return
-        
-        async with self._lock :
-            
-            if self._initialized :
-                return
-            
-            conn = await self._connect()
-            try :
-                await conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS incoming_queue (
-                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                        payload     TEXT NOT NULL,
-                        status      TEXT NOT NULL DEFAULT 'pending',
-                        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        last_error  TEXT
-                    );
-                    """
-                )
-                await conn.execute(
-                    """
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_incoming_queue_payload
-                        ON incoming_queue(payload);
-                    """
-                )
-                await conn.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_incoming_queue_status
-                        ON incoming_queue(status);
-                    """
-                )
-                await conn.commit()
-            
-            finally :
-                await conn.close()
-            
-            self._initialized = True
+        self._db_path     = Path(db_path) if db_path else None
+        self.database_url = get_database_url()
         
         return
     
     async def enqueue( self, payload : WhatsAppPayload) -> bool :
         """
-        Insert a payload only if it has not been seen before \\
+        Insert a payload only if it has not been seen before. \\
         Args:
             payload : WhatsAppPayload object to enqueue
         Returns:
             True if the payload was enqueued; False if it was a duplicate.
         """
-        await self._ensure_db()
-        
-        async with self._lock :
-            
-            conn = await self._connect()
-            try :
+        async with async_pooled_connection(self.database_url) as conn :
+            row = await (
                 await conn.execute(
-                    """
-                    INSERT INTO incoming_queue (payload)
-                    VALUES (?)
-                    ON CONFLICT (payload) DO NOTHING
-                    """,
-                    (payload.model_dump_json(by_alias = True),),
+                    SQL_ENQUEUE_PAYLOAD,
+                    _enqueue_params(payload),
                 )
-                await conn.commit()
-                
-                return conn.total_changes > 0
-            
-            except sqlite3.Error :
-                return False
-            
-            finally :
-                await conn.close()
+            ).fetchone()
+        
+        return bool(row)
     
     async def claim_next(self) -> dict[ str, int | WhatsAppPayload] | None :
         """
-        Atomically claim the oldest pending payload \\
+        Atomically claim the oldest pending payload. \\
         Returns:
             Dict with keys `row_id` and `payload`, or None if queue empty.
         """
-        await self._ensure_db()
+        async with async_pooled_connection(self.database_url) as conn :
+            row = await ( await conn.execute( SQL_CLAIM_NEXT, {})).fetchone()
         
-        async with self._lock :
-            
-            conn = await self._connect()
-            try :
-                await conn.execute( "BEGIN IMMEDIATE;")
-                
-                cursor = await conn.execute(
-                    """
-                    SELECT id, payload
-                      FROM incoming_queue
-                     WHERE status = 'pending'
-                  ORDER BY created_at ASC
-                     LIMIT 1;
-                    """,
-                    (),
-                )
-                
-                row = await cursor.fetchone()
-                if not row :
-                    await conn.commit()
-                    return None
-                
-                await conn.execute(
-                    """
-                    UPDATE incoming_queue
-                       SET status     = 'processing',
-                           updated_at = CURRENT_TIMESTAMP,
-                           last_error = NULL
-                     WHERE id = ?;
-                    """,
-                    ( row["id"],),
-                )
-                await conn.commit()
-            
-            finally :
-                await conn.close()
+        if not row :
+            return None
         
         return {
-            "row_id"  : row["id"],
-            "payload" : WhatsAppPayload.model_validate_json(row["payload"]),
+            "row_id"  : row["row_id"],
+            "payload" : WhatsAppPayload.model_validate(row["payload"]),
         }
-
+    
     async def mark_done( self, row_id : int) -> None :
         """
-        Mark a queue row as processed successfully \\
+        Mark a queue row as processed successfully. \\
         Args:
             row_id : Queue row identifier
         """
-        await self._ensure_db()
-        
-        conn = await self._connect()
-        try :
-            await conn.execute(
-                """
-                UPDATE incoming_queue
-                   SET status     = 'done',
-                       updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ?;
-                """,
-                ( row_id,),
-            )
-            await conn.commit()
-        
-        finally :
-            await conn.close()
+        async with async_pooled_connection(self.database_url) as conn :
+            await conn.execute( SQL_MARK_QUEUE_DONE, { "row_id" : row_id })
         
         return
     
     async def mark_error( self, row_id : int, error_msg : str) -> None :
         """
-        Mark a queue row as failed and store the error message \\
+        Mark a queue row as failed and store the error message. \\
         Args:
             row_id    : Queue row identifier
             error_msg : Error details to persist
         """
-        await self._ensure_db()
-        
-        conn = await self._connect()
-        try :
+        async with async_pooled_connection(self.database_url) as conn :
             await conn.execute(
-                """
-                UPDATE incoming_queue
-                   SET status     = 'error',
-                       updated_at = CURRENT_TIMESTAMP,
-                       last_error = ?
-                 WHERE id = ?;
-                """,
-                ( error_msg, row_id),
+                SQL_MARK_QUEUE_ERROR,
+                { "row_id" : row_id, "last_error" : error_msg },
             )
-            await conn.commit()
-        
-        finally :
-            await conn.close()
         
         return
