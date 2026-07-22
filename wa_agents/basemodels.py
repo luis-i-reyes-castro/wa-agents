@@ -62,13 +62,15 @@ type NE_dict_str = Annotated[ dict[ NE_str, Any], Field( min_length = 1)]
 class InteractiveOption(BaseModel) :
     """
     Interactive Message Option
-        `id`    : "<option ID>"
-        `title` : "<option title>"
+        `id`          : "<option ID>"
+        `title`       : "<option title>"
+        `description` : "<option detail line>" | null
     """
     model_config = ConfigDict( frozen = True)
     
-    id    : NE_var_name
-    title : NE_str
+    id          : NE_var_name
+    title       : NE_str
+    description : NE_str | None = None
 
 # =========================================================================================
 # WHATSAPP BASEMODELS

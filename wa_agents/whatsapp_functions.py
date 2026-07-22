@@ -471,8 +471,13 @@ def write_payload(
                 payload["interactive"]["action"] = \
                     {
                     "buttons" :
-                        [ { "type" : "reply", "reply" : option.model_dump() }
-                            for option in content.options ]
+                        [
+                            {
+                                "type"  : "reply",
+                                "reply" : { "id" : option.id, "title" : option.title },
+                            }
+                            for option in content.options
+                        ],
                     }
             case "list" :
                 # Initialize action dict
@@ -481,9 +486,12 @@ def write_payload(
                     "button"   : str(content.button),
                     "sections" :
                         [ {
-                        "title" : str(None),
-                        "rows"  : [ opt.model_dump() for opt in content.options ]
-                        } ]
+                            "title" : str(None),
+                            "rows"  : [
+                                opt.model_dump( exclude_none = True)
+                                for opt in content.options
+                            ]
+                        } ],
                     }
     
     elif isinstance( content, WhatsAppContactPayload) :
