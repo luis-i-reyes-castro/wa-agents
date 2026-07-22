@@ -67,7 +67,7 @@ pip install -r requirements.txt
 
 | Variable | Description |
 | --- | --- |
-| `SUPABASE_DB_CONNECTION_URL_IPv4` | Supabase session pooler URI for IPv4. |
+| `SUPABASE_DB_CONNECTION_URL_IPv4` | Dashboard<br>➡️ Connect<br>➡️ Connection String<br>✅ Type: URI<br>✅ **Method: Session Pooler (IPv4)** |
 | `SUPABASE_DB_CONNECTION_URL_IPv6` | Optional fallback Supabase connection URI for IPv6. |
 
 Supabase credentials are mandatory because webhook audit storage and `QueueDB`
