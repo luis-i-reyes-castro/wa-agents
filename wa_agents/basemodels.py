@@ -50,6 +50,9 @@ type NN_int = Annotated[ int, Field( ge = 0)]
 type NE_str = Annotated[ str, Field( min_length = 2)]
 """ Non-empty string (at least 2 chars) """
 
+type WA_TextBody = Annotated[ str, Field( min_length = 1)]
+""" WhatsApp inbound text body """
+
 type NE_var_name = Annotated[ str, Field( pattern = r"^[A-Za-z\_]\w+$")]
 """ Non-empty variable name (at least 2 chars) """
 
@@ -175,7 +178,7 @@ class WhatsAppText(BaseModel) :
     """
     model_config = ConfigDict( frozen = True)
     
-    body : NE_str
+    body : WA_TextBody
 
 class WhatsAppInteractiveReply(BaseModel) :
     """
