@@ -53,6 +53,33 @@ type NE_str = Annotated[ str, Field( min_length = 2)]
 type NE_var_name = Annotated[ str, Field( pattern = r"^[A-Za-z\_]\w+$")]
 """ Non-empty variable name (at least 2 chars) """
 
+type WA_InteractiveId = Annotated[ str, Field( min_length = 1, max_length = 200)]
+""" WhatsApp interactive option id """
+
+type WA_InteractiveTitle = Annotated[ str, Field( min_length = 1, max_length = 24)]
+""" WhatsApp interactive option title """
+
+type WA_InteractiveDescription = Annotated[
+    str,
+    Field( min_length = 1, max_length = 72),
+]
+""" WhatsApp interactive option description """
+
+type WA_InteractiveHeaderFooter = Annotated[
+    str,
+    Field( min_length = 1, max_length = 60),
+]
+""" WhatsApp interactive header/footer text """
+
+type WA_InteractiveBody = Annotated[ str, Field( min_length = 1, max_length = 1024)]
+""" WhatsApp interactive body text """
+
+type WA_InteractiveButtonLabel = Annotated[
+    str,
+    Field( min_length = 1, max_length = 20),
+]
+""" WhatsApp interactive button label """
+
 type NE_list_str = Annotated[ list[ NE_str ], Field( min_length = 1)]
 """ Non-empty list of strings (at least 1 string) """
 
@@ -68,9 +95,9 @@ class InteractiveOption(BaseModel) :
     """
     model_config = ConfigDict( frozen = True)
     
-    id          : NE_var_name
-    title       : NE_str
-    description : NE_str | None = None
+    id          : WA_InteractiveId
+    title       : WA_InteractiveTitle
+    description : WA_InteractiveDescription | None = None
 
 # =========================================================================================
 # WHATSAPP BASEMODELS
@@ -919,12 +946,12 @@ class ServerInteractiveOptsMsg( ServerMsg, StructuredDataMsg) :
     Server Interactive Options Message ( Server -> User )
     """
     type    : Literal[ "button", "list"]
-    header  : NE_str | None = None
-    body    : NE_str
-    footer  : NE_str | None = None
-    button  : NE_str | None = None
+    header  : WA_InteractiveHeaderFooter | None = None
+    body    : WA_InteractiveBody
+    footer  : WA_InteractiveHeaderFooter | None = None
+    button  : WA_InteractiveButtonLabel  | None = None
     options : Annotated[ list[InteractiveOption],
-                         Field( min_length = 2, default_factory = list)]
+                         Field( min_length = 1, default_factory = list)]
     
     @model_validator( mode = "after")
     def validate_message(self) -> Self :
@@ -939,9 +966,21 @@ class ServerInteractiveOptsMsg( ServerMsg, StructuredDataMsg) :
             e_msg += "Type 'list' only supports up to 10 options"
             raise ValueError(e_msg)
         
-        if self.button and ( len(self.button) > 20 ) :
-            e_msg += "Field 'button' supports a max length of 20 chars"
-            raise ValueError(e_msg)
+        if self.type == "button" :
+            if self.button is not None :
+                e_msg += "Type 'button' must not define field 'button'"
+                raise ValueError(e_msg)
+            if any( opt.description is not None for opt in self.options ) :
+                e_msg += "Type 'button' options do not support descriptions"
+                raise ValueError(e_msg)
+            if any( len(opt.title) > 20 for opt in self.options ) :
+                e_msg += "Type 'button' option titles support a max length of 20 chars"
+                raise ValueError(e_msg)
+        
+        elif self.type == "list" :
+            if not self.button :
+                e_msg += "Type 'list' requires non-empty field 'button'"
+                raise ValueError(e_msg)
         
         return self
     

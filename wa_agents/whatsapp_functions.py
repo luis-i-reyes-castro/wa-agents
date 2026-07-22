@@ -486,7 +486,6 @@ def write_payload(
                     "button"   : str(content.button),
                     "sections" :
                         [ {
-                            "title" : str(None),
                             "rows"  : [
                                 opt.model_dump( exclude_none = True)
                                 for opt in content.options
