@@ -6,12 +6,13 @@ os.environ.setdefault( "BUCKET_KEY_SECRET", "test-secret")
 os.environ.setdefault( "BUCKET_NAME", "test-bucket")
 os.environ.setdefault( "SUPABASE_DB_CONNECTION_URL_IPv4", "postgresql://test")
 
-from .basemodels import ServerTextMsg
-from .listener import Listener
-from . import queue_db
-from .storage_backend import get_storage_backend
-from . import supabase_storage
-from .supabase_storage import (
+from wa_agents.basemodels import ServerTextMsg
+from wa_agents.listener import Listener
+from wa_agents.WhatsAppAPIServer import WhatsAppAPIServer
+from wa_agents import queue_db
+from wa_agents.storage_backend import get_storage_backend
+from wa_agents import supabase_storage
+from wa_agents.supabase_storage import (
     SQL_INSERT_MESSAGE,
     SQL_INSERT_WEBHOOK_MESSAGE,
     SQL_INSERT_WEBHOOK_PAYLOAD,
@@ -60,8 +61,10 @@ def test_database_url_prefers_ipv4( monkeypatch) -> None :
 
 def test_message_insert_dedup_is_message_backed() -> None :
     
+    normalized_sql = " ".join(SQL_INSERT_MESSAGE.split())
+    
     assert "idempotency_key" in SQL_INSERT_MESSAGE
-    assert "ON CONFLICT DO NOTHING" in SQL_INSERT_MESSAGE
+    assert "ON CONFLICT DO NOTHING" in normalized_sql
 
 
 class _FakeCursor :
@@ -280,6 +283,22 @@ class _QueueStub :
         return True
 
 
+class _AsyncQueueStub :
+    
+    def __init__(self) -> None :
+        self.enqueued = False
+        return
+    
+    async def enqueue(self, _payload) -> bool :
+        self.enqueued = True
+        return True
+
+
+class _AsyncHandlerStub :
+    
+    pass
+
+
 def test_listener_enqueues_when_webhook_storage_fails( monkeypatch) -> None :
     
     queue = _QueueStub()
@@ -307,6 +326,64 @@ def test_listener_enqueues_when_webhook_storage_fails( monkeypatch) -> None :
     assert data["stored"] is False
     assert "storage offline" in data["storage_error"]
     assert queue.enqueued is True
+
+
+def test_fastapi_webhook_enqueues_when_webhook_storage_fails( monkeypatch) -> None :
+    
+    from fastapi.testclient import TestClient
+    
+    queue = _AsyncQueueStub()
+    app   = WhatsAppAPIServer(
+        title       = "Test WhatsApp Bot",
+        handler_cls = _AsyncHandlerStub,
+        queue_db    = queue,
+    )
+    
+    async def raise_storage_error(_payload) -> bool :
+        raise RuntimeError("storage offline")
+    
+    monkeypatch.setattr(
+        supabase_storage,
+        "async_webhook_payload_write",
+        raise_storage_error,
+    )
+    
+    response = TestClient(app).post(
+        "/webhook",
+        json = _message_payload_dict(),
+    )
+    
+    data = response.json()
+    
+    assert response.status_code == 200
+    assert data["status"] == "ok"
+    assert data["enqueued"] is True
+    assert data["stored"] is False
+    assert "storage offline" in data["storage_error"]
+    assert queue.enqueued is True
+
+
+def test_fastapi_webhook_verification( monkeypatch) -> None :
+    
+    from fastapi.testclient import TestClient
+    
+    monkeypatch.setenv( "WA_VERIFY_TOKEN", "verify-secret")
+    app = WhatsAppAPIServer(
+        title       = "Test WhatsApp Bot",
+        handler_cls = _AsyncHandlerStub,
+        queue_db    = _AsyncQueueStub(),
+    )
+    
+    response = TestClient(app).get(
+        "/webhook",
+        params = {
+            "hub.verify_token" : "verify-secret",
+            "hub.challenge"    : "challenge-1",
+        },
+    )
+    
+    assert response.status_code == 200
+    assert response.text == "challenge-1"
 
 
 class _FakeQueueConnection :

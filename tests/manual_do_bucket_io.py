@@ -8,7 +8,11 @@ from sofia_utils.io import ( load_json_file,
                              write_to_json_file )
 from sofia_utils.printing import print_ind
 
-from .do_bucket_io import *
+from wa_agents.do_bucket_io import *
+
+
+__test__ = False
+""" This file is a manual bucket smoke script, not a pytest module. """
 
 
 def check_environment_variables() -> None :
@@ -58,7 +62,7 @@ def check_environment_variables() -> None :
     
     return
 
-def test_do_bucket_io( filepath_json : str, filepath_media : str) -> None :
+def run_do_bucket_io_smoke( filepath_json : str, filepath_media : str) -> None :
     """
     Upload/download a JSON file and media asset for manual verification \\
     Args:
@@ -154,4 +158,4 @@ if __name__ == "__main__" :
         print(f"Usage: python {fname} <JSON file> <Media file>")
     else :
         check_environment_variables()
-        test_do_bucket_io( argv[1], argv[2])
+        run_do_bucket_io_smoke( argv[1], argv[2])

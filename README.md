@@ -43,10 +43,12 @@ pip install -r requirements.txt
 
 `wa-agents` is designed around this flow:
 
-1. `Listener` receives webhook payloads and validates them as `WhatsAppPayload`.
+1. `WhatsAppAPIServer` receives webhook payloads and validates them as
+   `WhatsAppPayload`.
 2. Payloads are enqueued in `QueueDB` (Supabase Postgres) to decouple HTTP from
    processing.
-3. `QueueWorker` drains queue items and calls your `CaseHandler`.
+3. `AsyncQueueWorker` runs inside the FastAPI lifespan, drains queue items, and
+   calls your `CaseHandler`.
 4. `CaseHandlerBase` handles dedup, case open/close logic, context persistence, and
    WhatsApp sending helpers.
 5. Your `CaseHandler` implements business logic in:
@@ -106,68 +108,44 @@ always use Postgres. Apply the schema in `wa_agents/sql/DDL.sql` before running.
 
 ## Minimal App Skeleton
 
-A production app typically has these three files:
+A production app can run as a single FastAPI process:
 
-- `run_listener.py`
-- `run_queue_worker.py`
 - `casehandler.py`
+- `app.py`
 
-### `run_listener.py`
+### `app.py`
 
 ```python
 #!/usr/bin/env python3
 
 from dotenv import load_dotenv
 
-from wa_agents.queue_db import QueueDB
-from wa_agents.listener import Listener
-
 load_dotenv()
 
-queue_db = QueueDB()
-app      = Listener(__name__, queue_db)
-
-if __name__ == "__main__":
-    app.run(port=8080, debug=True)
-```
-
-### `run_queue_worker.py`
-
-```python
-#!/usr/bin/env python3
-
-import gc
-import logging
-import signal
-import sys
-from dotenv import load_dotenv
-
-from wa_agents.queue_db import QueueDB
-
-load_dotenv()
-
-from wa_agents.queue_worker import QueueWorker
+from wa_agents.WhatsAppAPIServer import WhatsAppAPIServer
 from casehandler import CaseHandler
 
 
-def main() -> int:
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s")
-
-    queue  = QueueDB()
-    worker = QueueWorker(queue, CaseHandler)
-
-    signal.signal(signal.SIGTERM, worker.stop)
-    signal.signal(signal.SIGINT, worker.stop)
-
-    worker.serve_forever()
-    gc.collect()
-    return 0
+class App(WhatsAppAPIServer):
+    pass
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+app = App( title = "WhatsApp Bot", handler_cls = CaseHandler)
 ```
+
+Run it with:
+
+```bash
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+The server registers `GET /webhook` for Meta verification, `POST /webhook` for
+validated payload ingestion, and `GET /healthz` for container health checks.
+Webhook payload audit storage and queue enqueue are attempted in the request
+path; the async queue worker starts and stops with the FastAPI lifespan.
+
+An example container recipe is available at
+[`docs/Dockerfile.fastapi`](docs/Dockerfile.fastapi).
 
 ## `CaseHandler` Design Patterns
 
