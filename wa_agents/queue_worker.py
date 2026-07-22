@@ -155,6 +155,7 @@ class QueueWorker :
                         
                         handler = self.handler_cls( operator, user)
                         respond = False
+                        job     = ( operator, user)
                         
                         for msg in user_msgs.get( user.wa_id, []) :
                             
@@ -165,11 +166,18 @@ class QueueWorker :
                                 media_content = MediaContent( mime    = mime_type,
                                                               content = media_bytes)
                             
-                            respond = handler.process_message( msg, media_content) \
-                                      or respond
+                            msg_respond = handler.process_message( msg, media_content)
+                            respond     = bool(msg_respond) or respond
+                            
+                            # If this message was answered immediately during
+                            # ingestion, any older delayed response job for
+                            # the same conversation is now stale.
+                            
+                            if getattr( handler, "_responded_in_ingest", False) :
+                                self._job_td.mark_as_done(job)
+                                respond = False
                         
                         if respond :
-                            job = ( operator, user)
                             self._job_td[job] = time.time() + RESPONSE_DELAY
             
             self.queue.mark_done(row_id)
@@ -338,6 +346,7 @@ class AsyncQueueWorker :
                         
                         handler = self.handler_cls( operator, user)
                         respond = False
+                        job     = ( operator, user)
                         
                         for msg in user_msgs.get( user.wa_id, []) :
                             
@@ -348,14 +357,18 @@ class AsyncQueueWorker :
                                 media_content = MediaContent( mime    = mime_type,
                                                               content = media_bytes)
                             
-                            respond = await self._call_handler_method(
+                            msg_respond = await self._call_handler_method(
                                 handler.process_message,
                                 msg,
                                 media_content,
-                            ) or respond
+                            )
+                            respond = bool(msg_respond) or respond
+                            
+                            if getattr( handler, "_responded_in_ingest", False) :
+                                self._job_td.mark_as_done(job)
+                                respond = False
                         
                         if respond :
-                            job = ( operator, user)
                             self._job_td[job] = time.time() + RESPONSE_DELAY
             
             await self.queue.mark_done(row_id)
