@@ -220,6 +220,14 @@ Loop shape:
 
 The parsed payload model is `WhatsAppPayload`.
 
+`ServerMsg` has two useful flags for context hygiene:
+- `is_state=True`: message persists handler-owned replay state. These
+  messages are excluded from both the user-facing flow and the LLM-readable
+  context, but can still be restored by the case handler during replay.
+- `user_eyes=True`: message is meant only for the end user, for example
+  transient UX text like "Thinking..." or "Looking up in database...". These
+  messages are excluded from LLM-readable context.
+
 Most routing happens in `WhatsAppMsg` fields:
 - `message.type`: `text`, `interactive`, `image`, `video`, `audio`, `sticker`, etc.
 - `message.text.body`: user text content.

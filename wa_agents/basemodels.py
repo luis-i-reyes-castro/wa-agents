@@ -939,7 +939,16 @@ class ServerMsg( Message, ABC) :
     """
     Server Message
     """
+    
+    is_state : bool = False
+    """
+    Message persists handler-owned internal replay state and should be excluded from both the user view and the LLM context.
+    """
+    
     user_eyes : bool = False
+    """
+    Message is intended only for the end user and should usually be excluded from LLM context. Typical examples are ephemeral UX copy such as "Agent thinking..." or "Looking up in database...".
+    """
     
     @property
     def role(self) -> str :
@@ -1091,7 +1100,10 @@ class CaseManifest(BaseModel) :
 
 def is_llm_readable( message : Message) -> bool :
     
-    return not ( isinstance( message, ServerTextMsg) and message.user_eyes )
+    return not (
+        isinstance( message, ServerMsg) and
+        ( message.is_state or message.user_eyes )
+    )
 
 def llm_context_len( context : list[Message]) -> int :
     
