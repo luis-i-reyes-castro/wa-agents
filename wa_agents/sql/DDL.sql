@@ -245,3 +245,27 @@ CREATE INDEX IF NOT EXISTS wa_incoming_queue_status_idx
     created_at,
     id
   );
+
+-- Supabase recommends enabling RLS on public schema tables. These tables are
+-- accessed by trusted backend Postgres credentials, so no anon/auth policies are
+-- defined here.
+ALTER TABLE public.wa_users
+  ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.wa_cases
+  ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.wa_messages
+  ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.wa_webhook_payloads
+  ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.wa_webhook_messages
+  ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.wa_webhook_statuses
+  ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.wa_incoming_queue
+  ENABLE ROW LEVEL SECURITY;
