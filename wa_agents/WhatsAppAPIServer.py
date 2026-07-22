@@ -83,8 +83,10 @@ class WhatsAppAPIServer(FastAPI) :
         """
         from .supabase_storage import get_database_url
         
+        logging.info("WhatsApp API server lifespan starting")
         await open_async_database_connection_pool(get_database_url())
         self.worker_task = asyncio.create_task(self.queue_worker.serve_forever())
+        self.worker_task.add_done_callback(self._log_worker_task_result)
         
         try :
             yield
@@ -96,6 +98,25 @@ class WhatsAppAPIServer(FastAPI) :
                     await self.worker_task
                 self.worker_task = None
             await close_async_database_connection_pool()
+            logging.info("WhatsApp API server lifespan stopped")
+        
+        return
+    
+    def _log_worker_task_result( self, task : asyncio.Task[None]) -> None :
+        """
+        Log unexpected background worker termination.
+        """
+        if task.cancelled() :
+            return
+        
+        exc = task.exception()
+        if exc :
+            logging.error(
+                "Async queue worker task stopped with an exception",
+                exc_info = ( type(exc), exc, exc.__traceback__ ),
+            )
+        else :
+            logging.info("Async queue worker task stopped")
         
         return
     
@@ -156,13 +177,30 @@ class WhatsAppAPIServer(FastAPI) :
         """
         expected = os.getenv( "WA_VERIFY_TOKEN", default = "")
         masked   = ("*"*(len(expected)-4) + expected[-4:] ) if expected else ""
+        worker_task_exception = None
+        if (
+            self.worker_task and
+            self.worker_task.done() and
+            not self.worker_task.cancelled()
+        ) :
+            exc = self.worker_task.exception()
+            worker_task_exception = str(exc) if exc else None
         
         return JSONResponse(
             content = {
-                "verify_token_set"  : bool(expected),
-                "verify_token_tail" : masked,
+                "verify_token_set"     : bool(expected),
+                "verify_token_tail"    : masked,
+                "worker_task_created"  : bool(self.worker_task),
+                "worker_task_done"     : (
+                    self.worker_task.done() if self.worker_task else None
+                ),
+                "worker_task_cancelled": (
+                    self.worker_task.cancelled() if self.worker_task else None
+                ),
+                "worker_task_exception": worker_task_exception,
+                "worker_stop_flag"     : self.queue_worker._stop_flag,
             },
-            status = status.HTTP_200_OK,
+            status_code = status.HTTP_200_OK,
         )
     
     async def verify( self, request : Request) -> PlainTextResponse :

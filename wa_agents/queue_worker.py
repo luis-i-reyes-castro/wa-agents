@@ -261,7 +261,18 @@ class AsyncQueueWorker :
         )
         
         while not self._stop_flag :
-            if await self.tick() :
+            try :
+                active = await self.tick()
+            except asyncio.CancelledError :
+                raise
+            except Exception :
+                logging.error(
+                    "Async queue worker tick failed\n"
+                    f"Exception trace: {format_exc()}"
+                )
+                active = False
+            
+            if active :
                 await asyncio.sleep(POLL_INTERVAL_BUSY)
             else :
                 await asyncio.sleep(POLL_INTERVAL_IDLE)
