@@ -84,12 +84,15 @@ class WhatsAppAPIServer(FastAPI) :
         from .supabase_storage import get_database_url
         
         logging.info("WhatsApp API server lifespan starting")
+        
         await open_async_database_connection_pool(get_database_url())
+        
         self.worker_task = asyncio.create_task(self.queue_worker.serve_forever())
         self.worker_task.add_done_callback(self._log_worker_task_result)
         
         try :
             yield
+        
         finally :
             self.queue_worker.stop()
             if self.worker_task :
@@ -97,7 +100,9 @@ class WhatsAppAPIServer(FastAPI) :
                 with suppress(asyncio.CancelledError) :
                     await self.worker_task
                 self.worker_task = None
+            
             await close_async_database_connection_pool()
+            
             logging.info("WhatsApp API server lifespan stopped")
         
         return
@@ -177,6 +182,7 @@ class WhatsAppAPIServer(FastAPI) :
         """
         expected = os.getenv( "WA_VERIFY_TOKEN", default = "")
         masked   = ("*"*(len(expected)-4) + expected[-4:] ) if expected else ""
+        
         worker_task_exception = None
         if (
             self.worker_task and
@@ -188,17 +194,17 @@ class WhatsAppAPIServer(FastAPI) :
         
         return JSONResponse(
             content = {
-                "verify_token_set"     : bool(expected),
-                "verify_token_tail"    : masked,
-                "worker_task_created"  : bool(self.worker_task),
-                "worker_task_done"     : (
+                "verify_token_set"    : bool(expected),
+                "verify_token_tail"   : masked,
+                "worker_task_created" : bool(self.worker_task),
+                "worker_task_done"    : (
                     self.worker_task.done() if self.worker_task else None
                 ),
-                "worker_task_cancelled": (
+                "worker_task_cancelled" : (
                     self.worker_task.cancelled() if self.worker_task else None
                 ),
-                "worker_task_exception": worker_task_exception,
-                "worker_stop_flag"     : self.queue_worker._stop_flag,
+                "worker_task_exception" : worker_task_exception,
+                "worker_stop_flag"      : self.queue_worker._stop_flag,
             },
             status_code = status.HTTP_200_OK,
         )
