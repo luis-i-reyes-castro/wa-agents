@@ -3,9 +3,9 @@
   -- user_id     : str
 
 SELECT
-    open_case_id
+  open_case_id
 FROM
-    wa_users
+  wa_users
 WHERE
-    ( operator_id = @operator_id ) AND
-    ( user_id     = @user_id     );
+  ( operator_id = @operator_id ) AND
+  ( user_id     = @user_id     );
