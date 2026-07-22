@@ -132,17 +132,23 @@ class WhatsAppAPIServer(FastAPI) :
         
         return
     
-    async def root(self) -> PlainTextResponse :
+    async def root(self) -> JSONResponse :
         """
         Root diagnostic endpoint.
         """
-        return PlainTextResponse( "root ok", status_code = status.HTTP_200_OK)
+        return JSONResponse(
+            content     = { "root" : "OK" },
+            status_code = status.HTTP_200_OK,
+        )
     
-    async def healthz(self) -> PlainTextResponse :
+    async def healthz(self) -> JSONResponse :
         """
         Health endpoint.
         """
-        return PlainTextResponse( "ok", status_code = status.HTTP_200_OK)
+        return JSONResponse(
+            content     = { "healthy" : True },
+            status_code = status.HTTP_200_OK,
+        )
     
     async def debugz(self) -> JSONResponse :
         """
