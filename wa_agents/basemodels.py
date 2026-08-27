@@ -474,6 +474,53 @@ class WhatsAppMsg(BaseModel) :
         
         return None
 
+class WhatsAppTemplateParameter(BaseModel) :
+    """
+    WhatsApp template body text parameter
+        `type`           : "text"
+        `parameter_name` : "<parameter name>" | null
+        `text`           : "<parameter value>"
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    type           : Literal["text"]    = "text"
+    parameter_name : NE_var_name | None = None
+    text           : NE_str
+
+class WhatsAppTemplateBodyComponent(BaseModel) :
+    """
+    WhatsApp template body component
+        `type`       : "body"
+        `parameters` : [ TemplateTextParameter, ... ]
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    type       : Literal["body"] = "body"
+    parameters : Annotated[ list[WhatsAppTemplateParameter],
+                            Field( min_length = 1, default_factory = list)]
+    
+    @model_validator( mode = "after")
+    def validate_parameter_mode(self) -> Self :
+        
+        if not self.parameters :
+            raise ValueError("Template body component must include parameters")
+        
+        has_named = any( param.parameter_name for param in self.parameters )
+        if has_named and not all( param.parameter_name for param in self.parameters ) :
+            raise ValueError(
+                "Template body parameters must be all named or all positional"
+            )
+        
+        return self
+
+class WhatsAppTemplateMsg(BaseModel) :
+    """
+    WhatsApp template message ... (fill in)
+    """
+    name          : NE_str
+    language_code : NE_str
+    body          : WhatsAppTemplateBodyComponent | None = None
+
 # -----------------------------------------------------------------------------------------
 # STATUS
 
@@ -959,6 +1006,17 @@ class ServerTextMsg( ServerMsg, BasicMsg) :
     Server Text Message
     """
     pass
+
+class ServerTemplateMsg( WhatsAppTemplateMsg, ServerMsg, StructuredDataMsg) :
+    """
+    Server Template Message ( Server -> User )
+    """
+    
+    def as_text(self) -> str :
+        return self.model_dump_json(
+            include = { "name", "language_code", "body" },
+            exclude_none = True,
+        )
 
 class ServerInteractiveOptsMsg( ServerMsg, StructuredDataMsg) :
     """

@@ -34,6 +34,7 @@ from .basemodels import (
     MediaContent,
     Message,
     ServerInteractiveOptsMsg,
+    ServerTemplateMsg,
     ServerTextMsg,
     ToolResultsMsg,
     UserContentMsg,
@@ -51,9 +52,11 @@ from .storage_backend import (
 )
 from .whatsapp_functions import (
     async_send_whatsapp_interactive,
+    async_send_whatsapp_template,
     async_send_whatsapp_text,
     send_whatsapp_text,
     send_whatsapp_interactive,
+    send_whatsapp_template,
 )
 
 
@@ -555,6 +558,29 @@ class CaseHandlerBase ( Machine, ABC) :
     # MESSAGE SENDING FUNCTIONS
     # =====================================================================================
     
+    def send_template(
+        self,
+        message : ServerTemplateMsg,
+    ) -> bool :
+        """
+        Send WhatsApp template messages \\
+        Args:
+            message : Approved template payload ready for WhatsApp APIs
+        Returns:
+            True on success; False otherwise.
+        """
+        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
+        
+        if isinstance( message, ServerTemplateMsg) :
+            try :
+                send_whatsapp_template( self.operator_id, self.user_id, message)
+                return True
+            
+            except Exception as ex :
+                print(f"In {here}: {str(ex)}")
+        
+        return False
+    
     def send_text(
         self,
         message : ServerTextMsg | AssistantMsg | ToolResultsMsg,
@@ -1042,6 +1068,29 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     # =====================================================================================
     # MESSAGE SENDING FUNCTIONS
     # =====================================================================================
+    
+    async def send_template(
+        self,
+        message : ServerTemplateMsg,
+    ) -> bool :
+        """
+        Send WhatsApp template messages asynchronously.
+        """
+        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
+        
+        if isinstance( message, ServerTemplateMsg) :
+            try :
+                await async_send_whatsapp_template(
+                    self.operator_id,
+                    self.user_id,
+                    message,
+                )
+                return True
+            
+            except Exception as ex :
+                print(f"In {here}: {str(ex)}")
+        
+        return False
     
     async def send_text(
         self,

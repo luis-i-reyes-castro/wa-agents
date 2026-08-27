@@ -14,6 +14,7 @@ from .basemodels import (
     OutgoingDocumentMsg,
     OutgoingMediaMsg,
     ServerInteractiveOptsMsg,
+    ServerTemplateMsg,
     WhatsAppContactPayload,
     WhatsAppLocation,
     WhatsAppMediaData,
@@ -98,6 +99,54 @@ def verify_payload_signature(
 
 # -----------------------------------------------------------------------------------------
 # MESSAGES: OUTGOING
+
+def send_whatsapp_template(
+    operator_id : str,
+    to_number   : str,
+    message     : ServerTemplateMsg,
+) -> None :
+    """
+    Send WhatsApp template messages \\
+    Args:
+        operator_id : Business phone-number id
+        to_number   : Recipient phone number
+        message     : Approved template payload
+    """
+    
+    msg_url     = f"{API_URL}{operator_id}/messages"
+    msg_headers = write_headers( content_type = True)
+    payload     = write_payload( to_number, message)
+    response    = httpx.post( msg_url, headers = msg_headers, json = payload)
+    
+    print_sep()
+    print( "Reply response:", response.json())
+    
+    return
+
+async def async_send_whatsapp_template(
+    operator_id : str,
+    to_number   : str,
+    message     : ServerTemplateMsg,
+) -> None :
+    """
+    Send WhatsApp template messages asynchronously \\
+    Args:
+        operator_id : Business phone-number id
+        to_number   : Recipient phone number
+        message     : Approved template payload
+    """
+    
+    msg_url     = f"{API_URL}{operator_id}/messages"
+    msg_headers = write_headers( content_type = True)
+    payload     = write_payload( to_number, message)
+    
+    async with httpx.AsyncClient() as client :
+        response = await client.post( msg_url, headers = msg_headers, json = payload)
+    
+    print_sep()
+    print( "Reply response:", response.json())
+    
+    return
 
 def send_whatsapp_text(
     operator_id : str,
@@ -421,7 +470,8 @@ def write_headers( content_type : bool = False) -> dict :
 
 def write_payload(
     to_number : str,
-    content   : str
+    content   : ServerTemplateMsg
+              | str
               | ServerInteractiveOptsMsg
               | WhatsAppContactPayload
               | WhatsAppLocation
@@ -439,7 +489,21 @@ def write_payload(
     payload = { "messaging_product" : "whatsapp",
                 "to"                : to_number }
     
-    if isinstance( content, str) :
+    if isinstance( content, ServerTemplateMsg) :
+        
+        payload["recipient_type"] = "individual"
+        payload["type"]           = "template"
+        payload["template"]       = {
+            "name"     : content.name,
+            "language" : { "code" : content.language_code },
+        }
+        
+        if content.body :
+            payload["template"]["components"] = [
+                content.body.model_dump( exclude_none = True)
+            ]
+    
+    elif isinstance( content, str) :
         
         # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/text-messages
         
