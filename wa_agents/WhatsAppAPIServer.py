@@ -5,6 +5,7 @@ FastAPI app that receives WhatsApp webhooks and runs the async queue worker.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 
@@ -36,6 +37,7 @@ from sofia_utils.psycopg import (
 )
 
 from .basemodels import WhatsAppPayload
+from .whatsapp_functions import verify_payload_signature as wa_verify_payload_signature
 
 
 if TYPE_CHECKING :
@@ -52,6 +54,8 @@ class WhatsAppAPIServer(FastAPI) :
         handler_cls  : Type[Any],
         queue_db     : "AsyncQueueDB | None" = None,
         webhook_path : str                   = "/webhook",
+        *,
+        webhook_verify_payload_signature : bool = False,
         **kwargs     : Any,
     ) -> None :
         """
@@ -60,6 +64,7 @@ class WhatsAppAPIServer(FastAPI) :
             handler_cls  : Case handler class invoked by the worker
             queue_db     : Optional AsyncQueueDB instance
             webhook_path : Webhook route path
+            webhook_verify_payload_signature : When True, verfify the Meta webhook signature before parsing the payload
             kwargs       : Forwarded to FastAPI
         """
         from .queue_db import AsyncQueueDB
@@ -69,6 +74,8 @@ class WhatsAppAPIServer(FastAPI) :
         self.queue_worker = AsyncQueueWorker( self.queue_db, handler_cls)
         self.webhook_path = webhook_path
         self.worker_task  : asyncio.Task[None] | None = None
+        
+        self.webhook_verify_signature = webhook_verify_payload_signature
         
         kwargs.setdefault( "lifespan", self.lifespan)
         super().__init__(**kwargs)
@@ -194,17 +201,18 @@ class WhatsAppAPIServer(FastAPI) :
         
         return JSONResponse(
             content = {
-                "verify_token_set"    : bool(expected),
-                "verify_token_tail"   : masked,
-                "worker_task_created" : bool(self.worker_task),
-                "worker_task_done"    : (
+                "verify_token_set"         : bool(expected),
+                "verify_token_tail"        : masked,
+                "webhook_verify_signature" : self.webhook_verify_signature,
+                "worker_task_created"      : bool(self.worker_task),
+                "worker_task_done"         : (
                     self.worker_task.done() if self.worker_task else None
                 ),
-                "worker_task_cancelled" : (
+                "worker_task_cancelled"    : (
                     self.worker_task.cancelled() if self.worker_task else None
                 ),
-                "worker_task_exception" : worker_task_exception,
-                "worker_stop_flag"      : self.queue_worker._stop_flag,
+                "worker_task_exception"    : worker_task_exception,
+                "worker_stop_flag"         : self.queue_worker._stop_flag,
             },
             status_code = status.HTTP_200_OK,
         )
@@ -234,7 +242,34 @@ class WhatsAppAPIServer(FastAPI) :
         Validate, persist, and enqueue an incoming WhatsApp webhook payload.
         """
         try :
-            data = await request.json()
+            payload_bytes = await request.body()
+        except Exception :
+            payload_bytes = b""
+        
+        if self.webhook_verify_signature :
+            signature = request.headers.get("x-hub-signature-256")
+            try :
+                if not wa_verify_payload_signature( payload_bytes, signature) :
+                    return JSONResponse(
+                        content = {
+                            "status" : "error",
+                            "error"  : "Invalid signature",
+                        },
+                        status_code = status.HTTP_401_UNAUTHORIZED,
+                    )
+            except RuntimeError :
+                return JSONResponse(
+                    content = {
+                        "status" : "error",
+                        "error"  : (
+                            "Webhook signature verification is not configured"
+                        ),
+                    },
+                    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+        
+        try :
+            data = json.loads(payload_bytes)
         except Exception :
             data = {}
         
