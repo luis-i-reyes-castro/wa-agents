@@ -8,6 +8,7 @@ TRUNCATE TABLE
   public.wa_webhook_statuses,
   public.wa_webhook_messages,
   public.wa_webhook_payloads,
+  public.wa_operators,
   public.wa_messages,
   public.wa_cases,
   public.wa_users

@@ -119,6 +119,23 @@ CREATE INDEX IF NOT EXISTS wa_cases_user_status_idx
     status
   );
 
+CREATE TABLE IF NOT EXISTS public.wa_operators (
+  
+  waba_id              TEXT,
+  operator_id          TEXT NOT NULL,
+  display_phone_number TEXT,
+  
+  first_seen_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  CONSTRAINT wa_operators_pkey
+    PRIMARY KEY (
+      operator_id
+    )
+);
+
 CREATE TABLE IF NOT EXISTS public.wa_webhook_payloads (
   
   id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -256,6 +273,9 @@ ALTER TABLE public.wa_cases
   ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.wa_messages
+  ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.wa_operators
   ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.wa_webhook_payloads

@@ -77,7 +77,8 @@ def get_database_url() -> str :
 # =========================================================================================
 # SQL
 
-SQL_DIR                  = Path(__file__).parent / "sql"
+SQL_DIR = Path(__file__).parent / "sql"
+
 SQL_ENSURE_USER          = load_sql_script( SQL_DIR / "ensure_user.sql" )
 SQL_GET_USER_DATA        = load_sql_script( SQL_DIR / "get_user_data.sql" )
 SQL_UPSERT_USER_DATA     = load_sql_script( SQL_DIR / "upsert_user_data.sql" )
@@ -91,8 +92,12 @@ SQL_GET_MESSAGE          = load_sql_script( SQL_DIR / "get_message.sql" )
 SQL_GET_MESSAGES         = load_sql_script( SQL_DIR / "get_messages.sql" )
 SQL_INSERT_MESSAGE       = load_sql_script( SQL_DIR / "insert_message.sql" )
 SQL_DEDUP_EXISTS         = load_sql_script( SQL_DIR / "dedup_exists.sql" )
+
 SQL_INSERT_WEBHOOK_PAYLOAD = load_sql_script(
     SQL_DIR / "insert_webhook_payload.sql"
+)
+SQL_UPSERT_OPERATOR        = load_sql_script(
+    SQL_DIR / "upsert_operator.sql"
 )
 SQL_INSERT_WEBHOOK_MESSAGE = load_sql_script(
     SQL_DIR / "insert_webhook_message.sql"
@@ -203,6 +208,18 @@ def _webhook_message_params(
     }
 
 
+def _operator_params(
+    waba_id : str,
+    value   : WhatsAppValue,
+) -> dict[str, Any] :
+    
+    return {
+        "waba_id"              : waba_id,
+        "operator_id"          : value.metadata.phone_number_id,
+        "display_phone_number" : value.metadata.display_phone_number,
+    }
+
+
 def _webhook_status_params(
     payload_id : int,
     waba_id    : str,
@@ -286,6 +303,15 @@ def webhook_payload_write( payload : WhatsAppPayload) -> bool :
     with sync_pooled_conection(get_database_url()) as conn :
         
         row = conn.execute( SQL_INSERT_WEBHOOK_PAYLOAD, payload_params).fetchone()
+        for entry in payload.entry :
+            for change in entry.changes :
+                
+                value = change.value
+                conn.execute(
+                    SQL_UPSERT_OPERATOR,
+                    _operator_params( waba_id = entry.id, value = value),
+                )
+        
         if not ( row and row["inserted"] ) :
             return False
         
@@ -294,6 +320,7 @@ def webhook_payload_write( payload : WhatsAppPayload) -> bool :
             for change in entry.changes :
                 
                 value = change.value
+                
                 for message in value.messages :
                     conn.execute(
                         SQL_INSERT_WEBHOOK_MESSAGE,
@@ -338,6 +365,15 @@ async def async_webhook_payload_write( payload : WhatsAppPayload) -> bool :
         row = await (
             await conn.execute( SQL_INSERT_WEBHOOK_PAYLOAD, payload_params)
         ).fetchone()
+        for entry in payload.entry :
+            for change in entry.changes :
+                
+                value = change.value
+                await conn.execute(
+                    SQL_UPSERT_OPERATOR,
+                    _operator_params( waba_id = entry.id, value = value),
+                )
+        
         if not ( row and row["inserted"] ) :
             return False
         
@@ -346,6 +382,7 @@ async def async_webhook_payload_write( payload : WhatsAppPayload) -> bool :
             for change in entry.changes :
                 
                 value = change.value
+                
                 for message in value.messages :
                     await conn.execute(
                         SQL_INSERT_WEBHOOK_MESSAGE,
