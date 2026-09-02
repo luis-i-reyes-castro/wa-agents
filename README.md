@@ -122,7 +122,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from wa_agents.WhatsAppAPIServer import WhatsAppAPIServer
+from wa_agents.whatsapp_api_server import WhatsAppAPIServer
 from casehandler import CaseHandler
 
 

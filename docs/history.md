@@ -41,7 +41,7 @@ keeping S3-compatible bucket storage for media bytes.
 
 ### Runtime Changes
 
-- Added `wa_agents.WhatsAppAPIServer`, a `FastAPI` subclass that:
+- Added `wa_agents.whatsapp_api_server`, a `FastAPI` subclass that:
   - registers WhatsApp verification and webhook routes,
   - persists webhook audit rows,
   - enqueues validated payloads,
