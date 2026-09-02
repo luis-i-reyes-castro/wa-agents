@@ -8,7 +8,7 @@ os.environ.setdefault( "SUPABASE_DB_CONNECTION_URL_IPv4", "postgresql://test")
 
 from wa_agents.basemodels import ServerTextMsg
 from wa_agents.listener import Listener
-from wa_agents.WhatsAppAPIServer import WhatsAppAPIServer
+from wa_agents.whatsapp_api_server import WhatsAppAPIServer
 from wa_agents import queue_db
 from wa_agents.storage_backend import get_storage_backend
 from wa_agents import supabase_storage
