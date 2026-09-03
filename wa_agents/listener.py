@@ -10,8 +10,8 @@ from pydantic import ValidationError
 
 from sofia_utils.printing import print_sep
 
-from .basemodels import WhatsAppPayload
 from .queue_db import QueueDB
+from .whatsapp_models import WhatsAppPayload
 
 
 class Listener(Flask) :

@@ -6,16 +6,16 @@ import pytest
 
 from pydantic import ValidationError
 
-from wa_agents.basemodels import (
-    ServerTemplateMsg,
-    WhatsAppTemplateBodyComponent,
-    WhatsAppTemplateParameter,
-)
 from wa_agents.case_handler_base import (
     AsyncCaseHandlerBase,
     CaseHandlerBase,
 )
+from wa_agents.case_handler_models import ServerTemplateMsg
 from wa_agents.whatsapp_functions import write_payload
+from wa_agents.whatsapp_models import (
+    WhatsAppTemplateBodyComponent,
+    WhatsAppTemplateParameter,
+)
 
 
 class _TemplateHandler(CaseHandlerBase) :

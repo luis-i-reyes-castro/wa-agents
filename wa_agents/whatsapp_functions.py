@@ -10,18 +10,21 @@ from typing import Any
 
 from sofia_utils.printing import print_sep
 
-from .basemodels import (
+from .case_handler_models import (
     OutgoingDocumentMsg,
     OutgoingMediaMsg,
     ServerInteractiveOptsMsg,
     ServerTemplateMsg,
+    ServerTextMsg,
+)
+from .whatsapp_models import (
     WhatsAppContactPayload,
     WhatsAppLocation,
     WhatsAppMediaData,
 )
 
 
-API_URL = "https://graph.facebook.com/v25.0/"
+API_URL = "https://graph.facebook.com/v26.0/"
 
 
 # -----------------------------------------------------------------------------------------
@@ -78,7 +81,7 @@ async def async_fetch_media( media_data : WhatsAppMediaData) -> bytes :
     
     return result
 
-def verify_payload_signature(
+def verify_app_secret(
     payload   : bytes | None,
     signature : str   | None,
 ) -> bool :
@@ -471,7 +474,7 @@ def write_headers( content_type : bool = False) -> dict :
 def write_payload(
     to_number : str,
     content   : ServerTemplateMsg
-              | str
+              | ServerTextMsg | str
               | ServerInteractiveOptsMsg
               | WhatsAppContactPayload
               | WhatsAppLocation
@@ -503,12 +506,18 @@ def write_payload(
                 content.body.model_dump( exclude_none = True)
             ]
     
-    elif isinstance( content, str) :
+    elif isinstance( content, ( ServerTextMsg, str)) :
         
         # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/text-messages
         
         payload["type"] = "text"
-        payload["text"] = { "body" : content }
+        payload["text"] = {
+            "body" : (
+                str(content.text)
+                if isinstance( content, ServerTextMsg) else
+                content
+            )
+        }
     
     elif isinstance( content, ServerInteractiveOptsMsg) :
         

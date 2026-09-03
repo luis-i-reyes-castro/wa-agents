@@ -37,7 +37,7 @@ from sofia_utils.printing import (
     print_sep,
 )
 
-from .basemodels import (
+from .case_handler_models import (
     AssistantMsg,
     BasicMsg,
     Message,

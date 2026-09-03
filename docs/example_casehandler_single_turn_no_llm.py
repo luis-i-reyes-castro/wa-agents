@@ -7,13 +7,17 @@ Use this when replies are deterministic (lookups, rules, fixed templates).
 
 from inspect import currentframe
 
-from wa_agents.basemodels import ( MediaContent,
-                                   ServerTextMsg,
-                                   UserContentMsg,
-                                   WhatsAppContact,
-                                   WhatsAppMetaData,
-                                   WhatsAppMsg )
 from wa_agents.case_handler_base import CaseHandlerBase
+from wa_agents.case_handler_models import (
+    MediaContent,
+    ServerTextMsg,
+    UserContentMsg,
+)
+from wa_agents.whatsapp_models import (
+    WhatsAppContact,
+    WhatsAppMetaData,
+    WhatsAppMsg,
+)
 
 
 class CaseHandler(CaseHandlerBase) :

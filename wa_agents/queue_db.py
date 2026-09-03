@@ -15,8 +15,8 @@ from sofia_utils.psycopg import (
     sync_pooled_conection,
 )
 
-from .basemodels import WhatsAppPayload
 from .supabase_storage import get_database_url
+from .whatsapp_models import WhatsAppPayload
 
 
 SQL_DIR               = Path(__file__).parent / "sql"

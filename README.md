@@ -278,7 +278,7 @@ Constructor behavior:
 
 ```python
 from wa_agents.agent import AsyncAgent
-from wa_agents.basemodels import UserContentMsg
+from wa_agents.case_handler_models import UserContentMsg
 
 agent = AsyncAgent( "main", ["openai/gpt-5-mini"])
 agent.load_prompts(["prompts/main.md"])
@@ -319,7 +319,7 @@ if resp and resp.st_output:
 ### 4) Image + text context
 
 ```python
-from wa_agents.basemodels import UserContentMsg, load_media
+from wa_agents.case_handler_models import UserContentMsg, load_media
 
 md, mc     = load_media("tests/photo.jpg")
 context    = [ UserContentMsg( text = "Describe this issue.", media = md) ]

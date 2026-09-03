@@ -10,16 +10,18 @@ from inspect import currentframe
 from pathlib import Path
 
 from wa_agents.agent import AsyncAgent
-from wa_agents.basemodels import (
+from wa_agents.case_handler_base import AsyncCaseHandlerBase
+from wa_agents.case_handler_models import (
     MediaContent,
     ToolCall,
     ToolResult,
     ToolResultsMsg,
+)
+from wa_agents.whatsapp_models import (
     WhatsAppContact,
     WhatsAppMetaData,
     WhatsAppMsg,
 )
-from wa_agents.case_handler_base import AsyncCaseHandlerBase
 
 
 class ToolServer :

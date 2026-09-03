@@ -6,10 +6,10 @@ os.environ.setdefault( "BUCKET_KEY_SECRET", "test-secret")
 os.environ.setdefault( "BUCKET_NAME", "test-bucket")
 os.environ.setdefault( "SUPABASE_DB_CONNECTION_URL_IPv4", "postgresql://test")
 
-from wa_agents.basemodels import ServerTextMsg
 from wa_agents.listener import Listener
 from wa_agents.whatsapp_api_server import WhatsAppAPIServer
 from wa_agents import queue_db
+from wa_agents.case_handler_models import ServerTextMsg
 from wa_agents.storage_backend import get_storage_backend
 from wa_agents import supabase_storage
 from wa_agents.supabase_storage import (

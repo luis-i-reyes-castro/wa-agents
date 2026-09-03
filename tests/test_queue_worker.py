@@ -9,11 +9,11 @@ os.environ.setdefault("BUCKET_KEY_SECRET", "test-key-secret")
 os.environ.setdefault("BUCKET_NAME", "test-bucket")
 os.environ.setdefault("BUCKET_ENDPOINT", "https://example.com")
 
-from wa_agents.basemodels import WhatsAppPayload
 from wa_agents.queue_worker import (
     AsyncQueueWorker,
     QueueWorker,
 )
+from wa_agents.whatsapp_models import WhatsAppPayload
 
 
 def _message_payload_dict() -> dict :

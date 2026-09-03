@@ -36,8 +36,8 @@ from sofia_utils.psycopg import (
     open_async_database_connection_pool,
 )
 
-from .basemodels import WhatsAppPayload
-from .whatsapp_functions import verify_payload_signature as wa_verify_payload_signature
+from .whatsapp_functions import verify_app_secret
+from .whatsapp_models import WhatsAppPayload
 
 
 if TYPE_CHECKING :
@@ -55,7 +55,7 @@ class WhatsAppAPIServer(FastAPI) :
         queue_db     : "AsyncQueueDB | None" = None,
         webhook_path : str                   = "/webhook",
         *,
-        webhook_verify_payload_signature : bool = False,
+        verify_app_secret : bool = False,
         **kwargs     : Any,
     ) -> None :
         """
@@ -64,7 +64,7 @@ class WhatsAppAPIServer(FastAPI) :
             handler_cls  : Case handler class invoked by the worker
             queue_db     : Optional AsyncQueueDB instance
             webhook_path : Webhook route path
-            webhook_verify_payload_signature : When True, verfify the Meta webhook signature before parsing the payload
+            verify_app_secret : When True, verfify the received payload's signature against the Meta App Secret.
             kwargs       : Forwarded to FastAPI
         """
         from .queue_db import AsyncQueueDB
@@ -75,7 +75,7 @@ class WhatsAppAPIServer(FastAPI) :
         self.webhook_path = webhook_path
         self.worker_task  : asyncio.Task[None] | None = None
         
-        self.webhook_verify_signature = webhook_verify_payload_signature
+        self.verify_app_secret = verify_app_secret
         
         kwargs.setdefault( "lifespan", self.lifespan)
         super().__init__(**kwargs)
@@ -203,7 +203,7 @@ class WhatsAppAPIServer(FastAPI) :
             content = {
                 "verify_token_set"         : bool(expected),
                 "verify_token_tail"        : masked,
-                "webhook_verify_signature" : self.webhook_verify_signature,
+                "verify_meta_app_secret"   : self.verify_app_secret,
                 "worker_task_created"      : bool(self.worker_task),
                 "worker_task_done"         : (
                     self.worker_task.done() if self.worker_task else None
@@ -246,10 +246,10 @@ class WhatsAppAPIServer(FastAPI) :
         except Exception :
             payload_bytes = b""
         
-        if self.webhook_verify_signature :
+        if self.verify_app_secret :
             signature = request.headers.get("x-hub-signature-256")
             try :
-                if not wa_verify_payload_signature( payload_bytes, signature) :
+                if not verify_app_secret( payload_bytes, signature) :
                     return JSONResponse(
                         content = {
                             "status" : "error",

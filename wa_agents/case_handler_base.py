@@ -26,7 +26,7 @@ from typing import TypedDict
 from sofia_utils.stamps import *
 from sofia_utils.io import write_to_json_string
 
-from .basemodels import (
+from .case_handler_models import (
     AssistantMsg,
     CaseIndex,
     CaseManifest,
@@ -41,14 +41,16 @@ from .basemodels import (
     UserData,
     UserInteractiveReplyMsg,
     UserMsg,
-    WhatsAppContact,
-    WhatsAppMetaData,
-    WhatsAppMsg,
     llm_context_truncate,
 )
 from .storage_backend import (
     get_async_storage_classes,
     get_sync_storage_classes,
+)
+from .whatsapp_models import (
+    WhatsAppContact,
+    WhatsAppMetaData,
+    WhatsAppMsg,
 )
 from .whatsapp_functions import (
     async_send_whatsapp_interactive,

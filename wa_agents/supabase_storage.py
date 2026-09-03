@@ -25,15 +25,11 @@ from sofia_utils.psycopg import (
 )
 from sofia_utils.stamps import utc_iso_to_dt
 
-from .basemodels import (
+from .case_handler_models import (
     CaseManifest,
     MediaContent,
     Message,
     UserContentMsg,
-    WhatsAppMsg,
-    WhatsAppPayload,
-    WhatsAppStatus,
-    WhatsAppValue,
 )
 from .do_bucket_io import (
     b3_exists,
@@ -42,6 +38,12 @@ from .do_bucket_io import (
     async_b3_exists,
     async_b3_get_file,
     async_b3_put_media,
+)
+from .whatsapp_models import (
+    WhatsAppMsg,
+    WhatsAppPayload,
+    WhatsAppStatus,
+    WhatsAppValue,
 )
 
 

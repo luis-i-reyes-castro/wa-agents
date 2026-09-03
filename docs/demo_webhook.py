@@ -12,7 +12,7 @@ from sofia_utils.printing import (
     print_recursively,
     print_sep,
 )
-from wa_agents.basemodels import (
+from wa_agents.whatsapp_models import (
     WhatsAppContactPayload,
     WhatsAppContactPayload_Name,
     WhatsAppContactPayload_Phone,

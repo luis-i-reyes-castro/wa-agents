@@ -8,13 +8,13 @@ Use this when each incoming user message should produce one model-generated repl
 from inspect import currentframe
 
 from wa_agents.agent import AsyncAgent
-from wa_agents.basemodels import (
-    MediaContent,
+from wa_agents.case_handler_base import AsyncCaseHandlerBase
+from wa_agents.case_handler_models import MediaContent
+from wa_agents.whatsapp_models import (
     WhatsAppContact,
     WhatsAppMetaData,
     WhatsAppMsg,
 )
-from wa_agents.case_handler_base import AsyncCaseHandlerBase
 
 
 class CaseHandler (AsyncCaseHandlerBase) :

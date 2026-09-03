@@ -13,10 +13,7 @@ from inspect import iscoroutinefunction
 from traceback import format_exc
 from typing import Type
 
-from .basemodels import ( MediaContent,
-                          WhatsAppContact,
-                          WhatsAppMetaData,
-                          WhatsAppPayload )
+from .case_handler_models import MediaContent
 from .case_handler_base import (
     AsyncCaseHandlerBase,
     CaseHandlerBase,
@@ -24,6 +21,11 @@ from .case_handler_base import (
 from .queue_db import (
     AsyncQueueDB,
     QueueDB,
+)
+from .whatsapp_models import (
+    WhatsAppContact,
+    WhatsAppMetaData,
+    WhatsAppPayload,
 )
 from .whatsapp_functions import (
     async_fetch_media,
