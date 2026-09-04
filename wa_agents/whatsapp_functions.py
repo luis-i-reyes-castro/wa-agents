@@ -473,9 +473,10 @@ def write_headers( content_type : bool = False) -> dict :
 
 def write_payload(
     to_number : str,
-    content   : ServerTemplateMsg
-              | ServerTextMsg | str
+    content   : str
+              | ServerTextMsg
               | ServerInteractiveOptsMsg
+              | ServerTemplateMsg
               | WhatsAppContactPayload
               | WhatsAppLocation
               | OutgoingMediaMsg,
@@ -492,30 +493,14 @@ def write_payload(
     payload = { "messaging_product" : "whatsapp",
                 "to"                : to_number }
     
-    if isinstance( content, ServerTemplateMsg) :
-        
-        payload["recipient_type"] = "individual"
-        payload["type"]           = "template"
-        payload["template"]       = {
-            "name"     : content.name,
-            "language" : { "code" : content.language_code },
-        }
-        
-        if content.body :
-            payload["template"]["components"] = [
-                content.body.model_dump( exclude_none = True)
-            ]
-    
-    elif isinstance( content, ( ServerTextMsg, str)) :
+    if isinstance( content, ( str, ServerTextMsg)) :
         
         # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/text-messages
         
         payload["type"] = "text"
         payload["text"] = {
             "body" : (
-                str(content.text)
-                if isinstance( content, ServerTextMsg) else
-                content
+                content if isinstance( content, str) else str(content.text)
             )
         }
     
@@ -565,6 +550,37 @@ def write_payload(
                             ]
                         } ],
                     }
+    
+    elif isinstance( content, ServerTemplateMsg) :
+        
+        # Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/overview
+        
+        payload["recipient_type"] = "individual"
+        payload["type"]           = "template"
+        payload["template"]       = {
+            "name"     : content.name,
+            "language" : { "code" : content.language },
+        }
+        payload["template"]["components"] = [
+            { "type" : "body" }
+        ]
+        if isinstance( content.parameters, list) :
+            payload["template"]["components"][0]["parameters"] = [
+                {
+                    "type" : "text",
+                    "text" : param,
+                }
+                for param in content.parameters
+            ]
+        else :
+            payload["template"]["components"][0]["parameters"] = [
+                {
+                    "type"           : "text",
+                    "parameter_name" : param_name,
+                    "text"           : param_val,
+                }
+                for param_name, param_val in content.parameters.items()
+            ]
     
     elif isinstance( content, WhatsAppContactPayload) :
         

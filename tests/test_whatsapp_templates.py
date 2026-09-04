@@ -12,10 +12,6 @@ from wa_agents.case_handler_base import (
 )
 from wa_agents.case_handler_models import ServerTemplateMsg
 from wa_agents.whatsapp_functions import write_payload
-from wa_agents.whatsapp_models import (
-    WhatsAppTemplateBodyComponent,
-    WhatsAppTemplateParameter,
-)
 
 
 class _TemplateHandler(CaseHandlerBase) :
@@ -37,33 +33,21 @@ class _AsyncTemplateHandler(AsyncCaseHandlerBase) :
 
 
 def _template_with_body(
-    parameters : list[WhatsAppTemplateParameter],
+    parameters : list[str] | dict[str, str],
 ) -> ServerTemplateMsg :
     
     return ServerTemplateMsg(
-        name          = "order_confirmed",
-        language_code = "en_US",
-        body          = WhatsAppTemplateBodyComponent( parameters = parameters ),
+        name       = "order_confirmed",
+        language   = "en_US",
+        parameters = parameters,
     )
-
-
-def test_template_message_allows_no_body() -> None :
-    
-    message = ServerTemplateMsg( name = "hello_world", language_code = "en_US" )
-    
-    assert message.body is None
 
 
 def test_template_message_allows_positional_parameters() -> None :
     
-    message = _template_with_body(
-        [
-            WhatsAppTemplateParameter( text = "Luis" ),
-            WhatsAppTemplateParameter( text = "ORD-1234" ),
-        ]
-    )
+    message = _template_with_body([ "Luis", "ORD-1234" ])
     
-    assert [ param.text for param in message.body.parameters ] == [
+    assert message.parameters == [
         "Luis",
         "ORD-1234",
     ]
@@ -71,79 +55,71 @@ def test_template_message_allows_positional_parameters() -> None :
 
 def test_template_message_allows_named_parameters() -> None :
     
-    message = _template_with_body(
-        [
-            WhatsAppTemplateParameter(
-                parameter_name = "nombre",
-                text           = "Luis Reyes",
-            ),
-            WhatsAppTemplateParameter(
-                parameter_name = "email",
-                text           = "admin@sofia-systems.com",
-            ),
-        ]
-    )
+    message = _template_with_body({
+        "nombre" : "Luis Reyes",
+        "email"  : "admin@sofia-systems.com",
+    })
     
-    assert [ param.parameter_name for param in message.body.parameters ] == [
-        "nombre",
-        "email",
-    ]
-
-
-def test_template_message_rejects_mixed_parameter_modes() -> None :
-    
-    with pytest.raises( ValidationError ) :
-        _template_with_body(
-            [
-                WhatsAppTemplateParameter( parameter_name = "nombre", text = "Luis" ),
-                WhatsAppTemplateParameter( text = "ORD-1234" ),
-            ]
-        )
+    assert message.parameters == {
+        "nombre" : "Luis Reyes",
+        "email"  : "admin@sofia-systems.com",
+    }
 
 
 def test_template_message_rejects_empty_parameter_list() -> None :
     
     with pytest.raises( ValidationError ) :
-        WhatsAppTemplateBodyComponent()
+        _template_with_body([])
 
 
-def test_template_message_rejects_missing_text() -> None :
+def test_template_message_rejects_empty_parameter_dict() -> None :
     
     with pytest.raises( ValidationError ) :
-        WhatsAppTemplateParameter()
+        _template_with_body({})
 
 
 def test_template_payload_includes_recipient_type() -> None :
     
     payload = write_payload(
         "593999000111",
-        ServerTemplateMsg( name = "hello_world", language_code = "en_US" ),
+        ServerTemplateMsg(
+            name       = "hello_world",
+            language   = "en_US",
+            parameters = [ "Luis" ],
+        ),
     )
     
     assert payload["recipient_type"] == "individual"
     assert payload["type"] == "template"
+    assert payload["template"]["language"] == { "code" : "en_US" }
 
 
-def test_template_payload_omits_components_without_body() -> None :
+def test_template_payload_includes_components() -> None :
     
     payload = write_payload(
         "593999000111",
-        ServerTemplateMsg( name = "hello_world", language_code = "en_US" ),
+        ServerTemplateMsg(
+            name       = "hello_world",
+            language   = "en_US",
+            parameters = [ "Luis" ],
+        ),
     )
     
-    assert "components" not in payload["template"]
+    assert payload["template"]["components"] == [
+        {
+            "type"       : "body",
+            "parameters" : [
+                { "type" : "text", "text" : "Luis" },
+            ],
+        }
+    ]
 
 
 def test_template_payload_serializes_positional_parameters() -> None :
     
     payload = write_payload(
         "593999000111",
-        _template_with_body(
-            [
-                WhatsAppTemplateParameter( text = "Luis" ),
-                WhatsAppTemplateParameter( text = "ORD-1234" ),
-            ]
-        ),
+        _template_with_body([ "Luis", "ORD-1234" ]),
     )
     
     assert payload["template"]["components"] == [
@@ -161,18 +137,10 @@ def test_template_payload_serializes_named_parameters() -> None :
     
     payload = write_payload(
         "593999000111",
-        _template_with_body(
-            [
-                WhatsAppTemplateParameter(
-                    parameter_name = "nombre",
-                    text           = "Luis Reyes",
-                ),
-                WhatsAppTemplateParameter(
-                    parameter_name = "email",
-                    text           = "admin@sofia-systems.com",
-                ),
-            ]
-        ),
+        _template_with_body({
+            "nombre" : "Luis Reyes",
+            "email"  : "admin@sofia-systems.com",
+        }),
     )
     
     assert payload["template"]["components"] == [
@@ -208,7 +176,11 @@ def test_case_handler_send_template_dispatches_helper( monkeypatch ) -> None :
     handler.user_id     = "user-1"
     handler.debug       = False
     
-    message = ServerTemplateMsg( name = "hello_world", language_code = "en_US" )
+    message = ServerTemplateMsg(
+        name       = "hello_world",
+        language   = "en_US",
+        parameters = [ "Luis" ],
+    )
     
     assert handler.send_template(message) is True
     assert sent == [ ( "op-1", "user-1", message ) ]
@@ -235,7 +207,11 @@ def test_async_case_handler_send_template_dispatches_helper( monkeypatch ) -> No
     handler.user_id     = "user-1"
     handler.debug       = True
     
-    message = ServerTemplateMsg( name = "hello_world", language_code = "en_US" )
+    message = ServerTemplateMsg(
+        name       = "hello_world",
+        language   = "en_US",
+        parameters = [ "Luis" ],
+    )
     
     assert asyncio.run( handler.send_template(message) ) is True
     assert sent == [ ( "op-1", "user-1", message ) ]

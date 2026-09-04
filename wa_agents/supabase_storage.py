@@ -40,7 +40,7 @@ from .do_bucket_io import (
     async_b3_put_media,
 )
 from .whatsapp_models import (
-    WhatsAppMsg,
+    WhatsAppMessage,
     WhatsAppPayload,
     WhatsAppStatus,
     WhatsAppValue,
@@ -158,9 +158,9 @@ def _message_from_payload( payload : dict[str, Any] | None) -> Message | None :
     if not ( msg_bm and isinstance( msg_bm, str) ) :
         return None
     
-    from . import basemodels
+    from . import case_handler_models
     
-    MsgBM = getattr( basemodels, msg_bm, None)
+    MsgBM = getattr( case_handler_models, msg_bm, None)
     if MsgBM and issubclass( MsgBM, BaseModel) :
         return MsgBM.model_validate(payload)
     
@@ -188,7 +188,7 @@ def _webhook_message_params(
     payload_id : int,
     waba_id    : str,
     value      : WhatsAppValue,
-    message    : WhatsAppMsg,
+    message    : WhatsAppMessage,
 ) -> dict[str, Any] :
     
     media_data = message.media_data
@@ -298,7 +298,7 @@ def webhook_payload_write( payload : WhatsAppPayload) -> bool :
     """
     payload_params = {
         "payload_hash" : _payload_hash(payload),
-        "object_type"  : payload.title,
+        "object_type"  : payload.object_field,
         "payload"      : Jsonb(payload.model_dump( mode = "json", by_alias = True)),
     }
     
@@ -358,7 +358,7 @@ async def async_webhook_payload_write( payload : WhatsAppPayload) -> bool :
     """
     payload_params = {
         "payload_hash" : _payload_hash(payload),
-        "object_type"  : payload.title,
+        "object_type"  : payload.object_field,
         "payload"      : Jsonb(payload.model_dump( mode = "json", by_alias = True)),
     }
     

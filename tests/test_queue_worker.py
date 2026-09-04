@@ -30,7 +30,7 @@ def _message_payload_dict() -> dict :
                             "messaging_product" : "whatsapp",
                             "metadata"          : {
                                 "display_phone_number" : "15551234567",
-                                "phone_number_id"      : "phone-1",
+                                "phone_number_id"      : "1234567890",
                             },
                             "contacts" : [
                                 {
@@ -41,7 +41,7 @@ def _message_payload_dict() -> dict :
                             "messages" : [
                                 {
                                     "from"      : "593995341161",
-                                    "id"        : "wamid.message-1",
+                                    "id"        : "wamid.ABC123=",
                                     "timestamp" : "1795737600",
                                     "text"      : { "body" : "Hola" },
                                     "type"      : "text",

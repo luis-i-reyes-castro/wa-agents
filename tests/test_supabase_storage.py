@@ -17,6 +17,7 @@ from wa_agents.supabase_storage import (
     SQL_INSERT_WEBHOOK_MESSAGE,
     SQL_INSERT_WEBHOOK_PAYLOAD,
     SQL_INSERT_WEBHOOK_STATUS,
+    SQL_UPSERT_OPERATOR,
     _payload_hash,
     _message_from_payload,
     get_database_url,
@@ -118,18 +119,18 @@ def _message_payload_dict() -> dict :
                             "messaging_product" : "whatsapp",
                             "metadata"          : {
                                 "display_phone_number" : "15551234567",
-                                "phone_number_id"      : "phone-1",
+                                "phone_number_id"      : "1234567890",
                             },
                             "contacts" : [
                                 {
-                                    "wa_id"   : "user-1",
+                                    "wa_id"   : "593995341161",
                                     "profile" : { "name" : "User One" },
                                 }
                             ],
                             "messages" : [
                                 {
-                                    "from"      : "user-1",
-                                    "id"        : "wamid.message-1",
+                                    "from"      : "593995341161",
+                                    "id"        : "wamid.ABC123=",
                                     "timestamp" : "1700000000",
                                     "type"      : "text",
                                     "text"      : { "body" : "hello" },
@@ -157,12 +158,12 @@ def _status_payload_dict() -> dict :
                             "messaging_product" : "whatsapp",
                             "metadata"          : {
                                 "display_phone_number" : "15551234567",
-                                "phone_number_id"      : "phone-1",
+                                "phone_number_id"      : "1234567890",
                             },
                             "statuses" : [
                                 {
-                                    "id"           : "wamid.message-1",
-                                    "recipient_id" : "user-1",
+                                    "id"           : "wamid.ABC123=",
+                                    "recipient_id" : "593995341161",
                                     "status"       : "delivered",
                                     "timestamp"    : "1700000001",
                                     "conversation" : {
@@ -215,8 +216,9 @@ def test_webhook_payload_duplicate_does_not_explode_rows( monkeypatch) -> None :
     stored = supabase_storage.webhook_payload_write(payload)
     
     assert stored is False
-    assert len(conn.calls) == 1
+    assert len(conn.calls) == 2
     assert conn.calls[0][0] == SQL_INSERT_WEBHOOK_PAYLOAD
+    assert conn.calls[1][0] == SQL_UPSERT_OPERATOR
 
 
 def test_webhook_message_payload_expands_message_row( monkeypatch) -> None :
@@ -232,15 +234,16 @@ def test_webhook_message_payload_expands_message_row( monkeypatch) -> None :
     assert stored is True
     assert [ call[0] for call in conn.calls ] == [
         SQL_INSERT_WEBHOOK_PAYLOAD,
+        SQL_UPSERT_OPERATOR,
         SQL_INSERT_WEBHOOK_MESSAGE,
     ]
     
-    msg_params = conn.calls[1][1]
+    msg_params = conn.calls[2][1]
     assert msg_params["payload_id"] == 12
-    assert msg_params["operator_id"] == "phone-1"
+    assert msg_params["operator_id"] == "1234567890"
     assert msg_params["waba_id"] == "waba-1"
-    assert msg_params["user_id"] == "user-1"
-    assert msg_params["message_id"] == "wamid.message-1"
+    assert msg_params["user_id"] == "593995341161"
+    assert msg_params["message_id"] == "wamid.ABC123="
     assert msg_params["message_type"] == "text"
 
 
@@ -259,14 +262,15 @@ def test_webhook_status_only_payload_expands_status_row( monkeypatch) -> None :
     assert stored is True
     assert [ call[0] for call in conn.calls ] == [
         SQL_INSERT_WEBHOOK_PAYLOAD,
+        SQL_UPSERT_OPERATOR,
         SQL_INSERT_WEBHOOK_STATUS,
     ]
     
-    status_params = conn.calls[1][1]
+    status_params = conn.calls[2][1]
     assert status_params["payload_id"] == 13
-    assert status_params["operator_id"] == "phone-1"
-    assert status_params["recipient_id"] == "user-1"
-    assert status_params["message_id"] == "wamid.message-1"
+    assert status_params["operator_id"] == "1234567890"
+    assert status_params["recipient_id"] == "593995341161"
+    assert status_params["message_id"] == "wamid.ABC123="
     assert status_params["status"] == "delivered"
     assert status_params["conversation_id"] == "conversation-1"
     assert status_params["pricing_category"] == "service"
@@ -473,7 +477,7 @@ def test_queue_claim_next_validates_payload( monkeypatch) -> None :
     
     assert item["row_id"] == 7
     assert isinstance( item["payload"], supabase_storage.WhatsAppPayload)
-    assert item["payload"].entry[0].changes[0].value.messages[0].id == "wamid.message-1"
+    assert item["payload"].entry[0].changes[0].value.messages[0].id == "wamid.ABC123="
     assert conn.calls[0][0] == queue_db.SQL_CLAIM_NEXT
 
 

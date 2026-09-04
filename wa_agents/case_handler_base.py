@@ -50,7 +50,7 @@ from .storage_backend import (
 from .whatsapp_models import (
     WhatsAppContact,
     WhatsAppMetaData,
-    WhatsAppMsg,
+    WhatsAppMessage,
 )
 from .whatsapp_functions import (
     async_send_whatsapp_interactive,
@@ -495,7 +495,7 @@ class CaseHandlerBase ( Machine, ABC) :
     
     def dedup_and_ingest_message(
         self,
-        message       : WhatsAppMsg,
+        message       : WhatsAppMessage,
         media_content : MediaContent | None = None,
     ) -> UserMsg | None :
         """
@@ -675,7 +675,7 @@ class CaseHandlerBase ( Machine, ABC) :
     @abstractmethod
     def process_message(
         self,
-        message       : WhatsAppMsg,
+        message       : WhatsAppMessage,
         media_content : MediaContent | None = None,
     ) -> bool :
         """
@@ -1016,7 +1016,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     
     async def dedup_and_ingest_message(
         self,
-        message       : WhatsAppMsg,
+        message       : WhatsAppMessage,
         media_content : MediaContent | None = None,
     ) -> UserMsg | None :
         """
@@ -1195,7 +1195,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     @abstractmethod
     async def process_message(
         self,
-        message       : WhatsAppMsg,
+        message       : WhatsAppMessage,
         media_content : MediaContent | None = None,
     ) -> bool :
         """

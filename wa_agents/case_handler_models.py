@@ -27,6 +27,7 @@ from sofia_utils.printing import (
     print_ind,
     print_sep,
 )
+from sofia_utils.pydantic import NE_str
 from sofia_utils.stamps import (
     generate_UUID,
     get_now_utc_iso,
@@ -34,13 +35,12 @@ from sofia_utils.stamps import (
 )
 
 from .phone_numbers import get_country_and_language
-from .types import NE_str
 from .whatsapp_models import (
     WhatsAppInteractiveBody,
     WhatsAppInteractiveButtonLabel,
     WhatsAppInteractiveHeaderFooter,
     WhatsAppInteractiveOption,
-    WhatsAppTemplateMsg,
+    WhatsAppTemplateLanguageCode,
 )
 
 
@@ -340,17 +340,6 @@ class ServerTextMsg( ServerMsg, BasicMsg) :
     """
     pass
 
-class ServerTemplateMsg( WhatsAppTemplateMsg, ServerMsg, StructuredDataMsg) :
-    """
-    Server Template Message ( Server -> User )
-    """
-    
-    def as_text(self) -> str :
-        return self.model_dump_json(
-            include = { "name", "language_code", "body" },
-            exclude_none = True,
-        )
-
 class ServerInteractiveOptsMsg( ServerMsg, StructuredDataMsg) :
     """
     Server Interactive Options Message ( Server -> User )
@@ -400,6 +389,21 @@ class ServerInteractiveOptsMsg( ServerMsg, StructuredDataMsg) :
     @property
     def opts_str(self) -> str :
         return "_".join( opt.id for opt in self.options )
+
+class ServerTemplateMsg( ServerMsg, StructuredDataMsg) :
+    """
+    Server Template Message ( Server -> User )
+    """
+    
+    name       : NE_str
+    language   : WhatsAppTemplateLanguageCode
+    parameters : Annotated[ list[str] | dict[ str, str], Field( min_length = 1)]
+    
+    def as_text(self) -> str :
+        return self.model_dump_json(
+            include = { "name", "language", "parameters" },
+            exclude_none = True,
+        )
 
 # -----------------------------------------------------------------------------------------
 # ASSISTANT MESSAGES

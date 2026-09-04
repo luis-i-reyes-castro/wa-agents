@@ -228,7 +228,7 @@ The parsed payload model is `WhatsAppPayload`.
   transient UX text like "Thinking..." or "Looking up in database...". These
   messages are excluded from LLM-readable context.
 
-Most routing happens in `WhatsAppMsg` fields:
+Most routing happens in `WhatsAppMessage` fields:
 - `message.type`: `text`, `interactive`, `image`, `video`, `audio`, `sticker`, etc.
 - `message.text.body`: user text content.
 - `message.interactive.choice`: selected button/list option.
@@ -245,7 +245,7 @@ Example branch logic in `process_message`:
 ```python
 def process_message(
   self,
-  message       : WhatsAppMsg,
+  message       : WhatsAppMessage,
   media_content : MediaContent | None = None,
 ) -> bool:
     msg = self.dedup_and_ingest_message( message, media_content)
