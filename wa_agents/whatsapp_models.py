@@ -135,6 +135,154 @@ class WhatsAppInteractiveOption(BaseModel) :
     title       : WhatsAppInteractiveTitle
     description : WhatsAppInteractiveDescription | None = None
 
+class WhatsAppContactPayload_Name(BaseModel) :
+    """
+    WhatsApp incoming contact name
+        `formatted_name` : "<name>"
+        `first_name`     : str | null
+        `middle_name`    : str | null
+        `last_name`      : str | null
+        `prefix`         : str | null
+        `suffix`         : str | null
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    formatted_name : str
+    first_name     : str | None = None
+    middle_name    : str | None = None
+    last_name      : str | None = None
+    prefix         : str | None = None
+    suffix         : str | None = None
+    
+    @model_validator( mode = "after")
+    def ensure_at_least_one_name(self) -> Self :
+        """
+        Satisfy META's requirement that the payload have at least:
+        * Formatted name
+        * At least one of: first name, middle name, last name.
+        """
+        
+        if not ( self.first_name or self.middle_name or self.last_name ) :
+            raise ValueError("Must have at least one name")
+        
+        return self
+
+class WhatsAppContactPayload_Phone(BaseModel) :
+    """
+    WhatsApp incoming contact phone
+        `phone` : "<phone number starting with plus sign>"
+        `type`  : "CELL" | "Mobile" | "Landline" | str
+        `wa_id` : "<WhatsApp phone number ID>" | null
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    phone : str
+    type  : str
+    wa_id : str | None = None
+
+class WhatsAppContactPayload_Email(BaseModel) :
+    """
+    WhatsApp incoming contact email
+        `email` : "<email>"
+        `type`  : "Work" | "Personal" | str
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    email : str
+    type  : str
+
+class WhatsAppContactPayload_Org(BaseModel) :
+    """
+    WhatsApp incoming contact organization
+        `company` : "<company name>"
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    company    : str
+    department : str | None = None
+    title      : str | None = None
+
+class WhatsAppContactPayload_Address(BaseModel) :
+    """
+    WhatsApp incoming contact address
+        `type`         : "HOME" | "WORK" | str | null
+        `city`         : "<city>" | null
+        `country`      : "<country>" | null
+        `country_code` : "<2-letter ISO country code>" | null
+        `state`        : "<state>" | null
+        `street`       : "<street>" | null
+        `zip`          : "<zip code>" | null
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    type         : str | None = None
+    city         : str | None = None
+    country      : str | None = None
+    country_code : str | None = None
+    state        : str | None = None
+    street       : str | None = None
+    zip          : str | None = None
+    
+    @model_validator( mode = "after")
+    def ensure_not_empty(self) -> Self :
+        
+        if not (
+            self.city         or
+            self.country      or
+            self.country_code or
+            self.state        or
+            self.street       or
+            self.zip
+            ) :
+            raise ValueError("No data")
+        
+        return self
+
+class WhatsAppContactPayload_Url(BaseModel) :
+    """
+    WhatsApp incoming contact URL
+        `type` : "HOME" | "WORK" | str | null
+        `url`  : "<URL>"
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    type : str | None = None
+    url  : str
+
+class WhatsAppContactPayload(BaseModel) :
+    """
+    WhatsApp incoming contact payload (a.k.a. CONTACT CARD)
+        `name`   : `WhatsAppContactPayload_Name`
+        `phones` : `tuple[ WhatsAppContactPayload_Phone, ...]`
+        `org`    : `WhatsAppContactPayload_Org`                | null
+        `emails` : `tuple[ WhatsAppContactPayload_Email, ...]` | null
+    NOTE:
+        * This class models contact data payload ATTACHED to a WhatsAppMessage
+        * Different from `WhatsAppContact`
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    name   : WhatsAppContactPayload_Name
+    phones : tuple[ WhatsAppContactPayload_Phone, ...]
+    org    : WhatsAppContactPayload_Org                | None = None
+    emails : tuple[ WhatsAppContactPayload_Email, ...] | None = None
+    birthday  : str                                         | None = None
+    addresses : tuple[ WhatsAppContactPayload_Address, ...] | None = None
+    urls      : tuple[ WhatsAppContactPayload_Url, ...]     | None = None
+
+class WhatsAppLocation(BaseModel) :
+    """
+    WhatsApp location
+        `latitude`  : <degrees>
+        `longitude` : <degrees>
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    latitude  : float
+    longitude : float
+    name      : str | None = None
+    address   : str | None = None
+
 
 # =========================================================================================
 # INBOUND: MESSAGES
@@ -285,154 +433,6 @@ class WhatsAppReaction(BaseModel) :
     
     message_id : WhatsAppMessageID
     emoji      : str | None = None
-
-class WhatsAppContactPayload_Name(BaseModel) :
-    """
-    WhatsApp incoming contact name
-        `formatted_name` : "<name>"
-        `first_name`     : str | null
-        `middle_name`    : str | null
-        `last_name`      : str | null
-        `prefix`         : str | null
-        `suffix`         : str | null
-    """
-    model_config = ConfigDict( frozen = True)
-    
-    formatted_name : str
-    first_name     : str | None = None
-    middle_name    : str | None = None
-    last_name      : str | None = None
-    prefix         : str | None = None
-    suffix         : str | None = None
-    
-    @model_validator( mode = "after")
-    def ensure_at_least_one_name(self) -> Self :
-        """
-        Satisfy META's requirement that the payload have at least:
-        * Formatted name
-        * At least one of: first name, middle name, last name.
-        """
-        
-        if not ( self.first_name or self.middle_name or self.last_name ) :
-            raise ValueError("Must have at least one name")
-        
-        return self
-
-class WhatsAppContactPayload_Phone(BaseModel) :
-    """
-    WhatsApp incoming contact phone
-        `phone` : "<phone number starting with plus sign>"
-        `type`  : "CELL" | "Mobile" | "Landline" | str
-        `wa_id` : "<WhatsApp phone number ID>" | null
-    """
-    model_config = ConfigDict( frozen = True)
-    
-    phone : str
-    type  : str
-    wa_id : str | None = None
-
-class WhatsAppContactPayload_Email(BaseModel) :
-    """
-    WhatsApp incoming contact email
-        `email` : "<email>"
-        `type`  : "Work" | "Personal" | str
-    """
-    model_config = ConfigDict( frozen = True)
-    
-    email : str
-    type  : str
-
-class WhatsAppContactPayload_Org(BaseModel) :
-    """
-    WhatsApp incoming contact organization
-        `company` : "<company name>"
-    """
-    model_config = ConfigDict( frozen = True)
-    
-    company    : str
-    department : str | None = None
-    title      : str | None = None
-
-class WhatsAppContactPayload_Address(BaseModel) :
-    """
-    WhatsApp incoming contact address
-        `type`         : "HOME" | "WORK" | str | null
-        `city`         : "<city>" | null
-        `country`      : "<country>" | null
-        `country_code` : "<2-letter ISO country code>" | null
-        `state`        : "<state>" | null
-        `street`       : "<street>" | null
-        `zip`          : "<zip code>" | null
-    """
-    model_config = ConfigDict( frozen = True)
-    
-    type         : str | None = None
-    city         : str | None = None
-    country      : str | None = None
-    country_code : str | None = None
-    state        : str | None = None
-    street       : str | None = None
-    zip          : str | None = None
-    
-    @model_validator( mode = "after")
-    def ensure_not_empty(self) -> Self :
-        
-        if not (
-            self.city         or
-            self.country      or
-            self.country_code or
-            self.state        or
-            self.street       or
-            self.zip
-            ) :
-            raise ValueError("No data")
-        
-        return self
-
-class WhatsAppContactPayload_Url(BaseModel) :
-    """
-    WhatsApp incoming contact URL
-        `type` : "HOME" | "WORK" | str | null
-        `url`  : "<URL>"
-    """
-    model_config = ConfigDict( frozen = True)
-    
-    type : str | None = None
-    url  : str
-
-class WhatsAppContactPayload(BaseModel) :
-    """
-    WhatsApp incoming contact payload (a.k.a. CONTACT CARD)
-        `name`   : `WhatsAppContactPayload_Name`
-        `phones` : `tuple[ WhatsAppContactPayload_Phone, ...]`
-        `org`    : `WhatsAppContactPayload_Org`                | null
-        `emails` : `tuple[ WhatsAppContactPayload_Email, ...]` | null
-    NOTE:
-        * This class models contact data payload ATTACHED to a WhatsAppMessage
-        * Different from `WhatsAppContact`
-    """
-    model_config = ConfigDict( frozen = True)
-    
-    name   : WhatsAppContactPayload_Name
-    phones : tuple[ WhatsAppContactPayload_Phone, ...]
-    org    : WhatsAppContactPayload_Org                | None = None
-    emails : tuple[ WhatsAppContactPayload_Email, ...] | None = None
-    birthday  : str                                         | None = None
-    addresses : tuple[ WhatsAppContactPayload_Address, ...] | None = None
-    urls      : tuple[ WhatsAppContactPayload_Url, ...]     | None = None
-
-class WhatsAppLocation(BaseModel) :
-    """
-    WhatsApp location
-        `latitude`  : <degrees>
-        `longitude` : <degrees>
-    """
-    model_config = ConfigDict( frozen = True)
-    
-    latitude  : float
-    longitude : float
-    name      : str | None = None
-    address   : str | None = None
 
 class WhatsAppMessage(BaseModel) :
     """
@@ -1001,3 +1001,17 @@ class WhatsApp_OB_MediaMessage (WhatsApp_OB_PayloadHeader) :
     def media_data(self) -> WhatsApp_OB_MediaData | None :
         
         return getattr( self, self.type, None)
+
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Contacts & Locations
+
+class WhatsApp_OB_ContactsMessage (WhatsApp_OB_PayloadHeader) :
+    
+    type     : Literal["contacts"] = "contacts"
+    contacts : Annotated[ list[WhatsAppContactPayload], Field( min_length = 1)]
+
+class WhatsApp_OB_LocationMessage (WhatsApp_OB_PayloadHeader) :
+    
+    type     : Literal["location"] = "location"
+    location : WhatsAppLocation

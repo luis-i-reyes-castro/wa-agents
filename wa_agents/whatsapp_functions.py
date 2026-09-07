@@ -21,14 +21,34 @@ from .whatsapp_models import (
     WhatsAppContactPayload,
     WhatsAppLocation,
     WhatsAppMediaData,
+    WhatsAppText,
+    WhatsApp_OB_ContactsMessage,
+    WhatsApp_OB_InteractiveOptionsBodyObject,
+    WhatsApp_OB_InteractiveOptionsButtonEntry,
+    WhatsApp_OB_InteractiveOptionsButtons,
+    WhatsApp_OB_InteractiveOptionsData,
+    WhatsApp_OB_InteractiveOptionsFooterObject,
+    WhatsApp_OB_InteractiveOptionsHeaderObject,
+    WhatsApp_OB_InteractiveOptionsList,
+    WhatsApp_OB_InteractiveOptionsListEntries,
+    WhatsApp_OB_InteractiveOptionsMessage,
+    WhatsApp_OB_LocationMessage,
+    WhatsApp_OB_MediaData,
+    WhatsApp_OB_MediaMessage,
+    WhatsApp_OB_TemplateBodyComponent,
+    WhatsApp_OB_TemplateData,
+    WhatsApp_OB_TemplateLanguageObject,
+    WhatsApp_OB_TemplateMessage,
+    WhatsApp_OB_TemplateTextParameter,
+    WhatsApp_OB_TextMessage,
 )
 
 
 API_URL = "https://graph.facebook.com/v26.0/"
 
 
-# -----------------------------------------------------------------------------------------
-# MESSAGES: INCOMING
+# =========================================================================================
+# INBOUND
 
 def fetch_media( media_data : WhatsAppMediaData) -> bytes :
     """
@@ -100,56 +120,9 @@ def verify_app_secret(
     
     return hmac.compare_digest( signature, f"sha256={expected}")
 
+
 # -----------------------------------------------------------------------------------------
-# MESSAGES: OUTGOING
-
-def send_whatsapp_template(
-    operator_id : str,
-    to_number   : str,
-    message     : ServerTemplateMsg,
-) -> None :
-    """
-    Send WhatsApp template messages \\
-    Args:
-        operator_id : Business phone-number id
-        to_number   : Recipient phone number
-        message     : Approved template payload
-    """
-    
-    msg_url     = f"{API_URL}{operator_id}/messages"
-    msg_headers = write_headers( content_type = True)
-    payload     = write_payload( to_number, message)
-    response    = httpx.post( msg_url, headers = msg_headers, json = payload)
-    
-    print_sep()
-    print( "Reply response:", response.json())
-    
-    return
-
-async def async_send_whatsapp_template(
-    operator_id : str,
-    to_number   : str,
-    message     : ServerTemplateMsg,
-) -> None :
-    """
-    Send WhatsApp template messages asynchronously \\
-    Args:
-        operator_id : Business phone-number id
-        to_number   : Recipient phone number
-        message     : Approved template payload
-    """
-    
-    msg_url     = f"{API_URL}{operator_id}/messages"
-    msg_headers = write_headers( content_type = True)
-    payload     = write_payload( to_number, message)
-    
-    async with httpx.AsyncClient() as client :
-        response = await client.post( msg_url, headers = msg_headers, json = payload)
-    
-    print_sep()
-    print( "Reply response:", response.json())
-    
-    return
+# OUTBOUND: Text Messages
 
 def send_whatsapp_text(
     operator_id : str,
@@ -209,6 +182,10 @@ async def async_send_whatsapp_text(
     
     return
 
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Interactive Messages
+
 def send_whatsapp_interactive(
     operator_id : str,
     to_number   : str,
@@ -258,6 +235,62 @@ async def async_send_whatsapp_interactive(
     print( "Reply response:", response.json())
     
     return
+
+
+# =========================================================================================
+# OUTBOUND: Template Messages
+
+def send_whatsapp_template(
+    operator_id : str,
+    to_number   : str,
+    message     : ServerTemplateMsg,
+) -> None :
+    """
+    Send WhatsApp template messages \\
+    Args:
+        operator_id : Business phone-number id
+        to_number   : Recipient phone number
+        message     : Approved template payload
+    """
+    
+    msg_url     = f"{API_URL}{operator_id}/messages"
+    msg_headers = write_headers( content_type = True)
+    payload     = write_payload( to_number, message)
+    response    = httpx.post( msg_url, headers = msg_headers, json = payload)
+    
+    print_sep()
+    print( "Reply response:", response.json())
+    
+    return
+
+async def async_send_whatsapp_template(
+    operator_id : str,
+    to_number   : str,
+    message     : ServerTemplateMsg,
+) -> None :
+    """
+    Send WhatsApp template messages asynchronously \\
+    Args:
+        operator_id : Business phone-number id
+        to_number   : Recipient phone number
+        message     : Approved template payload
+    """
+    
+    msg_url     = f"{API_URL}{operator_id}/messages"
+    msg_headers = write_headers( content_type = True)
+    payload     = write_payload( to_number, message)
+    
+    async with httpx.AsyncClient() as client :
+        response = await client.post( msg_url, headers = msg_headers, json = payload)
+    
+    print_sep()
+    print( "Reply response:", response.json())
+    
+    return
+
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Contacts & Locations
 
 def send_whatsapp_content(
     operator_id : str,
@@ -309,6 +342,10 @@ async def async_send_whatsapp_content(
     print( "Reply response:", response.json())
     
     return
+
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Media
 
 def send_whatsapp_media(
     operator_id : str,
@@ -453,6 +490,10 @@ async def async_send_whatsapp_media(
     
     return False
 
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Headers & Payloads
+
 def write_headers( content_type : bool = False) -> dict :
     """
     Compose Graph API headers with auth and optional JSON content-type \\
@@ -490,19 +531,16 @@ def write_payload(
         Dictionary ready to send to the Graph API.
     """
     
-    payload = { "messaging_product" : "whatsapp",
-                "to"                : to_number }
-    
     if isinstance( content, ( str, ServerTextMsg)) :
         
         # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/text-messages
         
-        payload["type"] = "text"
-        payload["text"] = {
-            "body" : (
-                content if isinstance( content, str) else str(content.text)
-            )
-        }
+        return WhatsApp_OB_TextMessage(
+            to   = to_number,
+            text = WhatsAppText(
+                body = content if isinstance( content, str) else str(content.text)
+            ),
+        ).model_dump()
     
     elif isinstance( content, ServerInteractiveOptsMsg) :
         
@@ -510,110 +548,121 @@ def write_payload(
         # Interactive Reply Buttons: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/interactive-reply-buttons-messages
         # Interactive Lists: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/interactive-list-messages/
         
-        payload["type"]        = "interactive"
-        payload["interactive"] = { "type" : content.type }
-        
-        if ( text_header := content.header ) :
-            payload["interactive"]["header"] = { "type" : "text",
-                                                    "text" : text_header }
-        
-        if ( text_body := content.body ) :
-            payload["interactive"]["body"] = { "text" : text_body }            
-        
-        if ( text_footer := content.footer ) :
-            payload["interactive"]["footer"] = { "text" : text_footer }
-        
         match content.type :
             case "button" :
-                # Initialize action dict
-                payload["interactive"]["action"] = \
-                    {
-                    "buttons" :
-                        [
-                            {
-                                "type"  : "reply",
-                                "reply" : { "id" : option.id, "title" : option.title },
-                            }
-                            for option in content.options
-                        ],
-                    }
+                action = WhatsApp_OB_InteractiveOptionsButtons(
+                    buttons = [
+                        WhatsApp_OB_InteractiveOptionsButtonEntry( reply = option)
+                        for option in content.options
+                    ],
+                )
             case "list" :
-                # Initialize action dict
-                payload["interactive"]["action"] = \
-                    {
-                    "button"   : str(content.button),
-                    "sections" :
-                        [ {
-                            "rows"  : [
-                                opt.model_dump( exclude_none = True)
-                                for opt in content.options
-                            ]
-                        } ],
-                    }
+                action = WhatsApp_OB_InteractiveOptionsList(
+                    button   = str(content.button),
+                    sections = [
+                        WhatsApp_OB_InteractiveOptionsListEntries(
+                            rows = content.options,
+                        ),
+                    ],
+                )
+        
+        return WhatsApp_OB_InteractiveOptionsMessage(
+            to          = to_number,
+            interactive = WhatsApp_OB_InteractiveOptionsData(
+                type   = content.type,
+                header = (
+                    WhatsApp_OB_InteractiveOptionsHeaderObject(
+                        text = content.header,
+                    )
+                    if content.header else None
+                ),
+                body   = WhatsApp_OB_InteractiveOptionsBodyObject(
+                    text = content.body,
+                ),
+                footer = (
+                    WhatsApp_OB_InteractiveOptionsFooterObject(
+                        text = content.footer,
+                    )
+                    if content.footer else None
+                ),
+                action = action,
+            ),
+        ).model_dump()
     
     elif isinstance( content, ServerTemplateMsg) :
         
         # Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/overview
         
-        payload["recipient_type"] = "individual"
-        payload["type"]           = "template"
-        payload["template"]       = {
-            "name"     : content.name,
-            "language" : { "code" : content.language },
-        }
-        payload["template"]["components"] = [
-            { "type" : "body" }
-        ]
         if isinstance( content.parameters, list) :
-            payload["template"]["components"][0]["parameters"] = [
-                {
-                    "type" : "text",
-                    "text" : param,
-                }
+            parameters = [
+                WhatsApp_OB_TemplateTextParameter( text = param)
                 for param in content.parameters
             ]
         else :
-            payload["template"]["components"][0]["parameters"] = [
-                {
-                    "type"           : "text",
-                    "parameter_name" : param_name,
-                    "text"           : param_val,
-                }
+            parameters = [
+                WhatsApp_OB_TemplateTextParameter(
+                    parameter_name = param_name,
+                    text           = param_val,
+                )
                 for param_name, param_val in content.parameters.items()
             ]
+        
+        return WhatsApp_OB_TemplateMessage(
+            to       = to_number,
+            template = WhatsApp_OB_TemplateData(
+                name       = content.name,
+                language   = WhatsApp_OB_TemplateLanguageObject(
+                    code = content.language,
+                ),
+                components = [
+                    WhatsApp_OB_TemplateBodyComponent(
+                        parameters = parameters,
+                    ),
+                ],
+            ),
+        ).model_dump()
     
     elif isinstance( content, WhatsAppContactPayload) :
         
         # Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contacts-messages
         
-        payload["type"]     = "contacts"
-        payload["contacts"] = [ content.model_dump( exclude_none = True) ]
+        return WhatsApp_OB_ContactsMessage(
+            to       = to_number,
+            contacts = [ content ],
+        ).model_dump( exclude_none = True)
     
     elif isinstance( content, WhatsAppLocation) :
         
         # Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/location
         
-        payload["type"]     = "location"
-        payload["location"] = content.model_dump( exclude_none = True)
+        return WhatsApp_OB_LocationMessage(
+            to       = to_number,
+            location = content,
+        ).model_dump( exclude_none = True)
     
     elif isinstance( content, OutgoingMediaMsg) :
         
         # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/image-messages
         
-        payload["type"]       = content.type
-        payload[content.type] = { "id" : content.upload_id }
-        if content.caption :
-            payload[content.type]["caption"] = content.caption
-        if (
-            isinstance( content, OutgoingDocumentMsg) and
-            ( filename := content.filename )
-        ) :
-            payload[content.type]["filename"] = filename
+        media_data = WhatsApp_OB_MediaData(
+            id       = content.upload_id,
+            caption  = content.caption,
+            filename = (
+                content.filename
+                if isinstance( content, OutgoingDocumentMsg) else None
+            ),
+        )
+        return WhatsApp_OB_MediaMessage(
+            to   = to_number,
+            type = content.type,
+            **{ content.type : media_data },
+        ).model_dump()
     
     else :
-        raise ValueError(f"In write_payload: Invalid content type '{type(content)}'")
-    
-    return payload
+        raise ValueError(
+            f"In function 'write_payload': Invalid content type '{type(content)}'"
+        )
+
 
 # -----------------------------------------------------------------------------------------
 # FORMATTING
