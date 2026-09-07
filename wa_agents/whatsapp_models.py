@@ -87,6 +87,7 @@ type WhatsAppMessageType = Literal[
     "image",
     "video",
     "audio",
+    "document",
     "sticker",
     "reaction",
     "contacts",
@@ -403,6 +404,7 @@ class WhatsAppMediaData(BaseModel) :
         `mime_type` : "<MIME type>"
         `sha256`    : "<sha256 checksum>"
         `caption`   : "<caption>" | null
+        `filename`  : "<filename>" | null
         `voice`     : true | false | null
         `animated`  : true | false | null
     """
@@ -411,7 +413,8 @@ class WhatsAppMediaData(BaseModel) :
     id        : NumericID
     mime_type : MIME_Type
     sha256    : HexHash
-    caption   : WhatsAppTextBody | None = None # image and video
+    caption   : WhatsAppTextBody | None = None # image, video, and document
+    filename  : NE_str           | None = None # document
     voice     : bool             | None = None # audio
     animated  : bool             | None = None # sticker
     
@@ -447,6 +450,7 @@ class WhatsAppMessage(BaseModel) :
         `image`        : `WhatsAppMediaData`        | null
         `video`        : `WhatsAppMediaData`        | null
         `audio`        : `WhatsAppMediaData`        | null
+        `document`     : `WhatsAppMediaData`        | null
         `sticker`      : `WhatsAppMediaData`        | null
         `reaction`     : `WhatsAppReaction`         | null
         `contacts`     : `tuple[ WhatsAppContactPayload, ...]` | null
@@ -460,10 +464,8 @@ class WhatsAppMessage(BaseModel) :
     
     context   : WhatsAppContext | None = None
     
-    user      : NE_str | None = Field( alias   = "from",         # Sender phone number
-                                       default = None)
-    user_id   : NE_str | None = Field( alias   = "from_user_id", # Sender BSUID
-                                       default = None)
+    user      : NumericID     | None = Field( alias   = "from",         default = None)
+    user_id   : WhatsAppBSUID | None = Field( alias   = "from_user_id", default = None)
     
     id        : WhatsAppMessageID
     timestamp : UnixTS
@@ -476,6 +478,7 @@ class WhatsAppMessage(BaseModel) :
     image       : WhatsAppMediaData        | None = None
     video       : WhatsAppMediaData        | None = None
     audio       : WhatsAppMediaData        | None = None
+    document    : WhatsAppMediaData        | None = None
     sticker     : WhatsAppMediaData        | None = None
     reaction    : WhatsAppReaction         | None = None
     contacts    : tuple[ WhatsAppContactPayload, ...] | None = None
@@ -486,7 +489,7 @@ class WhatsAppMessage(BaseModel) :
         
         if not ( self.user or self.user_id ) :
             raise ValueError(
-                f"{self.__class__.__name__} is missing both fields "
+                f"Received {self.__class__.__name__} is missing both fields "
                 f"'from' and 'from_user_id'"
             )
         
@@ -494,7 +497,7 @@ class WhatsAppMessage(BaseModel) :
             getattr( self, self.type, None) or ( self.type == "unsupported" )
         ) :
             raise ValueError(
-                f"In {self.__class__.__name__}: Field 'type' has value '{self.type}' "
+                f"Received {self.__class__.__name__} has field 'type' = '{self.type}' "
                 f"but field '{self.type}' is missing"
             )
         
@@ -503,11 +506,32 @@ class WhatsAppMessage(BaseModel) :
     @property
     def media_data(self) -> WhatsAppMediaData | None :
         
-        if self.type in { "audio", "image", "sticker", "video"} :
+        if self.type in { "audio", "document", "image", "sticker", "video" } :
             return getattr( self, self.type, None)
         
         return None
 
+class WhatsAppMessageEcho (WhatsAppMessage) :
+    """
+    WhatsApp message echo payload
+    
+    Includes all the fields in `WhatsAppMessage` along with:
+        `to`: "<receiver phone number>"
+    """
+    
+    to         : NumericID     | None = None
+    to_user_id : WhatsAppBSUID | None = None
+    
+    @model_validator( mode = "after")
+    def validate_recipient(self) -> Self :
+        
+        if not ( self.to or self.to_user_id) :
+            raise ValueError(
+                f"Received {self.__class__.__name__} is missing both fields "
+                f"'to' and 'to_user_id'"
+            )
+        
+        return self
 
 # =========================================================================================
 # INBOUND: STATUSES OF SENT MESSAGES
@@ -656,32 +680,51 @@ class WhatsAppValue(BaseModel) :
     
     messaging_product : Literal["whatsapp"] = "whatsapp"
     
-    metadata : WhatsAppMetaData
-    contacts : tuple[ WhatsAppContact, ...] = ()
-    messages : tuple[ WhatsAppMessage, ...] = ()
-    statuses : tuple[ WhatsAppStatus,  ...] = ()
-    
-    @model_validator( mode = "after")
-    def check_content(self) -> Self :
-        
-        if not ( self.messages or self.statuses ) :
-            raise ValueError(
-                f"{self.__class__.__name__} is missing both 'messages' and 'statuses'"
-            )
-        
-        return self
+    metadata       : WhatsAppMetaData
+    contacts       : tuple[ WhatsAppContact,     ...] = ()
+    messages       : tuple[ WhatsAppMessage,     ...] = ()
+    statuses       : tuple[ WhatsAppStatus,      ...] = ()
+    message_echoes : tuple[ WhatsAppMessageEcho, ...] = ()
 
 class WhatsAppChange_(BaseModel) :
     """
     WhatsApp change item
         `value` : WhatsAppValue
-        `field` : "messages"
+        `field` : "<webhook_field>"
+    Currently supported fields:
+        `messages`           : Regular inbound messages
+        `smb_message_echoes` : Human-originated outbound messages (mobile app)
     """
     
     model_config = ConfigDict( frozen = True)
     
     value : WhatsAppValue
-    field : Literal["messages"] = "messages"
+    field : Literal[
+                "messages",
+                "smb_message_echoes",
+            ]
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        
+        if (
+            ( self.field == "messages"                           ) and
+            ( not ( self.value.messages or self.value.statuses ) )
+        ) :
+            raise ValueError(
+                f"Received {self.__class__.__name__} has 'field' = 'messages' "
+                f"but fields 'value.messages' and 'value.statuses' are both empty"
+            )
+        elif (
+            ( self.field == "smb_message_echoes" ) and
+            ( not self.value.message_echoes      )
+        ) :
+            raise ValueError(
+                f"Received {self.__class__.__name__} has 'field' = 'smb_message_echoes' "
+                f"but field 'value.message_echoes'"
+            )
+        
+        return self
 
 class WhatsAppChanges(BaseModel) :
     """

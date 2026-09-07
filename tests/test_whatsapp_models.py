@@ -4,6 +4,8 @@ from pydantic import ValidationError
 
 from wa_agents.whatsapp_models import (
     WhatsAppInteractiveOption,
+    WhatsAppMessage,
+    WhatsAppMessageEcho,
     WhatsApp_OB_InteractiveOptionsBodyObject,
     WhatsApp_OB_InteractiveOptionsButtonEntry,
     WhatsApp_OB_InteractiveOptionsButtons,
@@ -19,6 +21,47 @@ from wa_agents.whatsapp_models import (
     WhatsApp_OB_TemplateTextParameter,
     WhatsAppText,
 )
+
+
+DOCUMENT_DATA = {
+    "id"        : "123456789",
+    "mime_type" : "application/pdf",
+    "sha256"    : "0123456789abcdef",
+    "filename"  : "invoice.pdf",
+    "caption"   : "Invoice",
+}
+
+
+def test_inbound_document_message() -> None :
+    
+    message = WhatsAppMessage.model_validate({
+        "from"     : "593995341161",
+        "id"       : "wamid.document",
+        "timestamp" : "1788724265",
+        "type"     : "document",
+        "document" : DOCUMENT_DATA,
+    })
+    
+    assert message.media_data == message.document
+    assert message.document
+    assert message.document.filename == "invoice.pdf"
+    assert message.document.extension == "pdf"
+
+
+def test_document_message_echo() -> None :
+    
+    message = WhatsAppMessageEcho.model_validate({
+        "from"       : "593964204854",
+        "to_user_id" : "EC.1286082552926188",
+        "id"         : "wamid.documentecho",
+        "timestamp"  : "1788724265",
+        "type"       : "document",
+        "document"   : DOCUMENT_DATA,
+    })
+    
+    assert message.media_data == message.document
+    assert message.to is None
+    assert message.to_user_id == "EC.1286082552926188"
 
 
 def test_outbound_text_message_serializes_without_recipient() -> None :
