@@ -92,7 +92,7 @@ curl -i -X POST \
 
 Go to **WhatsApp Manager → Message templates → Create template**.
 Create something simple like:
-* **Name:** hello_world_ec (lowercase + underscores only)
+* **Name:** hello_world (lowercase + underscores only)
 * **Category:** UTILITY (or MARKETING, it does not matter)
 * **Body:** "Hola! Este es un mensaje de prueba."
 
@@ -107,7 +107,7 @@ curl -s -X GET \
   -H "Authorization: Bearer $WA_TOKEN" | jq
 ```
 
-If approved, be mindful of the language code (either `en` or `en_US`), as it will need to match the one below. Once approved, add environment variable `TEST_NUMBER` with a test phone number (without the `+`prefix), reload the env vars (`source .env`), and run:
+If approved, be mindful of the language code (e.g., `en_US` or `es_EC`), as it will need to match the one below. Once approved, add environment variable `TEST_NUMBER` with a test phone number (without the `+`prefix), reload the env vars (`source .env`), and run:
 ```bash
 curl -i -X POST \
   "https://graph.facebook.com/v23.0/$WA_NUMBER_ID/messages" \
@@ -118,8 +118,8 @@ curl -i -X POST \
     "to": "'"$TEST_NUMBER"'",
     "type": "template",
     "template": {
-      "name": "hello_world_ec",
-      "language": { "code": "en" }
+      "name": "hello_world",
+      "language": { "code": "en_US" }
     }
   }'
 ```

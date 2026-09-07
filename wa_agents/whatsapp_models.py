@@ -2,17 +2,21 @@
 WhatsApp BaseModels \\
 References:
 * https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/reference/messages
-& https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/
+* https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/
 """
 
+from abc import ABC
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    model_serializer,
     model_validator,
 )
 from typing import (
     Annotated,
+    Any,
+    Callable,
     Literal,
     Self,
 )
@@ -21,42 +25,37 @@ from sofia_utils.pydantic import (
     HexHash,
     MIME_Type,
     NE_str,
+    NE_var_name,
     NumericID,
     UnixTS,
+    serialize_without_nones,
 )
 
 
-# -----------------------------------------------------------------------------------------
+# =========================================================================================
 # BASE TYPES
 
-type WhatsAppPayloadType = Literal[ "message", "status"]
-""" WhatsApp Payload Type """
-
-type WhatsAppUsername = Annotated[
-                            str,
-                            Field( pattern = r"^[A-Za-z0-9\.\_]{3,35}$"),
-                        ]
-""" WhatsApp Username """
-
-type WhatsAppBSUID    = Annotated[
-                            str, 
-                            Field( pattern = r"^[A-Z]{2}\.[A-Za-z0-9]{1,128}$"),
-                        ]
+type WhatsAppBSUID                = Annotated[
+    str, Field( pattern = r"^[A-Z]{2}\.[A-Za-z0-9]{1,128}$"),
+]
 """ WhatsApp Business-scoped User ID (BSUID) """
 
-type WhatsAppMessageID = Annotated[
-                            str,
-                            Field( pattern = r"^wamid\.[A-Za-z0-9\+\/\=]+$"),
-                         ]
+type WhatsAppMessageID            = Annotated[
+    str, Field( pattern = r"^wamid\.[A-Za-z0-9\+\/\=]+$"),
+]
 """ WhatsApp Message ID """
 
 type WhatsAppTemplateLanguageCode = Annotated[
-                                        str,
-                                        Field( pattern = r"^[a-z]{2}\_[A-Z]{2}$"),
-                                    ]
+    str, Field( pattern = r"^[a-z]{2}\_[A-Z]{2}$"),
+]
+
+type WhatsAppUsername             = Annotated[
+    str, Field( pattern = r"^[A-Za-z0-9\.\_]{3,35}$"),
+]
+""" WhatsApp Username """
 
 type WhatsAppTextBody                = Annotated[ str, Field( min_length = 1)]
-""" WhatsApp inbound text body """
+""" WhatsApp text body """
 
 type WhatsAppInteractiveId           = Annotated[ str, Field( min_length = 1,
                                                               max_length = 200)]
@@ -82,9 +81,63 @@ type WhatsAppInteractiveButtonLabel  = Annotated[ str, Field( min_length = 1,
                                                               max_length = 20), ]
 """ WhatsApp interactive button label """
 
+type WhatsAppMessageType = Literal[
+    "text",
+    "interactive",
+    "image",
+    "video",
+    "audio",
+    "sticker",
+    "reaction",
+    "contacts",
+    "location",
+    "unsupported",
+]
+""" WhatsApp Message Type """
 
-# -----------------------------------------------------------------------------------------
-# MESSAGES
+type WhatsAppPayloadType = Literal[
+    "message",
+    "status",
+]
+""" WhatsApp Payload Type """
+
+type WhatsApp_OB_MediaType = Literal[
+    "image",
+    "video",
+    "audio",
+    "document",
+]
+""" WhatsApp Outbound Media Type """
+
+
+# =========================================================================================
+# INBOUND & OUTBOUND: SHARED MODELS
+
+class WhatsAppText(BaseModel) :
+    """
+    WhatsApp text payload
+        `body` : "<message text>"
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    body : WhatsAppTextBody
+
+class WhatsAppInteractiveOption(BaseModel) :
+    """
+    Interactive Message Option
+        `id`          : "<option ID>"
+        `title`       : "<option title>"
+        `description` : "<option detail line>" | null
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    id          : WhatsAppInteractiveId
+    title       : WhatsAppInteractiveTitle
+    description : WhatsAppInteractiveDescription | None = None
+
+
+# =========================================================================================
+# INBOUND: MESSAGES
 
 class WhatsAppMetaData(BaseModel) :
     """
@@ -129,7 +182,7 @@ class WhatsAppContact(BaseModel) :
     def validate(self) -> Self :
         if not ( self.wa_id or self.user_id ) :
             raise ValueError(
-                "WhatsAppContact is missing both fields 'wa_id' and 'user_id'"
+                f"{self.__class__.__name__} is missing both fields 'wa_id' and 'user_id'"
             )
         return self
 
@@ -160,28 +213,6 @@ class WhatsAppContext(BaseModel) :
     
     # Field below present only if message refers to a catalog product
     referred_product : dict[ str, str] | None = None
-
-class WhatsAppText(BaseModel) :
-    """
-    WhatsApp text payload
-        `body` : "<message text>"
-    """
-    model_config = ConfigDict( frozen = True)
-    
-    body : WhatsAppTextBody
-
-class WhatsAppInteractiveOption(BaseModel) :
-    """
-    Interactive Message Option
-        `id`          : "<option ID>"
-        `title`       : "<option title>"
-        `description` : "<option detail line>" | null
-    """
-    model_config = ConfigDict( frozen = True)
-    
-    id          : WhatsAppInteractiveId
-    title       : WhatsAppInteractiveTitle
-    description : WhatsAppInteractiveDescription | None = None
 
 class WhatsAppInteractiveReply(BaseModel) :
     """
@@ -436,16 +467,7 @@ class WhatsAppMessage(BaseModel) :
     
     id        : WhatsAppMessageID
     timestamp : UnixTS
-    type      : Literal[ "text",
-                         "interactive",
-                         "image",
-                         "video",
-                         "audio",
-                         "sticker",
-                         "reaction",
-                         "contacts",
-                         "location",
-                         "unsupported" ]
+    type      : WhatsAppMessageType
     
     # In a WhatsApp message only one of the fields below will be present
     # (more precisely, the field that matches the message `type`).
@@ -464,35 +486,31 @@ class WhatsAppMessage(BaseModel) :
         
         if not ( self.user or self.user_id ) :
             raise ValueError(
-                "WhatsAppMessage is missing both fields 'from' and 'from_user_id'"
+                f"{self.__class__.__name__} is missing both fields "
+                f"'from' and 'from_user_id'"
             )
         
-        if not self.type == "unsupported" :
-            type_attribute = getattr( self, self.type, None)
-            if not type_attribute :
-                e_msg = f"Message of type '{self.type}' " \
-                      + f"must have nontrivial attribute '{self.type}'"
-                raise ValueError(e_msg)
+        if not (
+            getattr( self, self.type, None) or ( self.type == "unsupported" )
+        ) :
+            raise ValueError(
+                f"In {self.__class__.__name__}: Field 'type' has value '{self.type}' "
+                f"but field '{self.type}' is missing"
+            )
         
         return self
     
     @property
     def media_data(self) -> WhatsAppMediaData | None :
         
-        if self.image :
-            return self.image
-        elif self.video :
-            return self.video
-        elif self.audio :
-            return self.audio
-        elif self.sticker :
-            return self.sticker
+        if self.type in { "audio", "image", "sticker", "video"} :
+            return getattr( self, self.type, None)
         
         return None
 
 
-# -----------------------------------------------------------------------------------------
-# STATUSES OF SENT MESSAGES
+# =========================================================================================
+# INBOUND: STATUSES OF SENT MESSAGES
 
 class WhatsAppConversationOrigin (BaseModel) :
     """
@@ -520,9 +538,9 @@ class WhatsAppConversation (BaseModel) :
     """
     model_config = ConfigDict( frozen = True)
     
-    id                   : NE_str
+    id                   : NumericID
     origin               : WhatsAppConversationOrigin | None = None
-    expiration_timestamp : NE_str                     | None = None
+    expiration_timestamp : UnixTS                     | None = None
 
 class WhatsAppPricing (BaseModel) :
     """
@@ -621,8 +639,8 @@ class WhatsAppStatus (BaseModel) :
         return self
 
 
-# -----------------------------------------------------------------------------------------
-# PAYLOADS
+# =========================================================================================
+# INBOUND: PAYLOADS
 
 class WhatsAppValue(BaseModel) :
     """
@@ -636,7 +654,7 @@ class WhatsAppValue(BaseModel) :
     
     model_config = ConfigDict( frozen = True)
     
-    messaging_product : NE_str = "whatsapp"
+    messaging_product : Literal["whatsapp"] = "whatsapp"
     
     metadata : WhatsAppMetaData
     contacts : tuple[ WhatsAppContact, ...] = ()
@@ -647,7 +665,9 @@ class WhatsAppValue(BaseModel) :
     def check_content(self) -> Self :
         
         if not ( self.messages or self.statuses ) :
-            raise ValueError("WhatsApp value must include messages or statuses")
+            raise ValueError(
+                f"{self.__class__.__name__} is missing both 'messages' and 'statuses'"
+            )
         
         return self
 
@@ -661,7 +681,7 @@ class WhatsAppChange_(BaseModel) :
     model_config = ConfigDict( frozen = True)
     
     value : WhatsAppValue
-    field : NE_str = "messages"
+    field : Literal["messages"] = "messages"
 
 class WhatsAppChanges(BaseModel) :
     """
@@ -672,7 +692,7 @@ class WhatsAppChanges(BaseModel) :
     
     model_config = ConfigDict( frozen = True)
     
-    id      : NE_str # Receiver WABA Number
+    id      : NumericID # Receiver WABA ID
     changes : tuple[ WhatsAppChange_, ...]
 
 class WhatsAppPayload(BaseModel) :
@@ -697,3 +717,287 @@ class WhatsAppPayload(BaseModel) :
             for entry in self.entry
             for change in entry.changes
         )
+
+
+# =========================================================================================
+# OUTBOUND
+
+class WhatsApp_OB_PayloadHeader ( BaseModel, ABC) :
+    
+    messaging_product : Literal["whatsapp"]   = "whatsapp"
+    recipient_type    : Literal["individual"] = "individual"
+    to                : NumericID     | None  = None
+    recipient         : WhatsAppBSUID | None  = None
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        
+        if not ( self.to or self.recipient ) :
+            raise ValueError(
+                f"{self.__class__.__name__} is missing both fields 'to' and 'recipient'"
+            )
+        
+        if not hasattr( self, "type") :
+            raise ValueError(
+                f"{self.__class__.__name__} is missing field 'type'"
+            )
+        
+        return self
+    
+    @model_serializer( mode = "wrap")
+    def serialize_without_nones(
+        self,
+        handler: Callable[ [BaseModel], dict[ str, Any]],
+    ) -> dict[ str, Any] :
+        
+        return serialize_without_nones( self, handler)
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Text
+
+class WhatsApp_OB_TextMessage (WhatsApp_OB_PayloadHeader) :
+    
+    type : Literal["text"] = "text"
+    text : WhatsAppText
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Interactive Messages
+
+class WhatsApp_OB_InteractiveOptionsHeaderObject (BaseModel) :
+    
+    type : Literal["text"] = "text"
+    text : WhatsAppInteractiveHeaderFooter
+
+class WhatsApp_OB_InteractiveOptionsBodyObject (BaseModel) :
+    
+    text : WhatsAppInteractiveBody
+
+class WhatsApp_OB_InteractiveOptionsFooterObject (BaseModel) :
+    
+    text : WhatsAppInteractiveHeaderFooter
+
+class WhatsApp_OB_InteractiveOptionsButtonEntry (BaseModel) :
+    
+    type  : Literal["reply"] = "reply"
+    reply : WhatsAppInteractiveOption
+    
+    @model_serializer( mode = "wrap")
+    def serialize_without_option_descriptions(
+        self,
+        handler: Callable[ [BaseModel], dict[ str, Any]],
+    ) -> dict[ str, Any] :
+        
+        payload = handler(self)
+        payload["reply"].pop( "description", None)
+        
+        return payload
+
+class WhatsApp_OB_InteractiveOptionsButtons (BaseModel) :
+    
+    buttons : Annotated[
+                list[WhatsApp_OB_InteractiveOptionsButtonEntry],
+                Field( min_length = 1, max_length = 3),
+              ]
+
+class WhatsApp_OB_InteractiveOptionsListEntries (BaseModel) :
+    
+    rows : Annotated[
+                list[WhatsAppInteractiveOption],
+                Field( min_length = 1, max_length = 10),
+           ]
+
+class WhatsApp_OB_InteractiveOptionsList (BaseModel) :
+    
+    button   : WhatsAppInteractiveButtonLabel
+    sections : Annotated[
+                    list[WhatsApp_OB_InteractiveOptionsListEntries],
+                    Field( min_length = 1, max_length = 1)
+               ]
+
+class WhatsApp_OB_InteractiveOptionsData (BaseModel) :
+    
+    type   : Literal[ "button", "list"]
+    
+    header : WhatsApp_OB_InteractiveOptionsHeaderObject | None = None
+    body   : WhatsApp_OB_InteractiveOptionsBodyObject
+    footer : WhatsApp_OB_InteractiveOptionsFooterObject | None = None
+    action : (
+        WhatsApp_OB_InteractiveOptionsButtons |
+        WhatsApp_OB_InteractiveOptionsList
+    )
+    
+    @model_serializer( mode = "wrap")
+    def serialize_without_nones(
+        self,
+        handler: Callable[ [BaseModel], dict[ str, Any]],
+    ) -> dict[ str, Any] :
+        
+        return serialize_without_nones( self, handler)
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        
+        if (
+            (
+                ( self.type == "button" ) and
+                ( not isinstance( self.action, WhatsApp_OB_InteractiveOptionsButtons) )
+            )
+            or
+            (
+                ( self.type == "list" ) and
+                ( not isinstance( self.action, WhatsApp_OB_InteractiveOptionsList) )
+            )
+        ) :
+            
+            expected_type = {
+                "button" : WhatsApp_OB_InteractiveOptionsButtons.__name__,
+                "list"   : WhatsApp_OB_InteractiveOptionsList.__name__,
+            }.get(self.type)
+            
+            raise ValueError(
+                f"{self.__class__.__name__} has field 'type' = '{self.type}' yet "
+                f"its field 'action' is of type '{type(self.action).__name__}'; "
+                f"the expected field type for 'action' is '{expected_type}'."
+            )
+        
+        return self
+
+class WhatsApp_OB_InteractiveOptionsMessage (WhatsApp_OB_PayloadHeader) :
+    
+    type        : Literal["interactive"] = "interactive"
+    interactive : WhatsApp_OB_InteractiveOptionsData
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Template Messages
+
+class WhatsApp_OB_TemplateLanguageObject (BaseModel) :
+    
+    code : WhatsAppTemplateLanguageCode
+
+class WhatsApp_OB_TemplateTextParameter (BaseModel) :
+    
+    type           : Literal["text"]    = "text"
+    parameter_name : NE_var_name | None = None
+    text           : WhatsAppTextBody
+    
+    @model_serializer( mode = "wrap")
+    def serialize_without_nones(
+        self,
+        handler: Callable[ [BaseModel], dict[ str, Any]],
+    ) -> dict[ str, Any] :
+        
+        return serialize_without_nones( self, handler)
+
+class WhatsApp_OB_TemplateBodyComponent (BaseModel) :
+    
+    type       : Literal["body"] = "body"
+    parameters : Annotated[
+        list[WhatsApp_OB_TemplateTextParameter],
+        Field( min_length = 1),
+    ]
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        
+        has_named = any( par.parameter_name for par in self.parameters )
+        if (
+            has_named and
+            ( not all( par.parameter_name for par in self.parameters ) )
+        ):
+            raise ValueError(
+                f"{self.__class__.__name__} parameters must be all named or all positional"
+            )
+        
+        return self
+
+class WhatsApp_OB_TemplateData (BaseModel) :
+    
+    name       : NE_str
+    language   : WhatsApp_OB_TemplateLanguageObject
+    components : Annotated[
+        list[WhatsApp_OB_TemplateBodyComponent],
+        Field( min_length = 1, max_length = 1),
+    ] | None = None
+    
+    @model_serializer( mode = "wrap")
+    def serialize_without_nones(
+        self,
+        handler: Callable[ [BaseModel], dict[ str, Any]],
+    ) -> dict[ str, Any] :
+        
+        return serialize_without_nones( self, handler)
+
+class WhatsApp_OB_TemplateMessage (WhatsApp_OB_PayloadHeader) :
+    
+    type     : Literal["template"] = "template"
+    template : WhatsApp_OB_TemplateData
+
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Media
+
+class WhatsApp_OB_MediaData (BaseModel) :
+    
+    id       : NumericID
+    caption  : NE_str | None = None
+    filename : NE_str | None = None
+    
+    @model_serializer( mode = "wrap")
+    def serialize_without_nones(
+        self,
+        handler: Callable[ [BaseModel], dict[ str, Any]],
+    ) -> dict[ str, Any] :
+        
+        return serialize_without_nones( self, handler)
+
+class WhatsApp_OB_MediaMessage (WhatsApp_OB_PayloadHeader) :
+    
+    type     : WhatsApp_OB_MediaType
+    image    : WhatsApp_OB_MediaData | None = None
+    video    : WhatsApp_OB_MediaData | None = None
+    audio    : WhatsApp_OB_MediaData | None = None
+    document : WhatsApp_OB_MediaData | None = None
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        
+        if not getattr( self, self.type, None) :
+            raise ValueError(
+                f"In {self.__class__.__name__}: Field 'type' has value '{self.type}' "
+                f"but field '{self.type}' is missing"
+            )
+        
+        if (
+            ( 1 if self.image    else 0 ) +
+            ( 1 if self.video    else 0 ) +
+            ( 1 if self.audio    else 0 ) +
+            ( 1 if self.document else 0 )
+        ) > 1 :
+            raise ValueError(
+                f"In {self.__class__.__name__}: Conflicting fields"
+            )
+        
+        if (
+            ( not ( self.type == "document" )         ) and
+            ( media_data := getattr( self, self.type) ) and
+            ( getattr( media_data, "filename", None)  )
+        ) :
+            raise ValueError(
+                f"In {self.__class__.__name__}: Field 'type' has value '{self.type}' "
+                f"but field '{self.type}' has non-trivial field 'filename'"
+            )
+        
+        return self
+    
+    @model_serializer( mode = "wrap")
+    def serialize_without_nones(
+        self,
+        handler: Callable[ [BaseModel], dict[ str, Any]],
+    ) -> dict[ str, Any] :
+        
+        return serialize_without_nones( self, handler)
+    
+    @property
+    def media_data(self) -> WhatsApp_OB_MediaData | None :
+        
+        return getattr( self, self.type, None)

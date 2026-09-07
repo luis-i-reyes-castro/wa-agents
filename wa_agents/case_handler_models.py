@@ -27,7 +27,11 @@ from sofia_utils.printing import (
     print_ind,
     print_sep,
 )
-from sofia_utils.pydantic import NE_str
+from sofia_utils.pydantic import (
+    MIME_Type,
+    NE_str,
+    NE_var_name
+)
 from sofia_utils.stamps import (
     generate_UUID,
     get_now_utc_iso,
@@ -150,7 +154,7 @@ class MediaBase( BaseModel, ABC) :
     Media (Abstract Base Class)
         `mime` : "<MIME type>"
     """
-    mime : NE_str
+    mime : MIME_Type
     
     @property
     def extension(self) -> str :
@@ -397,7 +401,10 @@ class ServerTemplateMsg( ServerMsg, StructuredDataMsg) :
     
     name       : NE_str
     language   : WhatsAppTemplateLanguageCode
-    parameters : Annotated[ list[str] | dict[ str, str], Field( min_length = 1)]
+    parameters : Annotated[
+                    list[NE_str] | dict[ NE_var_name, NE_str],
+                    Field( min_length = 1),
+                 ]
     
     def as_text(self) -> str :
         return self.model_dump_json(

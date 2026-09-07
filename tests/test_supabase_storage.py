@@ -111,7 +111,7 @@ def _message_payload_dict() -> dict :
         "object" : "whatsapp_business_account",
         "entry"  : [
             {
-                "id"      : "waba-1",
+                "id"      : "123456789012345",
                 "changes" : [
                     {
                         "field" : "messages",
@@ -150,7 +150,7 @@ def _status_payload_dict() -> dict :
         "object" : "whatsapp_business_account",
         "entry"  : [
             {
-                "id"      : "waba-1",
+                "id"      : "123456789012345",
                 "changes" : [
                     {
                         "field" : "messages",
@@ -167,7 +167,7 @@ def _status_payload_dict() -> dict :
                                     "status"       : "delivered",
                                     "timestamp"    : "1700000001",
                                     "conversation" : {
-                                        "id"     : "conversation-1",
+                                        "id"     : "987654321098765",
                                         "origin" : { "type" : "service" },
                                     },
                                     "pricing" : {
@@ -241,7 +241,7 @@ def test_webhook_message_payload_expands_message_row( monkeypatch) -> None :
     msg_params = conn.calls[2][1]
     assert msg_params["payload_id"] == 12
     assert msg_params["operator_id"] == "1234567890"
-    assert msg_params["waba_id"] == "waba-1"
+    assert msg_params["waba_id"] == "123456789012345"
     assert msg_params["user_id"] == "593995341161"
     assert msg_params["message_id"] == "wamid.ABC123="
     assert msg_params["message_type"] == "text"
@@ -272,7 +272,7 @@ def test_webhook_status_only_payload_expands_status_row( monkeypatch) -> None :
     assert status_params["recipient_id"] == "593995341161"
     assert status_params["message_id"] == "wamid.ABC123="
     assert status_params["status"] == "delivered"
-    assert status_params["conversation_id"] == "conversation-1"
+    assert status_params["conversation_id"] == "987654321098765"
     assert status_params["pricing_category"] == "service"
 
 
