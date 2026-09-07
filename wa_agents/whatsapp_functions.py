@@ -11,9 +11,9 @@ from typing import Any
 from sofia_utils.printing import print_sep
 
 from .case_handler_models import (
-    OutgoingDocumentMsg,
-    OutgoingMediaMsg,
+    ServerDocumentMsg,
     ServerInteractiveOptsMsg,
+    ServerMediaMsg,
     ServerTemplateMsg,
     ServerTextMsg,
 )
@@ -350,14 +350,14 @@ async def async_send_whatsapp_content(
 def send_whatsapp_media(
     operator_id : str,
     to_number   : str,
-    media       : OutgoingMediaMsg,
+    media       : ServerMediaMsg,
 ) -> bool :
     """
     Upload media and send it to the given WhatsApp number \\
     Args:
         operator_id : Business phone-number id
         to_number   : Recipient phone number
-        media       : OutgoingMediaMsg describing the file to send
+        media       : ServerMediaMsg describing the file to send
     Returns:
         True if upload/send succeeded; else False.
     """
@@ -365,6 +365,9 @@ def send_whatsapp_media(
     # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media/
     
     try:
+        if not media.content :
+            raise ValueError("Missing media content")
+        
         # 1) UPLOAD THE MEDIA TO GET A MEDIA ID
         print_sep()
         print(f"Uploading media: {media.filepath}")
@@ -425,19 +428,22 @@ def send_whatsapp_media(
 async def async_send_whatsapp_media(
     operator_id : str,
     to_number   : str,
-    media       : OutgoingMediaMsg,
+    media       : ServerMediaMsg,
 ) -> bool :
     """
     Upload media and send it to the given WhatsApp number asynchronously \\
     Args:
         operator_id : Business phone-number id
         to_number   : Recipient phone number
-        media       : OutgoingMediaMsg describing the file to send
+        media       : ServerMediaMsg describing the file to send
     Returns:
         True if upload/send succeeded; else False.
     """
     
     try:
+        if not media.content :
+            raise ValueError("Missing media content")
+        
         print_sep()
         print(f"Uploading media: {media.filepath}")
         
@@ -518,9 +524,9 @@ def write_payload(
               | ServerTextMsg
               | ServerInteractiveOptsMsg
               | ServerTemplateMsg
+              | ServerMediaMsg
               | WhatsAppContactPayload
-              | WhatsAppLocation
-              | OutgoingMediaMsg,
+              | WhatsAppLocation,
 ) -> dict[ str, Any] :
     """
     Serialize outgoing text/interactive/media messages \\
@@ -622,6 +628,24 @@ def write_payload(
             ),
         ).model_dump()
     
+    elif isinstance( content, ServerMediaMsg) :
+        
+        # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/image-messages
+        
+        media_data = WhatsApp_OB_MediaData(
+            id       = content.upload_id,
+            caption  = content.caption,
+            filename = (
+                content.filename
+                if isinstance( content, ServerDocumentMsg) else None
+            ),
+        )
+        return WhatsApp_OB_MediaMessage(
+            to   = to_number,
+            type = content.type,
+            **{ content.type : media_data },
+        ).model_dump()
+    
     elif isinstance( content, WhatsAppContactPayload) :
         
         # Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contacts-messages
@@ -639,24 +663,6 @@ def write_payload(
             to       = to_number,
             location = content,
         ).model_dump( exclude_none = True)
-    
-    elif isinstance( content, OutgoingMediaMsg) :
-        
-        # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/image-messages
-        
-        media_data = WhatsApp_OB_MediaData(
-            id       = content.upload_id,
-            caption  = content.caption,
-            filename = (
-                content.filename
-                if isinstance( content, OutgoingDocumentMsg) else None
-            ),
-        )
-        return WhatsApp_OB_MediaMessage(
-            to   = to_number,
-            type = content.type,
-            **{ content.type : media_data },
-        ).model_dump()
     
     else :
         raise ValueError(

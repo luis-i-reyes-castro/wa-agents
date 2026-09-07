@@ -1,6 +1,6 @@
 from wa_agents.case_handler_models import (
-    OutgoingDocumentMsg,
-    OutgoingMediaMsg,
+    ServerDocumentMsg,
+    ServerMediaMsg,
     ServerInteractiveOptsMsg,
 )
 from wa_agents.whatsapp_functions import write_payload
@@ -98,13 +98,18 @@ def test_write_list_payload_uses_outbound_model() -> None :
 
 def test_write_image_payload_uses_outbound_model() -> None :
     
-    message = OutgoingMediaMsg(
+    message = ServerMediaMsg(
         mime      = "image/jpeg",
         filepath  = "image.jpg",
-        content   = b"image",
+        content   = b"\xff\xd8\xff",
         caption   = "An image",
         upload_id = "123456789",
     )
+    
+    assert message.user_eyes is True
+    serialized = message.model_dump( mode = "json")
+    assert "content" not in serialized
+    assert ServerMediaMsg.model_validate(serialized).content is None
     
     assert write_payload( TO_NUMBER, message) == {
         "messaging_product" : "whatsapp",
@@ -120,11 +125,17 @@ def test_write_image_payload_uses_outbound_model() -> None :
 
 def test_write_document_payload_uses_outbound_model() -> None :
     
-    message = OutgoingDocumentMsg(
+    message = ServerDocumentMsg(
         filepath  = "report.pdf",
-        content   = b"document",
+        content   = b"%PDF-\xff",
         upload_id = "987654321",
     )
+    
+    assert message.basemodel == "ServerDocumentMsg"
+    assert message.id
+    serialized = message.model_dump( mode = "json")
+    assert "content" not in serialized
+    assert ServerDocumentMsg.model_validate(serialized).content is None
     
     assert write_payload( TO_NUMBER, message) == {
         "messaging_product" : "whatsapp",
