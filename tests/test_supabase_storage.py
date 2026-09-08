@@ -48,6 +48,15 @@ def test_message_payload_round_trip_uses_basemodel() -> None :
     assert result.text == "hello"
 
 
+def test_assistant_message_allows_multiline_instructions() -> None :
+    
+    instructions = "# Idioma y estilo\n\n* Responde siempre en espanol.\n"
+    message      = AssistantMsg(instructions = instructions)
+    
+    assert message.instructions == instructions
+    assert message.model_dump( mode = "json")["instructions"] == instructions
+
+
 def test_storage_backend_defaults_to_supabase( monkeypatch) -> None :
     
     monkeypatch.delenv( "WA_AGENTS_STORAGE_BACKEND", raising = False)
