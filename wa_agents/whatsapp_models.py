@@ -686,20 +686,54 @@ class WhatsAppValue(BaseModel) :
     statuses       : tuple[ WhatsAppStatus,      ...] = ()
     message_echoes : tuple[ WhatsAppMessageEcho, ...] = ()
 
+class WhatsAppPartnerWABAInfo(BaseModel) :
+    """
+    WhatsApp Business Account data included in partner updates
+        `waba_id`           : "<WhatsApp Business Account ID>"
+        `owner_business_id` : "<owner Meta Business Account ID>"
+        `partner_app_id`    : "<partner app ID>" | null
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    waba_id           : NumericID
+    owner_business_id : NumericID
+    partner_app_id    : NumericID | None = None
+
+class WhatsAppPartnerUpdate(BaseModel) :
+    """
+    WhatsApp partner account update
+        `event`     : "PARTNER_ADDED"   | "PARTNER_APP_INSTALLED" |
+                      "PARTNER_REMOVED" | "PARTNER_APP_UNINSTALLED"
+        `waba_info` : WhatsAppPartnerWABAInfo
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    event : Literal[
+        "PARTNER_ADDED",
+        "PARTNER_APP_INSTALLED",
+        "PARTNER_REMOVED",
+        "PARTNER_APP_UNINSTALLED",
+    ]
+    waba_info : WhatsAppPartnerWABAInfo
+
 class WhatsAppChange_(BaseModel) :
     """
     WhatsApp change item
-        `value` : WhatsAppValue
+        `value` : WhatsAppValue | WhatsAppPartnerUpdate
         `field` : "<webhook_field>"
     Currently supported fields:
+        `account_update`     : Partner account and app updates
         `messages`           : Regular inbound messages
         `smb_message_echoes` : Human-originated outbound messages (mobile app)
     """
     
     model_config = ConfigDict( frozen = True)
     
-    value : WhatsAppValue
+    value : WhatsAppValue | WhatsAppPartnerUpdate
     field : Literal[
+                "account_update",
                 "messages",
                 "smb_message_echoes",
             ]
@@ -709,7 +743,10 @@ class WhatsAppChange_(BaseModel) :
         
         if (
             ( self.field == "messages"                           ) and
-            ( not ( self.value.messages or self.value.statuses ) )
+            (
+                ( not isinstance( self.value, WhatsAppValue) ) or
+                ( not ( self.value.messages or self.value.statuses ) )
+            )
         ) :
             raise ValueError(
                 f"Received {self.__class__.__name__} has 'field' = 'messages' "
@@ -717,11 +754,22 @@ class WhatsAppChange_(BaseModel) :
             )
         elif (
             ( self.field == "smb_message_echoes" ) and
-            ( not self.value.message_echoes      )
+            (
+                ( not isinstance( self.value, WhatsAppValue) ) or
+                ( not self.value.message_echoes )
+            )
         ) :
             raise ValueError(
                 f"Received {self.__class__.__name__} has 'field' = 'smb_message_echoes' "
                 f"but field 'value.message_echoes'"
+            )
+        elif (
+            ( self.field == "account_update" ) and
+            ( not isinstance( self.value, WhatsAppPartnerUpdate) )
+        ) :
+            raise ValueError(
+                f"Received {self.__class__.__name__} has 'field' = 'account_update' "
+                f"but field 'value' is not a {WhatsAppPartnerUpdate.__name__}"
             )
         
         return self
@@ -730,12 +778,14 @@ class WhatsAppChanges(BaseModel) :
     """
     WhatsApp change wrapper
         `id`      : "<receiver WABA number>"
+        `time`    : "<unix timestamp>" | null
         `changes` : tuple[ WhatsAppChange_, ...]
     """
     
     model_config = ConfigDict( frozen = True)
     
     id      : NumericID # Receiver WABA ID
+    time    : int | None = None
     changes : tuple[ WhatsAppChange_, ...]
 
 class WhatsAppPayload(BaseModel) :
@@ -756,7 +806,7 @@ class WhatsAppPayload(BaseModel) :
     
     def has_messages(self) -> bool :
         return any(
-            change.value.messages
+            isinstance( change.value, WhatsAppValue) and change.value.messages
             for entry in self.entry
             for change in entry.changes
         )
