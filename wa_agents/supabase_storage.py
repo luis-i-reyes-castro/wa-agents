@@ -309,6 +309,9 @@ def webhook_payload_write( payload : WhatsAppPayload) -> bool :
             for change in entry.changes :
                 
                 value = change.value
+                if not isinstance( value, WhatsAppValue) :
+                    continue
+                
                 conn.execute(
                     SQL_UPSERT_OPERATOR,
                     _operator_params( waba_id = entry.id, value = value),
@@ -322,6 +325,8 @@ def webhook_payload_write( payload : WhatsAppPayload) -> bool :
             for change in entry.changes :
                 
                 value = change.value
+                if not isinstance( value, WhatsAppValue) :
+                    continue
                 
                 for message in value.messages :
                     conn.execute(
@@ -371,6 +376,9 @@ async def async_webhook_payload_write( payload : WhatsAppPayload) -> bool :
             for change in entry.changes :
                 
                 value = change.value
+                if not isinstance( value, WhatsAppValue) :
+                    continue
+                
                 await conn.execute(
                     SQL_UPSERT_OPERATOR,
                     _operator_params( waba_id = entry.id, value = value),
@@ -384,6 +392,8 @@ async def async_webhook_payload_write( payload : WhatsAppPayload) -> bool :
             for change in entry.changes :
                 
                 value = change.value
+                if not isinstance( value, WhatsAppValue) :
+                    continue
                 
                 for message in value.messages :
                     await conn.execute(

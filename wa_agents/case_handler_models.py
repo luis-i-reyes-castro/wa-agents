@@ -51,7 +51,7 @@ from .whatsapp_models import (
 # -----------------------------------------------------------------------------------------
 # USER DATA
 
-class UserData(BaseModel) :
+class UserData (BaseModel) :
     """
     User data class
         `user_id`  : "<user_id>"
@@ -164,14 +164,14 @@ class MediaBase( BaseModel, ABC) :
     def type(self) -> str :
         return self.mime.split("/")[0]
 
-class MediaContent(MediaBase) :
+class MediaContent (MediaBase) :
     """
     Media Content
         `content` :  <bytes>
     """
     content : bytes
 
-class MediaData(MediaBase) :
+class MediaData (MediaBase) :
     """
     Media Data
         `name`   : "<filename>_<index>.<extension>",
@@ -221,7 +221,7 @@ def load_media( path : str | Path) -> tuple[ MediaData, MediaContent] :
 # -----------------------------------------------------------------------------------------
 # TOOL CALLS & TOOL RESULTS
 
-class ToolCall(BaseModel) :
+class ToolCall (BaseModel) :
     """
     Tool Call
         `id`    : "<tool call ID>",
@@ -232,7 +232,7 @@ class ToolCall(BaseModel) :
     name  : NE_str = Field( default = "tool_name")
     input : Annotated[ dict[ NE_str, Any] | None, Field( default_factory = dict)]
 
-class ToolResult(BaseModel) :
+class ToolResult (BaseModel) :
     """
     Tool Result
         `id`      : "<tool call ID>",
@@ -262,7 +262,7 @@ class UserMsg( BasicMsg, ABC) :
     def role(self) -> str :
         return "user"
 
-class UserContentMsg(UserMsg) :
+class UserContentMsg (UserMsg) :
     """
     User Message containing either text or media
     """
@@ -421,7 +421,7 @@ class ServerDocumentMsg (ServerMediaMsg) :
 # -----------------------------------------------------------------------------------------
 # ASSISTANT MESSAGES
 
-class AssistantMsg(BasicMsg) :
+class AssistantMsg (BasicMsg) :
     """
     Assistant (AI/LLM) Message
     """
@@ -462,7 +462,7 @@ class AssistantMsg(BasicMsg) :
 # -----------------------------------------------------------------------------------------
 # TOOL RESULTS MESSAGES
 
-class ToolResultsMsg(Message) :
+class ToolResultsMsg (Message) :
     """
     Tool Results Message
     """
@@ -476,14 +476,14 @@ class ToolResultsMsg(Message) :
 # -----------------------------------------------------------------------------------------
 # CASE INDEX AND MANIFEST
 
-class CaseIndex(BaseModel) :
+class CaseIndex (BaseModel) :
     """
     Open Case Index
         `open_case_id` : <case ID>
     """
     open_case_id : NonNegativeInt | None = None
 
-class CaseManifest(BaseModel) :
+class CaseManifest (BaseModel) :
     """
     Manifest
         `case_id`           : <case ID>,

@@ -172,6 +172,12 @@ def _status_payload_dict() -> dict :
                                 "display_phone_number" : "15551234567",
                                 "phone_number_id"      : "1234567890",
                             },
+                            "contacts" : [
+                                {
+                                    "wa_id"   : "593995341161",
+                                    "user_id" : "EC.123456789",
+                                }
+                            ],
                             "statuses" : [
                                 {
                                     "id"           : "wamid.ABC123=",
@@ -189,6 +195,30 @@ def _status_payload_dict() -> dict :
                                     },
                                 }
                             ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _account_update_payload_dict() -> dict :
+    
+    return {
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "123456789012345",
+                "changes" : [
+                    {
+                        "field" : "account_update",
+                        "value" : {
+                            "event"     : "PARTNER_ADDED",
+                            "waba_info" : {
+                                "waba_id"           : "123456789012345",
+                                "owner_business_id" : "987654321098765",
+                            },
                         },
                     }
                 ],
@@ -286,6 +316,20 @@ def test_webhook_status_only_payload_expands_status_row( monkeypatch) -> None :
     assert status_params["status"] == "delivered"
     assert status_params["conversation_id"] == "987654321098765"
     assert status_params["pricing_category"] == "service"
+
+
+def test_webhook_account_update_skips_message_expansion( monkeypatch) -> None :
+    
+    payload = supabase_storage.WhatsAppPayload.model_validate(
+        _account_update_payload_dict()
+    )
+    conn = _patch_fake_connection(
+        monkeypatch,
+        { "id" : 14, "inserted" : True },
+    )
+    
+    assert supabase_storage.webhook_payload_write(payload) is True
+    assert [ call[0] for call in conn.calls ] == [ SQL_INSERT_WEBHOOK_PAYLOAD ]
 
 
 class _QueueStub :

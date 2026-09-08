@@ -114,7 +114,7 @@ type WhatsApp_OB_MediaType = Literal[
 # =========================================================================================
 # INBOUND & OUTBOUND: SHARED MODELS
 
-class WhatsAppText(BaseModel) :
+class WhatsAppText (BaseModel) :
     """
     WhatsApp text payload
         `body` : "<message text>"
@@ -123,7 +123,7 @@ class WhatsAppText(BaseModel) :
     
     body : WhatsAppTextBody
 
-class WhatsAppInteractiveOption(BaseModel) :
+class WhatsAppInteractiveOption (BaseModel) :
     """
     Interactive Message Option
         `id`          : "<option ID>"
@@ -136,7 +136,7 @@ class WhatsAppInteractiveOption(BaseModel) :
     title       : WhatsAppInteractiveTitle
     description : WhatsAppInteractiveDescription | None = None
 
-class WhatsAppContactPayload_Name(BaseModel) :
+class WhatsAppContactPayload_Name (BaseModel) :
     """
     WhatsApp incoming contact name
         `formatted_name` : "<name>"
@@ -168,7 +168,7 @@ class WhatsAppContactPayload_Name(BaseModel) :
         
         return self
 
-class WhatsAppContactPayload_Phone(BaseModel) :
+class WhatsAppContactPayload_Phone (BaseModel) :
     """
     WhatsApp incoming contact phone
         `phone` : "<phone number starting with plus sign>"
@@ -181,7 +181,7 @@ class WhatsAppContactPayload_Phone(BaseModel) :
     type  : str
     wa_id : str | None = None
 
-class WhatsAppContactPayload_Email(BaseModel) :
+class WhatsAppContactPayload_Email (BaseModel) :
     """
     WhatsApp incoming contact email
         `email` : "<email>"
@@ -192,7 +192,7 @@ class WhatsAppContactPayload_Email(BaseModel) :
     email : str
     type  : str
 
-class WhatsAppContactPayload_Org(BaseModel) :
+class WhatsAppContactPayload_Org (BaseModel) :
     """
     WhatsApp incoming contact organization
         `company` : "<company name>"
@@ -203,7 +203,7 @@ class WhatsAppContactPayload_Org(BaseModel) :
     department : str | None = None
     title      : str | None = None
 
-class WhatsAppContactPayload_Address(BaseModel) :
+class WhatsAppContactPayload_Address (BaseModel) :
     """
     WhatsApp incoming contact address
         `type`         : "HOME" | "WORK" | str | null
@@ -239,7 +239,7 @@ class WhatsAppContactPayload_Address(BaseModel) :
         
         return self
 
-class WhatsAppContactPayload_Url(BaseModel) :
+class WhatsAppContactPayload_Url (BaseModel) :
     """
     WhatsApp incoming contact URL
         `type` : "HOME" | "WORK" | str | null
@@ -250,7 +250,7 @@ class WhatsAppContactPayload_Url(BaseModel) :
     type : str | None = None
     url  : str
 
-class WhatsAppContactPayload(BaseModel) :
+class WhatsAppContactPayload (BaseModel) :
     """
     WhatsApp incoming contact payload (a.k.a. CONTACT CARD)
         `name`   : `WhatsAppContactPayload_Name`
@@ -271,7 +271,7 @@ class WhatsAppContactPayload(BaseModel) :
     addresses : tuple[ WhatsAppContactPayload_Address, ...] | None = None
     urls      : tuple[ WhatsAppContactPayload_Url, ...]     | None = None
 
-class WhatsAppLocation(BaseModel) :
+class WhatsAppLocation (BaseModel) :
     """
     WhatsApp location
         `latitude`  : <degrees>
@@ -288,7 +288,7 @@ class WhatsAppLocation(BaseModel) :
 # =========================================================================================
 # INBOUND: MESSAGES
 
-class WhatsAppMetaData(BaseModel) :
+class WhatsAppMetaData (BaseModel) :
     """
     WhatsApp message or status recipient metadata.
         `display_phone_number` : "<receiver phone number>"
@@ -299,7 +299,7 @@ class WhatsAppMetaData(BaseModel) :
     display_phone_number : NumericID # Receiver phone number
     phone_number_id      : NumericID # Receiver phone number ID
 
-class WhatsAppProfile(BaseModel) :
+class WhatsAppProfile (BaseModel) :
     """
     WhatsApp contact profile corresponding to message sender (NOT CONTACT CARD)
         `name`     : "<display name>"
@@ -310,7 +310,7 @@ class WhatsAppProfile(BaseModel) :
     name     : NE_str
     username : WhatsAppUsername | None = None
 
-class WhatsAppContact(BaseModel) :
+class WhatsAppContact (BaseModel) :
     """
     WhatsApp contact corresponding to message sender (NOT CONTACT CARD)
         
@@ -335,7 +335,7 @@ class WhatsAppContact(BaseModel) :
             )
         return self
 
-class WhatsAppContext(BaseModel) :
+class WhatsAppContext (BaseModel) :
     """
     WhatsApp message context
         `user`                 : "<sender phone number>" | null
@@ -363,7 +363,7 @@ class WhatsAppContext(BaseModel) :
     # Field below present only if message refers to a catalog product
     referred_product : dict[ str, str] | None = None
 
-class WhatsAppInteractiveReply(BaseModel) :
+class WhatsAppInteractiveReply (BaseModel) :
     """
     WhatsApp interactive reply
         `type`         : "button_reply" | "list_reply"
@@ -397,7 +397,7 @@ class WhatsAppInteractiveReply(BaseModel) :
         
         return
 
-class WhatsAppMediaData(BaseModel) :
+class WhatsAppMediaData (BaseModel) :
     """
     WhatsApp media descriptor
         `id`        : "<media ID>"
@@ -426,7 +426,7 @@ class WhatsAppMediaData(BaseModel) :
     def type(self) -> str :
         return self.mime_type.split("/")[0]
 
-class WhatsAppReaction(BaseModel) :
+class WhatsAppReaction (BaseModel) :
     """
     WhatsApp reaction
         `message_id` : "<message ID>"
@@ -437,7 +437,7 @@ class WhatsAppReaction(BaseModel) :
     message_id : WhatsAppMessageID
     emoji      : str | None = None
 
-class WhatsAppMessage(BaseModel) :
+class WhatsAppMessage (BaseModel) :
     """
     WhatsApp message payload
         `from`         : "<sender phone number>"
@@ -666,14 +666,15 @@ class WhatsAppStatus (BaseModel) :
 # =========================================================================================
 # INBOUND: PAYLOADS
 
-class WhatsAppValue(BaseModel) :
+class WhatsAppValue (BaseModel) :
     """
     WhatsApp change value payload
         `messaging_product` : "whatsapp"
         `metadata`          : WhatsAppMetaData
-        `contacts`          : tuple[ WhatsAppContact, ...]
-        `messages`          : tuple[ WhatsAppMessage, ...]
-        `statuses`          : tuple[ WhatsAppStatus, ...]
+        `contacts`          : tuple[ WhatsAppContact ]
+        `messages`          : tuple[ WhatsAppMessage,     ...]
+        `statuses`          : tuple[ WhatsAppStatus,      ...]
+        `message_echoes`    : tuple[ WhatsAppMessageEcho, ...]
     """
     
     model_config = ConfigDict( frozen = True)
@@ -681,12 +682,31 @@ class WhatsAppValue(BaseModel) :
     messaging_product : Literal["whatsapp"] = "whatsapp"
     
     metadata       : WhatsAppMetaData
-    contacts       : tuple[ WhatsAppContact,     ...] = ()
+    contacts       : tuple[ WhatsAppContact ] # Exactly one item
     messages       : tuple[ WhatsAppMessage,     ...] = ()
     statuses       : tuple[ WhatsAppStatus,      ...] = ()
     message_echoes : tuple[ WhatsAppMessageEcho, ...] = ()
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        
+        if not ( self.messages or self.statuses or self.message_echoes ) :
+            raise ValueError(
+                f"Received {self.__class__.__name__} includes no messages, statuses, "
+                f"or message echoes"
+            )
+        
+        return self
+    
+    @model_serializer( mode = "wrap")
+    def serialize_without_nones(
+        self,
+        handler: Callable[ [BaseModel], dict[ str, Any]],
+    ) -> dict[ str, Any] :
+        
+        return serialize_without_nones( self, handler)
 
-class WhatsAppPartnerWABAInfo(BaseModel) :
+class WhatsAppPartnerWABAInfo (BaseModel) :
     """
     WhatsApp Business Account data included in partner updates
         `waba_id`           : "<WhatsApp Business Account ID>"
@@ -700,7 +720,7 @@ class WhatsAppPartnerWABAInfo(BaseModel) :
     owner_business_id : NumericID
     partner_app_id    : NumericID | None = None
 
-class WhatsAppPartnerUpdate(BaseModel) :
+class WhatsAppPartnerUpdate (BaseModel) :
     """
     WhatsApp partner account update
         `event`     : "PARTNER_ADDED"   | "PARTNER_APP_INSTALLED" |
@@ -718,7 +738,7 @@ class WhatsAppPartnerUpdate(BaseModel) :
     ]
     waba_info : WhatsAppPartnerWABAInfo
 
-class WhatsAppChange_(BaseModel) :
+class WhatsAppChange (BaseModel) :
     """
     WhatsApp change item
         `value` : WhatsAppValue | WhatsAppPartnerUpdate
@@ -774,25 +794,25 @@ class WhatsAppChange_(BaseModel) :
         
         return self
 
-class WhatsAppChanges(BaseModel) :
+class WhatsAppPayloadItem (BaseModel) :
     """
-    WhatsApp change wrapper
+    WhatsApp payload item
         `id`      : "<receiver WABA number>"
         `time`    : "<unix timestamp>" | null
-        `changes` : tuple[ WhatsAppChange_, ...]
+        `changes` : tuple[ WhatsAppChange, ...]
     """
     
     model_config = ConfigDict( frozen = True)
     
     id      : NumericID # Receiver WABA ID
     time    : int | None = None
-    changes : tuple[ WhatsAppChange_, ...]
+    changes : Annotated[ tuple[ WhatsAppChange, ...], Field( min_length = 1)]
 
-class WhatsAppPayload(BaseModel) :
+class WhatsAppPayload (BaseModel) :
     """
     Top-level WhatsApp webhook payload
         `object` : "whatsapp_business_account"
-        `entry`  : tuple[ WhatsAppChanges, ...]
+        `entry`  : tuple[ WhatsAppPayloadItem, ...]
     NOTE:
         Since `object` is a reserved keyword in Python here we declare it
         as the dummy field `object_field` and then assign it the alias `object`.
@@ -800,9 +820,14 @@ class WhatsAppPayload(BaseModel) :
     
     model_config = ConfigDict( frozen = True)
     
-    object_field : NE_str = Field( alias   = "object",
-                                   default = "whatsapp_business_account")
-    entry        : tuple[ WhatsAppChanges, ...]
+    object_field : NE_str = Field(
+                                alias   = "object",
+                                default = "whatsapp_business_account",
+                            )
+    entry        : Annotated[
+                       tuple[ WhatsAppPayloadItem, ...],
+                       Field( min_length = 1),
+                   ]
     
     def has_messages(self) -> bool :
         return any(
