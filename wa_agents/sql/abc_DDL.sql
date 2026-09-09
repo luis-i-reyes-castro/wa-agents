@@ -291,3 +291,48 @@ CREATE INDEX IF NOT EXISTS wa_statuses_msg_id_idx
 
 ALTER TABLE public.wa_statuses
   ENABLE ROW LEVEL SECURITY;
+
+
+/*
+  =========================================================================================
+  INBOUND MESSAGES QUEUE
+  =========================================================================================
+*/
+
+CREATE TYPE T_ENQUEUED_MESSAGE_STATUS AS ENUM (
+  'done',
+  'error',
+  'pending',
+  'processing'
+);
+
+CREATE TABLE IF NOT EXISTS public.wa_inbound_messages_queue (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at    TIMESTAMPTZ               NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ               DEFAULT NULL,
+  last_error_at TIMESTAMPTZ               DEFAULT NULL,
+  
+  msg_id        T_WHATSAPP_MESSAGE_ID     NOT NULL,
+  msg_status    T_ENQUEUED_MESSAGE_STATUS NOT NULL DEFAULT 'pending',
+  
+  CONSTRAINT wa_inbound_messages_queue_msg_id_fkey
+    FOREIGN KEY (msg_id)
+    REFERENCES public.wa_inbound_messages(msg_id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_inbound_messages_queue_msg_id_unique
+    UNIQUE (msg_id)
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_inbound_messages_queue_status_idx
+  ON public.wa_inbound_messages_queue (
+    msg_status,
+    created_at,
+    id
+  );
+
+ALTER TABLE public.wa_inbound_messages_queue
+  ENABLE ROW LEVEL SECURITY;
