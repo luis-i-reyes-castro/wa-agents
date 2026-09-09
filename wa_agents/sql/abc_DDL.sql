@@ -336,3 +336,74 @@ CREATE INDEX IF NOT EXISTS wa_inbound_messages_queue_status_idx
 
 ALTER TABLE public.wa_inbound_messages_queue
   ENABLE ROW LEVEL SECURITY;
+
+
+/*
+  =========================================================================================
+  WA-AGENTS
+  =========================================================================================
+*/
+
+-- CASE MANIFESTS
+
+CREATE TABLE IF NOT EXISTS public.wa_agents_cases (
+  
+  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ   DEFAULT NULL,
+  
+  contact         BIGINT        NOT NULL,
+  is_open         BOOLEAN       NOT NULL DEFAULT TRUE,
+  machine_state   T_NE_STR      DEFAULT NULL,
+  
+  CONSTRAINT wa_agents_cases_contact_fkey
+    FOREIGN KEY (contact)
+    REFERENCES public.wa_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_agents_cases_contact_idx
+  ON public.wa_agents_cases (contact);
+
+CREATE UNIQUE INDEX IF NOT EXISTS wa_agents_cases_contact_open_idx
+  ON public.wa_agents_cases (contact)
+  WHERE is_open;
+
+ALTER TABLE public.wa_agents_cases
+  ENABLE ROW LEVEL SECURITY;
+
+-- MESSAGES
+
+CREATE TABLE IF NOT EXISTS public.wa_agents_messages (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  received_at   TIMESTAMPTZ DEFAULT NULL,
+  
+  case_id       BIGINT      NOT NULL,
+  basemodel     T_NE_STR    NOT NULL,
+  origin        T_NE_STR    DEFAULT NULL,
+  data          JSONB       NOT NULL,
+  
+  CONSTRAINT wa_agents_messages_case_id_fkey
+    FOREIGN KEY (case_id)
+    REFERENCES public.wa_agents_cases(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_agents_messages_data_object
+    CHECK ( jsonb_typeof(data) = 'object' )
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_agents_messages_case_order_idx
+  ON public.wa_agents_messages (
+    case_id,
+    created_at,
+    id
+  );
+
+ALTER TABLE public.wa_agents_messages
+  ENABLE ROW LEVEL SECURITY;
