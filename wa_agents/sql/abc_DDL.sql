@@ -1,5 +1,8 @@
--- ========================================================================================
--- WHATSAPP
+/*
+  =========================================================================================
+  WHATSAPP MESSAGE PERSISTENCE SCHEMA
+  =========================================================================================
+*/
 
 -- TYPES
 
@@ -48,7 +51,7 @@ CREATE TYPE T_WHATSAPP_STATUS AS ENUM (
 );
 
 
--- ----------------------------------------------------------------------------------------
+-- ========================================================================================
 -- BUSINESSES & USERS
 
 CREATE TABLE IF NOT EXISTS public.wa_businesses (
@@ -108,7 +111,7 @@ ALTER TABLE public.wa_contacts
   ENABLE ROW LEVEL SECURITY;
 
 
--- ----------------------------------------------------------------------------------------
+-- ========================================================================================
 -- PAYLOADS
 
 CREATE TABLE IF NOT EXISTS public.wa_inbound_payload_metadata (
@@ -144,8 +147,8 @@ ALTER TABLE public.wa_inbound_payload_metadata
   ENABLE ROW LEVEL SECURITY;
 
 
--- ----------------------------------------------------------------------------------------
--- MESSAGES
+-- ========================================================================================
+-- MESSAGES: INBOUND
 
 CREATE TABLE IF NOT EXISTS public.wa_inbound_messages (
   
@@ -175,6 +178,7 @@ CREATE INDEX IF NOT EXISTS wa_inbound_messages_payload_idx
 ALTER TABLE public.wa_inbound_messages
   ENABLE ROW LEVEL SECURITY;
 
+-- MESSAGES: OUTBOUND
 
 CREATE TABLE IF NOT EXISTS public.wa_outbound_messages (
   
@@ -203,7 +207,53 @@ CREATE INDEX IF NOT EXISTS wa_outbound_messages_contact_idx
 ALTER TABLE public.wa_outbound_messages
   ENABLE ROW LEVEL SECURITY;
 
--- ----------------------------------------------------------------------------------------
+-- MESSAGES: MEDIA
+
+CREATE TABLE IF NOT EXISTS public.wa_media (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  inbound_id    BIGINT    DEFAULT NULL,
+  outbound_id   BIGINT    DEFAULT NULL,
+  
+  mime_type     TEXT      NOT NULL,
+  size          BIGINT    NOT NULL,
+  prefix        T_NE_STR  NOT NULL,
+  caption       TEXT      DEFAULT NULL,
+  filename      TEXT      DEFAULT NULL,
+  
+  CONSTRAINT wa_media_inbound_id_fkey
+    FOREIGN KEY (inbound_id)
+    REFERENCES public.wa_inbound_messages(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_media_outbound_id_fkey
+    FOREIGN KEY (outbound_id)
+    REFERENCES public.wa_outbound_messages(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_media_inbound_id_unique
+    UNIQUE (inbound_id),
+  
+  CONSTRAINT wa_media_outbound_id_unique
+    UNIQUE (outbound_id),
+  
+  CONSTRAINT wa_media_either_inbound_or_outbound
+    CHECK (
+      ( inbound_id IS NOT NULL ) <> ( outbound_id IS NOT NULL )
+    ),
+  
+  CONSTRAINT wa_media_size_nonnegative
+    CHECK ( size >= 0 )
+
+);
+
+ALTER TABLE public.wa_media
+  ENABLE ROW LEVEL SECURITY;
+
+
+-- ========================================================================================
 -- STATUSES OF SENT MESSAGES
 
 CREATE TABLE IF NOT EXISTS public.wa_statuses (
