@@ -96,12 +96,6 @@ type WhatsAppMessageType = Literal[
 ]
 """ WhatsApp Message Type """
 
-type WhatsAppPayloadType = Literal[
-    "message",
-    "status",
-]
-""" WhatsApp Payload Type """
-
 type WhatsApp_OB_MediaType = Literal[
     "image",
     "video",
@@ -639,13 +633,14 @@ class WhatsAppStatus (BaseModel) :
     id                : WhatsAppMessageID
     recipient_id      : NumericID     | None = None # Receiver phone number
     recipient_user_id : WhatsAppBSUID | None = None # Receiver BSUID
-    status       : Literal[
+    status            : Literal[
         "delivered",
         "failed",
         "played",
         "read",
         "sent",
     ]
+    
     timestamp    : UnixTS
     conversation : WhatsAppConversation             | None = None
     pricing      : WhatsAppPricing                  | None = None
