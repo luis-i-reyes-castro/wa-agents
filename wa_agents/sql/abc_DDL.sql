@@ -52,7 +52,7 @@ CREATE TYPE T_WHATSAPP_STATUS AS ENUM (
 
 
 -- ========================================================================================
--- BUSINESSES & USERS
+-- BUSINESSES
 
 CREATE TABLE IF NOT EXISTS public.wa_api_businesses (
   
@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS public.wa_api_businesses (
 ALTER TABLE public.wa_api_businesses
   ENABLE ROW LEVEL SECURITY;
 
+-- CONTACTS
+
 CREATE TABLE IF NOT EXISTS public.wa_api_contacts (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -84,9 +86,6 @@ CREATE TABLE IF NOT EXISTS public.wa_api_contacts (
   business      BIGINT            NOT NULL,
   wa_id         T_NUMERIC_ID      DEFAULT NULL,
   user_id       T_WHATSAPP_BSUID  DEFAULT NULL,
-  
-  profile_name      TEXT                DEFAULT NULL,
-  profile_username  T_WHATSAPP_USERNAME DEFAULT NULL,
   
   CONSTRAINT wa_api_contacts_business_fkey
     FOREIGN KEY (business)
@@ -108,6 +107,35 @@ CREATE TABLE IF NOT EXISTS public.wa_api_contacts (
 );
 
 ALTER TABLE public.wa_api_contacts
+  ENABLE ROW LEVEL SECURITY;
+
+-- CONTACT PROFILES
+
+CREATE TABLE IF NOT EXISTS public.wa_api_contact_profiles (
+  
+  id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  last_seen_at      TIMESTAMPTZ           NOT NULL DEFAULT now(),
+  
+  contact           BIGINT                NOT NULL,
+  profile_name      TEXT                  NOT NULL,
+  profile_username  T_WHATSAPP_USERNAME   DEFAULT NULL,
+  
+  CONSTRAINT wa_api_contact_profiles_contact_fkey
+    FOREIGN KEY (contact)
+    REFERENCES public.wa_api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_api_contact_profiles_contact_time_idx
+  ON public.wa_api_contact_profiles (
+    contact,
+    last_seen_at,
+    id
+  );
+
+ALTER TABLE public.wa_api_contact_profiles
   ENABLE ROW LEVEL SECURITY;
 
 
