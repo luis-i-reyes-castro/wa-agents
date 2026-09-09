@@ -143,4 +143,4 @@ class CaseHandler (AsyncCaseHandlerBase) :
             msg_tools.print()
             await self.context_update(msg_tools)
 
-        return bool( self.case_manifest.status == "open" )
+        return self.case_manifest.is_open

@@ -377,10 +377,9 @@ ALTER TABLE public.wa_api_to_case_handler_queue
 CREATE TABLE IF NOT EXISTS public.wa_case_handler_case_manifests (
   
   id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  contact         BIGINT        NOT NULL,
   created_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ   DEFAULT NULL,
-  
-  contact         BIGINT        NOT NULL,
   is_open         BOOLEAN       NOT NULL DEFAULT TRUE,
   machine_state   T_NE_STR      DEFAULT NULL,
   
@@ -406,14 +405,12 @@ ALTER TABLE public.wa_case_handler_case_manifests
 
 CREATE TABLE IF NOT EXISTS public.wa_case_handler_messages (
   
-  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  created_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
-  received_at   TIMESTAMPTZ   DEFAULT NULL,
-  
-  case_id       BIGINT        NOT NULL,
-  basemodel     T_NE_STR      NOT NULL,
-  origin        T_NE_STR      DEFAULT NULL,
-  data          JSONB         NOT NULL,
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ts          TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  case_id     BIGINT        NOT NULL,
+  basemodel   T_NE_STR      NOT NULL,
+  origin      T_NE_STR      DEFAULT NULL,
+  data        JSONB         NOT NULL,
   
   CONSTRAINT wa_case_handler_messages_case_id_fkey
     FOREIGN KEY (case_id)
@@ -429,7 +426,7 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_messages (
 CREATE INDEX IF NOT EXISTS wa_case_handler_messages_case_order_idx
   ON public.wa_case_handler_messages (
     case_id,
-    created_at,
+    ts,
     id
   );
 

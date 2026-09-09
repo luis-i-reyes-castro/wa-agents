@@ -22,11 +22,11 @@ from typing import (
 )
 
 from sofia_utils.pydantic import (
-    HexHash,
     MIME_Type,
     NE_str,
     NE_var_name,
     NumericID,
+    SHA256_Hex,
     UnixTS,
     serialize_without_nones,
 )
@@ -406,7 +406,7 @@ class WhatsAppMediaData (BaseModel) :
     
     id        : NumericID
     mime_type : MIME_Type
-    sha256    : HexHash
+    sha256    : SHA256_Hex
     caption   : WhatsAppTextBody | None = None # image, video, and document
     filename  : NE_str           | None = None # document
     voice     : bool             | None = None # audio
