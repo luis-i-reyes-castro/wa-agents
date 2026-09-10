@@ -8,7 +8,7 @@ from sofia_utils.io import ( load_json_file,
                              write_to_json_file )
 from sofia_utils.printing import print_ind
 
-from wa_agents.do_bucket_io import *
+from wa_agents.S3_bucket_io import *
 
 
 __test__ = False
@@ -62,7 +62,7 @@ def check_environment_variables() -> None :
     
     return
 
-def run_do_bucket_io_smoke( filepath_json : str, filepath_media : str) -> None :
+def run_S3_bucket_io_smoke( filepath_json : str, filepath_media : str) -> None :
     """
     Upload/download a JSON file and media asset for manual verification \\
     Args:
@@ -158,4 +158,4 @@ if __name__ == "__main__" :
         print(f"Usage: python {fname} <JSON file> <Media file>")
     else :
         check_environment_variables()
-        run_do_bucket_io_smoke( argv[1], argv[2])
+        run_S3_bucket_io_smoke( argv[1], argv[2])

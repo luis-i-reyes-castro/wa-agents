@@ -72,7 +72,7 @@ avoiding that pooler-specific failure mode.
 ### Tests and Utilities
 
 - Moved tests out of the package into root-level `tests/`.
-- Kept the bucket I/O script as `tests/manual_do_bucket_io.py`, explicitly not a
+- Kept the bucket I/O script as `tests/manual_S3_bucket_io.py`, explicitly not a
   pytest module.
 - Added `scripts/check_supabase_tables.py` to verify that all required `wa_*`
   Supabase tables exist from a supplied `.env` file.

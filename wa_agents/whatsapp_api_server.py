@@ -88,7 +88,7 @@ class WhatsAppAPIServer(FastAPI) :
         """
         Open the async DB pool and run the queue worker for the app lifetime.
         """
-        from .supabase_storage import get_database_url
+        from .supabase import get_database_url
         
         logging.info("WhatsApp API server lifespan starting")
         

@@ -15,7 +15,7 @@ from sofia_utils.psycopg import (
     sync_pooled_conection,
 )
 
-from .supabase_storage import get_database_url
+from .supabase import get_database_url
 from .whatsapp_models import WhatsAppPayload
 
 

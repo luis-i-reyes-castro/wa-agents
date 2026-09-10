@@ -1,6 +1,6 @@
 """
 S3 Bucket Input/Output (IO) Functions \\
-Now compatible with (at least):
+Compatible with, at least:
 * Digital Ocean Spaces
 * Supabase File Storage
 """
