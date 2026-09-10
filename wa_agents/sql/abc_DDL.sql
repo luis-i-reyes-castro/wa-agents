@@ -142,31 +142,65 @@ ALTER TABLE public.wa_api_contact_profiles
 -- ========================================================================================
 -- PAYLOADS
 
+CREATE TABLE IF NOT EXISTS public.wa_api_inbound_payloads (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  data_raw      JSONB             NOT NULL,
+  data_hash     T_SHA256_HEX_HASH NOT NULL,
+  validated     BOOLEAN           NOT NULL DEFAULT FALSE,
+  errors        JSONB             DEFAULT NULL,
+  
+  CONSTRAINT wa_api_inbound_payloads_data_hash_unique
+    UNIQUE (data_hash),
+  
+  CONSTRAINT wa_api_inbound_payloads_valid_errors_check
+    CHECK ( ( NOT validated ) OR ( errors IS NULL ) )
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_api_inbound_payloads_received_at_idx
+  ON public.wa_api_inbound_payloads (received_at);
+
+CREATE INDEX IF NOT EXISTS wa_api_inbound_payloads_validation_errors_idx
+  ON public.wa_api_inbound_payloads (received_at)
+  WHERE ( NOT validated ) AND ( errors IS NOT NULL );
+
+ALTER TABLE public.wa_api_inbound_payloads
+  ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE IF NOT EXISTS public.wa_api_inbound_payload_metadata (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  received_at   TIMESTAMPTZ       NOT NULL DEFAULT now(),
+  received_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
   
-  item_idx      SMALLINT          DEFAULT 0,
-  item_ts       TIMESTAMPTZ       DEFAULT now(),
-  change_idx    SMALLINT          DEFAULT 0,
+  item_idx      SMALLINT      DEFAULT 0,
+  item_ts       TIMESTAMPTZ   DEFAULT now(),
+  change_idx    SMALLINT      DEFAULT 0,
   
-  contact       BIGINT            NOT NULL,
-  payload_hash  T_SHA256_HEX_HASH NOT NULL,
+  payload_id    BIGINT        NOT NULL,
+  contact       BIGINT        NOT NULL,
+  
+  CONSTRAINT wa_api_inbound_payload_metadata_payload_id_fkey
+    FOREIGN KEY (payload_id)
+    REFERENCES public.wa_api_inbound_payloads(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
   
   CONSTRAINT wa_api_inbound_payload_metadata_contact_fkey
     FOREIGN KEY (contact)
     REFERENCES public.wa_api_contacts(id)
     ON UPDATE CASCADE
-    ON DELETE CASCADE,
-  
-  CONSTRAINT wa_api_inbound_payload_metadata_hash_unique
-    UNIQUE (payload_hash)
+    ON DELETE CASCADE
 
 );
 
 CREATE INDEX IF NOT EXISTS wa_api_inbound_payload_metadata_received_at_idx
   ON public.wa_api_inbound_payload_metadata (received_at);
+
+CREATE INDEX IF NOT EXISTS wa_api_inbound_payload_metadata_payload_id_idx
+  ON public.wa_api_inbound_payload_metadata (payload_id);
 
 CREATE INDEX IF NOT EXISTS wa_api_inbound_payload_metadata_contact_idx
   ON public.wa_api_inbound_payload_metadata (contact);
@@ -245,7 +279,7 @@ CREATE TABLE IF NOT EXISTS public.wa_api_media (
   
   mime_type         TEXT      NOT NULL,
   size              BIGINT    NOT NULL,
-  prefix            T_NE_STR  NOT NULL,
+  object_key        T_NE_STR  NOT NULL,
   caption           TEXT      DEFAULT NULL,
   filename          TEXT      DEFAULT NULL,
   
@@ -401,6 +435,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS wa_case_handler_case_manifests_contact_open_id
 ALTER TABLE public.wa_case_handler_case_manifests
   ENABLE ROW LEVEL SECURITY;
 
+-- CONTACT LEASES
+
+CREATE TABLE IF NOT EXISTS public.wa_case_handler_contact_leases (
+  
+  contact       BIGINT      NOT NULL,
+  owner_token   UUID        NOT NULL,
+  acquired_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  heartbeat_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at    TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '90 seconds',
+  
+  CONSTRAINT wa_case_handler_contact_leases_pkey
+    PRIMARY KEY (contact),
+  
+  CONSTRAINT wa_case_handler_contact_leases_contact_fkey
+    FOREIGN KEY (contact)
+    REFERENCES public.wa_api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_case_handler_contact_leases_expiry_check
+    CHECK ( expires_at > heartbeat_at )
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_case_handler_contact_leases_expiry_idx
+  ON public.wa_case_handler_contact_leases (expires_at);
+
+ALTER TABLE public.wa_case_handler_contact_leases
+  ENABLE ROW LEVEL SECURITY;
+
 -- MESSAGES
 
 CREATE TABLE IF NOT EXISTS public.wa_case_handler_messages (
@@ -462,8 +526,15 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_to_api (
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
-  CONSTRAINT wa_case_handler_to_api_case_handler_msg_id_unique
-    UNIQUE (case_handler_msg_id),
+  /*
+    Here we don't add a unique constraint for `case_handler_msg_id` intentionally.
+    The reason is that LLM responses may exceed the Whatspp text message
+    max length, resulting in message chunking,
+    i.e., some single case handler messages may be sent using more than one outbound
+    WhatsApp messages.
+    On the contrary, inbound API messages map to at most one case handler message,
+    so we add a unique index on case handler messages of inbound API messages.
+  */
   
   CONSTRAINT wa_case_handler_to_api_api_inbound_msg_id_unique
     UNIQUE (api_inbound_msg_id),
@@ -477,6 +548,13 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_to_api (
     )
 
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS wa_case_handler_to_api_inbound_uniqueness_idx
+  ON public.wa_case_handler_to_api (case_handler_msg_id)
+  WHERE ( api_inbound_msg_id IS NOT NULL );
+
+CREATE INDEX IF NOT EXISTS wa_case_handler_to_api_case_handler_msg_id_idx
+  ON public.wa_case_handler_to_api (case_handler_msg_id);
 
 ALTER TABLE public.wa_case_handler_to_api
   ENABLE ROW LEVEL SECURITY;
