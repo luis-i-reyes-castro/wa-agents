@@ -406,35 +406,6 @@ ALTER TABLE public.wa_api_to_case_handler_queue
   =========================================================================================
 */
 
--- CASE MANIFESTS
-
-CREATE TABLE IF NOT EXISTS public.wa_case_handler_case_manifests (
-  
-  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  contact         BIGINT        NOT NULL,
-  created_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ   DEFAULT NULL,
-  is_open         BOOLEAN       NOT NULL DEFAULT TRUE,
-  machine_state   T_NE_STR      DEFAULT NULL,
-  
-  CONSTRAINT wa_case_handler_case_manifests_contact_fkey
-    FOREIGN KEY (contact)
-    REFERENCES public.wa_api_contacts(id)
-    ON UPDATE CASCADE
-    ON DELETE CASCADE
-
-);
-
-CREATE INDEX IF NOT EXISTS wa_case_handler_case_manifests_contact_idx
-  ON public.wa_case_handler_case_manifests (contact);
-
-CREATE UNIQUE INDEX IF NOT EXISTS wa_case_handler_case_manifests_contact_open_idx
-  ON public.wa_case_handler_case_manifests (contact)
-  WHERE is_open;
-
-ALTER TABLE public.wa_case_handler_case_manifests
-  ENABLE ROW LEVEL SECURITY;
-
 -- CONTACT LEASES
 
 CREATE TABLE IF NOT EXISTS public.wa_case_handler_contact_leases (
@@ -463,6 +434,35 @@ CREATE INDEX IF NOT EXISTS wa_case_handler_contact_leases_expiry_idx
   ON public.wa_case_handler_contact_leases (expires_at);
 
 ALTER TABLE public.wa_case_handler_contact_leases
+  ENABLE ROW LEVEL SECURITY;
+
+-- CASE MANIFESTS
+
+CREATE TABLE IF NOT EXISTS public.wa_case_handler_case_manifests (
+  
+  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  contact         BIGINT        NOT NULL,
+  created_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ   DEFAULT NULL,
+  is_open         BOOLEAN       NOT NULL DEFAULT TRUE,
+  machine_state   T_NE_STR      DEFAULT NULL,
+  
+  CONSTRAINT wa_case_handler_case_manifests_contact_fkey
+    FOREIGN KEY (contact)
+    REFERENCES public.wa_api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_case_handler_case_manifests_contact_idx
+  ON public.wa_case_handler_case_manifests (contact);
+
+CREATE UNIQUE INDEX IF NOT EXISTS wa_case_handler_case_manifests_contact_open_idx
+  ON public.wa_case_handler_case_manifests (contact)
+  WHERE is_open;
+
+ALTER TABLE public.wa_case_handler_case_manifests
   ENABLE ROW LEVEL SECURITY;
 
 -- MESSAGES
