@@ -35,10 +35,10 @@ else :
 # =========================================================================================
 # MODULE SETUP
 
-BUCKET_REGION     = os.getenv("BUCKET_REGION")
-BUCKET_KEY        = os.getenv("BUCKET_KEY_ID")
-BUCKET_KEY_SECRET = os.getenv("BUCKET_KEY_SECRET")
-BUCKET_NAME       = os.getenv("BUCKET_NAME")
+BUCKET_REGION     : str = os.getenv("BUCKET_REGION")     or ""
+BUCKET_KEY        : str = os.getenv("BUCKET_KEY_ID")     or ""
+BUCKET_KEY_SECRET : str = os.getenv("BUCKET_KEY_SECRET") or ""
+BUCKET_NAME       : str = os.getenv("BUCKET_NAME")       or ""
 
 missing = [ label
             for label, value in
@@ -107,7 +107,7 @@ def b3_clear_prefix( prefix : str | Path) -> None :
     Args:
         prefix : Prefix whose contents should be removed
     """
-    keys =[ obj["Key"] for obj in b3_list_objects(prefix) ]
+    keys = [ str(obj["Key"]) for obj in b3_list_objects(prefix) ]
     if not keys :
         return
     
@@ -144,7 +144,7 @@ def b3_exists( key : str | Path) -> bool :
     
     return False
 
-def b3_get_file( key : str | Path) -> Any :
+def b3_get_file( key : str | Path) -> bytes :
     """
     Download file content from the storage bucket \\
     Args:
@@ -243,7 +243,7 @@ def b3_put_media(
     key     : str | Path,
     content : bytes,
     mime    : str,
-) -> dict[ str : str] :
+) -> dict[ str, str] :
     """
     Upload binary media content using the provided MIME type \\
     Args:
@@ -286,14 +286,14 @@ async def async_b3_clear_prefix( prefix : str | Path) -> None :
     Args:
         prefix : Prefix whose contents should be removed
     """
-    keys = [ obj["Key"] for obj in await async_b3_list_objects(prefix) ]
+    keys = [ str(obj["Key"]) for obj in await async_b3_list_objects(prefix) ]
     if not keys :
         return
     
     async with async_boto3_client() as b3a :
         
         for i in range( 0, len(keys), 1000) :
-            chunk = [ { "Key" : k } for k in keys[ i : i + 1000 ] ]
+            chunk : Any = [ { "Key" : k } for k in keys[ i : i + 1000 ] ]
             await b3a.delete_objects( Bucket = BUCKET_NAME,
                                       Delete = { "Objects" : chunk } )
     
@@ -328,7 +328,7 @@ async def async_b3_exists( key : str | Path) -> bool :
     
     return False
 
-async def async_b3_get_file( key : str | Path) -> Any :
+async def async_b3_get_file( key : str | Path) -> bytes :
     """
     Download file content from the storage bucket asynchronously \\
     Args:

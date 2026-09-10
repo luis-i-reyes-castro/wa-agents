@@ -8,8 +8,9 @@ Only media bytes live in S3. All metadata, messages, manifests, deduplication da
 and contact leases live in PostgreSQL.
 """
 
-from inspect import currentframe
 from pathlib import PurePosixPath
+
+from sofia_utils.printing import get_qualname as here
 
 from .case_handler_models import MediaObject
 from .S3_bucket_io import (
@@ -33,8 +34,6 @@ def media_object_key(
     """
     Build a media object key using the normalized S3 tree.
     """
-    here = currentframe().f_code.co_name
-    
     ids = (
         ( "business_id", business_id),
         ( "contact_id",  contact_id ),
@@ -46,7 +45,7 @@ def media_object_key(
             ( ( not isinstance( value, int) ) or ( value <= 0 ) )
         ) :
             raise ValueError(
-                f"In {here}: Argument '{label}' must be a positive integer"
+                f"In {here()}: Argument '{label}' must be a positive integer"
             )
     
     if (
@@ -58,7 +57,7 @@ def media_object_key(
         ( "\\" in filename               )
     ) :
         raise ValueError(
-            f"In {here}: Argument 'filename' must be a non-empty path component"
+            f"In {here()}: Argument 'filename' must be a non-empty path component"
         )
     
     return str(
@@ -81,15 +80,13 @@ class S3BucketStorage :
         """
         Store media bytes and return the object key to persist in PostgreSQL.
         """
-        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-        
         if media.content is None :
             raise ValueError(
-                f"In {here}: media.content is required for an S3 write"
+                f"In {here()}: media.content is required for an S3 write"
             )
         if not media.name :
             raise ValueError(
-                f"In {here}: media.name is required for an S3 write"
+                f"In {here()}: media.name is required for an S3 write"
             )
         
         object_key = media_object_key(
@@ -138,15 +135,13 @@ class AsyncS3BucketStorage :
         """
         Store media bytes and return the object key to persist in PostgreSQL.
         """
-        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-        
         if media.content is None :
             raise ValueError(
-                f"In {here}: media.content is required for an S3 write"
+                f"In {here()}: media.content is required for an S3 write"
             )
         if not media.name :
             raise ValueError(
-                f"In {here}: media.name is required for an S3 write"
+                f"In {here()}: media.name is required for an S3 write"
             )
         
         object_key = media_object_key(

@@ -12,7 +12,6 @@ import os
 
 from datetime import datetime
 from hashlib import sha256
-from inspect import currentframe
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -24,6 +23,7 @@ from sofia_utils.psycopg import (
     load_sql_script,
     sync_pooled_conection,
 )
+from sofia_utils.printing import get_qualname as here
 
 from .case_handler_models import (
     CaseManifest,
@@ -43,18 +43,20 @@ DB_POOL_TIMEOUT  = 30
 
 
 def get_database_url() -> str :
-    """Return the configured Supabase PostgreSQL connection URL."""
-    if ( database_url := os.getenv("SUPABASE_DB_CONNECTION_URL_IPv4") ) \
-    or ( database_url := os.getenv("SUPABASE_DB_CONNECTION_URL_IPv6") ) :
-        return database_url
+    """
+    Return the configured Supabase PostgreSQL connection URL.
+    """
+    ipv4 = "SUPABASE_DB_CONNECTION_URL_IPv4"
+    if ( db_url := os.getenv(ipv4) ) :
+        return db_url
     
-    frame = currentframe()
-    here  = frame.f_code.co_name if frame else "get_database_url"
-    e_msg = (
-        "Environment variables 'SUPABASE_DB_CONNECTION_URL_IPv4' "
-        "and 'SUPABASE_DB_CONNECTION_URL_IPv6' are both unset"
+    ipv6 = ipv4.replace( "4", "6")
+    if ( db_url := os.getenv(ipv6) ) :
+        return db_url
+    
+    raise RuntimeError(
+        f"In {here()}: Both env vars '{ipv4}' and '{ipv6}' are unset"
     )
-    raise RuntimeError(f"In {here}: {e_msg}")
 
 
 # =========================================================================================
@@ -189,7 +191,9 @@ def _manifest_from_row(
 # SEQUENTIAL ADAPTER
 
 class SyncSupabaseStorage :
-    """Sequential gateway for the normalized persistence SQL."""
+    """
+    Sequential gateway for the normalized persistence SQL.
+    """
     
     def __init__(
         self,
@@ -645,7 +649,9 @@ class SyncSupabaseStorage :
 # ASYNCHRONOUS ADAPTER
 
 class AsyncSupabaseStorage :
-    """Asynchronous gateway for the normalized persistence SQL."""
+    """
+    Asynchronous gateway for the normalized persistence SQL.
+    """
 
     def __init__(
         self,

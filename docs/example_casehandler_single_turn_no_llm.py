@@ -5,7 +5,7 @@ Example CaseHandler: single-turn chatbot without LLM or tools.
 Use this when replies are deterministic (lookups, rules, fixed templates).
 """
 
-from inspect import currentframe
+from sofia_utils.printing import get_qualname as here
 
 from wa_agents.case_handler_base import CaseHandlerBase
 from wa_agents.case_handler_models import (
@@ -52,8 +52,6 @@ class CaseHandler(CaseHandlerBase) :
         """
         Generate one deterministic reply and stop.
         """
-        _orig_ = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-
         if not self.case_context :
             self.context_build()
 
@@ -75,8 +73,10 @@ class CaseHandler(CaseHandlerBase) :
         else :
             reply = "Received. We will review your message and reply shortly."
 
-        msg_reply = ServerTextMsg( origin = _orig_,
-                                   text   = reply )
+        msg_reply = ServerTextMsg(
+            origin = here(),
+            text   = reply,
+        )
         msg_reply.print()
         self.send_text(msg_reply)
         self.context_update(msg_reply)

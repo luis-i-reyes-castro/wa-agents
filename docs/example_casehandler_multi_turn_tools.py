@@ -6,8 +6,9 @@ This mirrors the core loop shape used in production:
 assistant response -> tool execution -> tool results -> assistant response.
 """
 
-from inspect import currentframe
 from pathlib import Path
+
+from sofia_utils.printing import get_qualname as here
 
 from wa_agents.agent import AsyncAgent
 from wa_agents.case_handler_base import AsyncCaseHandlerBase
@@ -106,8 +107,6 @@ class CaseHandler (AsyncCaseHandlerBase) :
         """
         Multi-turn generation with tool-call feedback loop.
         """
-        _orig_ = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-
         if not self.case_context :
             await self.context_build()
 
@@ -116,7 +115,7 @@ class CaseHandler (AsyncCaseHandlerBase) :
 
         message = await self.main_agent.get_response(
             context    = self.case_context,
-            origin     = f"{_orig_}/stage-1",
+            origin     = f"{here()}/stage-1",
             max_tokens = max_tokens,
             debug      = self.debug,
         )
@@ -138,8 +137,10 @@ class CaseHandler (AsyncCaseHandlerBase) :
 
         tool_results = self.tool_server.process(message.tool_calls)
         if tool_results :
-            msg_tools = ToolResultsMsg( origin       = f"{_orig_}/stage-2",
-                                        tool_results = tool_results )
+            msg_tools = ToolResultsMsg(
+                origin       = f"{here()}/stage-2",
+                tool_results = tool_results,
+            )
             msg_tools.print()
             await self.context_update(msg_tools)
 

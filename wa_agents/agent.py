@@ -6,7 +6,6 @@ import os
 
 from abc import ABC
 from base64 import b64encode
-from inspect import currentframe
 from openai import (
     AsyncOpenAI,
     OpenAI,
@@ -33,6 +32,7 @@ from sofia_utils.io import (
     write_to_json_string,
 )
 from sofia_utils.printing import (
+    get_qualname as here,
     print_recursively,
     print_sep,
 )
@@ -72,10 +72,9 @@ class AgentBase (ABC) :
             name   : Friendly name to attach to generated responses
             models : One OpenRouter model string or ordered model fallback list
         """
-        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
         if not os.getenv("OPENROUTER_API_KEY") :
             raise RuntimeError(
-                f"In {here}: Environment variable 'OPENROUTER_API_KEY' was not found"
+                f"In {here()}: Env var 'OPENROUTER_API_KEY' was not found"
             )
         
         if isinstance( models, str) :
@@ -87,7 +86,7 @@ class AgentBase (ABC) :
             and all( isinstance( m, str) for m in models )
             and all( bool( match( self.API_DATA_PATTERN, m) ) for m in models )
         ) :
-            raise ValueError(f"In {here}: Invalid argument '{models}'")
+            raise ValueError(f"In {here()}: Invalid argument '{models}'")
         
         self.name            = name
         self.api             = "openrouter"
@@ -114,8 +113,6 @@ class AgentBase (ABC) :
             key `path` must be a file name (`str`) or path (`Path`), and
             key `replace` must be a dict mapping strings to strings.
         """
-        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-        
         for prompt_obj in list_prompt_paths :
             
             if (
@@ -142,7 +139,7 @@ class AgentBase (ABC) :
                         prompt_as_str = prompt_as_str.replace( key, val)
                 else :
                     raise ValueError(
-                        f"In {here}: Prompt path '{str(prompt_path)}' "
+                        f"In {here()}: Prompt path '{str(prompt_path)}' "
                         f"is assigned to invalid replacements dict '{str(replacements)}'."
                     )
                 
@@ -151,9 +148,8 @@ class AgentBase (ABC) :
             # Else raise exception
             else :
                 raise ValueError(
-                    f"In {here}: Argument 'list_prompt_paths' has an invalid "
-                    f"item of type '{type(prompt_obj)}'; "
-                    f"contents: '{str(prompt_obj)}'."
+                    f"In {here()}: Argument has an invalid item of "
+                    f"type '{type(prompt_obj)}'; contents: '{str(prompt_obj)}'."
                 )
         
         return
@@ -178,10 +174,11 @@ class AgentBase (ABC) :
                 self.tools.extend(tool_file_content)
             
             else :
-                msg = f"Invalid tool file content" \
-                    + f"\n\tFile path: {tool_file}"   \
-                    + f"\n\tContent type: {type(tool_file_content)}"
-                raise ValueError(f"In Agent load_tools: {msg}")
+                raise ValueError(
+                    f"In {here()}: Argument has an invalid item with "
+                    f"path '{tool_file}' and content of "
+                    f"type '{type(tool_file_content).__name__}'"
+                )
         
         return
     
@@ -419,10 +416,8 @@ class AgentBase (ABC) :
         Returns:
             Parsed assistant response
         """
-        origin = origin or f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-        
         ag_resp_obj = AssistantMsg(
-            origin       = origin,
+            origin       = here(),
             agent        = self.name,
             api          = self.api,
             model        = getattr( response, "model", None),
@@ -544,7 +539,6 @@ class Agent (AgentBase) :
         """
         Request a response from OpenRouter and post-process outputs
         """
-        origin = origin or f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
         
         self.validate_get_response_args( load_imgs, imgs_cache)
         self.merge_prompts()
@@ -586,7 +580,12 @@ class Agent (AgentBase) :
         if not response :
             return None
         
-        response_ = self.collect_response( response, context, origin, output_st)
+        response_ = self.collect_response(
+            response  = response,
+            context   = context,
+            origin    = origin or here(),
+            output_st = output_st,
+        )
         
         return self.validate_and_post_process_response(response_)
 
@@ -610,7 +609,6 @@ class AsyncAgent (AgentBase) :
         """
         Request a response from OpenRouter and post-process outputs asynchronously
         """
-        origin = origin or f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
         
         self.validate_get_response_args( load_imgs, imgs_cache)
         self.merge_prompts()
@@ -652,6 +650,11 @@ class AsyncAgent (AgentBase) :
         if not response :
             return None
         
-        response_ = self.collect_response( response, context, origin, output_st)
+        response_ = self.collect_response(
+            response  = response,
+            context   = context,
+            origin    = origin or here(),
+            output_st = output_st,
+        )
         
         return self.validate_and_post_process_response(response_)

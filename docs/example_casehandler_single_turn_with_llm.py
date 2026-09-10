@@ -5,7 +5,7 @@ Example CaseHandler: single-turn chatbot with one LLM call.
 Use this when each incoming user message should produce one model-generated reply.
 """
 
-from inspect import currentframe
+from sofia_utils.printing import get_qualname as here
 
 from wa_agents.agent import AsyncAgent
 from wa_agents.case_handler_base import AsyncCaseHandlerBase
@@ -64,8 +64,6 @@ class CaseHandler (AsyncCaseHandlerBase) :
         """
         Generate one LLM reply and stop.
         """
-        _orig_ = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-
         if not self.case_context :
             await self.context_build()
 
@@ -74,7 +72,7 @@ class CaseHandler (AsyncCaseHandlerBase) :
 
         message = await self.main_agent.get_response(
             context    = self.case_context,
-            origin     = _orig_,
+            origin     = here(),
             max_tokens = max_tokens,
             debug      = self.debug,
         )
