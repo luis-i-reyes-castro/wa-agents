@@ -1,4 +1,13 @@
+import asyncio
 import os
+
+from datetime import (
+    UTC,
+    datetime,
+)
+
+import pytest
+
 
 os.environ.setdefault( "BUCKET_REGION", "test-region")
 os.environ.setdefault( "BUCKET_KEY_ID", "test-key")
@@ -6,547 +15,229 @@ os.environ.setdefault( "BUCKET_KEY_SECRET", "test-secret")
 os.environ.setdefault( "BUCKET_NAME", "test-bucket")
 os.environ.setdefault( "SUPABASE_DB_CONNECTION_URL_IPv4", "postgresql://test")
 
-from wa_agents.listener import Listener
-from wa_agents.whatsapp_api_server import WhatsAppAPIServer
-from wa_agents import queue_db
+
+from wa_agents import S3_bucket_storage
+from wa_agents import supabase
+from wa_agents.S3_bucket_storage import (
+    AsyncS3BucketStorage,
+    S3BucketStorage,
+    media_object_key,
+)
 from wa_agents.case_handler_models import (
     AssistantMsg,
+    CaseManifest,
+    MediaObject,
     ServerTextMsg,
 )
-from wa_agents.storage_backend import get_storage_backend
-from wa_agents import supabase_storage
-from wa_agents.supabase_storage import (
-    SQL_INSERT_MESSAGE,
-    SQL_INSERT_WEBHOOK_MESSAGE,
-    SQL_INSERT_WEBHOOK_PAYLOAD,
-    SQL_INSERT_WEBHOOK_STATUS,
-    SQL_UPSERT_OPERATOR,
-    _payload_hash,
-    _message_from_payload,
-    get_database_url,
-)
-
-
-def test_message_idempotency_key_is_always_generated() -> None :
-    
-    message = ServerTextMsg(text = "hello")
-    
-    assert message.id
-    assert message.idempotency_key
-
-
-def test_message_payload_round_trip_uses_basemodel() -> None :
-    
-    message = ServerTextMsg( text = "hello", idempotency_key = "server-1")
-    payload = message.model_dump( mode = "json")
-    
-    result = _message_from_payload(payload)
-    
-    assert isinstance( result, ServerTextMsg)
-    assert result.id == message.id
-    assert result.idempotency_key == "server-1"
-    assert result.text == "hello"
-
-
-def test_assistant_message_allows_multiline_instructions() -> None :
-    
-    instructions = "# Idioma y estilo\n\n* Responde siempre en espanol.\n"
-    message      = AssistantMsg(instructions = instructions)
-    
-    assert message.instructions == instructions
-    assert message.model_dump( mode = "json")["instructions"] == instructions
-
-
-def test_storage_backend_defaults_to_supabase( monkeypatch) -> None :
-    
-    monkeypatch.delenv( "WA_AGENTS_STORAGE_BACKEND", raising = False)
-    
-    assert get_storage_backend() == "supabase"
 
 
 def test_database_url_prefers_ipv4( monkeypatch) -> None :
-    
     monkeypatch.setenv( "SUPABASE_DB_CONNECTION_URL_IPv4", "postgresql://ipv4")
     monkeypatch.setenv( "SUPABASE_DB_CONNECTION_URL_IPv6", "postgresql://ipv6")
-    
-    assert get_database_url() == "postgresql://ipv4"
+
+    assert supabase.get_database_url() == "postgresql://ipv4"
 
 
-def test_message_insert_dedup_is_message_backed() -> None :
-    
-    normalized_sql = " ".join(SQL_INSERT_MESSAGE.split())
-    
-    assert "idempotency_key" in SQL_INSERT_MESSAGE
-    assert "ON CONFLICT DO NOTHING" in normalized_sql
+def test_payload_hash_is_canonical() -> None :
+    payload_1 = { "entry" : [ { "id" : "123" } ], "object" : "whatsapp" }
+    payload_2 = { "object" : "whatsapp", "entry" : [ { "id" : "123" } ] }
+
+    assert supabase._payload_hash(payload_1) == supabase._payload_hash(payload_2)
 
 
-class _FakeCursor :
-    
-    def __init__( self, row : dict | None = None) -> None :
-        self.row = row
-        return
-    
-    def fetchone(self) -> dict | None :
-        return self.row
+def test_inbound_payload_is_bound_as_jsonb( monkeypatch) -> None :
+    storage = supabase.SyncSupabaseStorage("postgresql://test")
+    calls   = []
+
+    def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return { "id" : 7, "inserted" : True }
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+    row = storage.insert_inbound_payload({ "hello" : "world" })
+
+    assert row == { "id" : 7, "inserted" : True }
+    assert calls[0][0] == supabase.SQL_INSERT_INBOUND_PAYLOAD
+    assert calls[0][1]["data_raw"].obj == { "hello" : "world" }
+    assert calls[0][1]["data_hash"] == supabase._payload_hash(
+        { "hello" : "world" }
+    )
 
 
-class _FakeConnection :
-    
-    def __init__( self, payload_row : dict) -> None :
-        self.payload_row = payload_row
-        self.calls       = []
-        return
-    
-    def execute( self, sql : str, params : dict) -> _FakeCursor :
-        self.calls.append(( sql, params))
-        if sql == SQL_INSERT_WEBHOOK_PAYLOAD :
-            return _FakeCursor(self.payload_row)
-        return _FakeCursor()
+def test_case_handler_message_round_trip_and_state_update( monkeypatch) -> None :
+    storage = supabase.SyncSupabaseStorage("postgresql://test")
+    message = ServerTextMsg( text = "hello", origin = "test")
+    calls   = []
+
+    def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return {
+            "id"            : 41,
+            "ts"            : message.ts,
+            "case_id"       : 9,
+            "basemodel"     : message.basemodel,
+            "origin"        : message.origin,
+            "data"          : params["data"].obj,
+            "machine_state" : "awaiting_photo",
+        }
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+    stored = storage.insert_case_handler_message(
+        case_id       = 9,
+        message       = message,
+        machine_state = "awaiting_photo",
+    )
+
+    assert isinstance( stored, ServerTextMsg)
+    assert stored.id == 41
+    assert stored.text == "hello"
+    assert calls[0][0] == supabase.SQL_INSERT_CASE_HANDLER_MESSAGE
+    assert calls[0][1]["machine_state"] == "awaiting_photo"
 
 
-class _FakeConnectionContext :
-    
-    def __init__( self, conn : _FakeConnection) -> None :
-        self.conn = conn
-        return
-    
-    def __enter__(self) -> _FakeConnection :
-        return self.conn
-    
-    def __exit__( self, exc_type, exc, tb) -> None :
-        return
+def test_llm_model_is_stored_with_assistant_message( monkeypatch) -> None :
+    storage = supabase.SyncSupabaseStorage("postgresql://test")
+    message = AssistantMsg( text = "hello", model = "gpt-test")
+    calls   = []
+
+    def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return None
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+    storage.insert_case_handler_message(
+        case_id       = 9,
+        message       = message,
+        machine_state = "confirm_drone_model",
+    )
+
+    assert calls[0][1]["data"].obj["model"] == "gpt-test"
+    assert calls[0][1]["machine_state"] == "confirm_drone_model"
 
 
-def _message_payload_dict() -> dict :
-    
-    return {
-        "object" : "whatsapp_business_account",
-        "entry"  : [
-            {
-                "id"      : "123456789012345",
-                "changes" : [
-                    {
-                        "field" : "messages",
-                        "value" : {
-                            "messaging_product" : "whatsapp",
-                            "metadata"          : {
-                                "display_phone_number" : "15551234567",
-                                "phone_number_id"      : "1234567890",
-                            },
-                            "contacts" : [
-                                {
-                                    "wa_id"   : "593995341161",
-                                    "profile" : { "name" : "User One" },
-                                }
-                            ],
-                            "messages" : [
-                                {
-                                    "from"      : "593995341161",
-                                    "id"        : "wamid.ABC123=",
-                                    "timestamp" : "1700000000",
-                                    "type"      : "text",
-                                    "text"      : { "body" : "hello" },
-                                }
-                            ],
-                        },
-                    }
-                ],
-            }
-        ],
-    }
+def test_manifest_loads_ordered_message_ids( monkeypatch) -> None :
+    storage = supabase.SyncSupabaseStorage("postgresql://test")
+    now     = datetime.now(UTC)
 
-
-def _status_payload_dict() -> dict :
-    
-    return {
-        "object" : "whatsapp_business_account",
-        "entry"  : [
-            {
-                "id"      : "123456789012345",
-                "changes" : [
-                    {
-                        "field" : "messages",
-                        "value" : {
-                            "messaging_product" : "whatsapp",
-                            "metadata"          : {
-                                "display_phone_number" : "15551234567",
-                                "phone_number_id"      : "1234567890",
-                            },
-                            "contacts" : [
-                                {
-                                    "wa_id"   : "593995341161",
-                                    "user_id" : "EC.123456789",
-                                }
-                            ],
-                            "statuses" : [
-                                {
-                                    "id"           : "wamid.ABC123=",
-                                    "recipient_id" : "593995341161",
-                                    "status"       : "delivered",
-                                    "timestamp"    : "1700000001",
-                                    "conversation" : {
-                                        "id"     : "987654321098765",
-                                        "origin" : { "type" : "service" },
-                                    },
-                                    "pricing" : {
-                                        "billable"      : False,
-                                        "category"      : "service",
-                                        "pricing_model" : "CBP",
-                                    },
-                                }
-                            ],
-                        },
-                    }
-                ],
-            }
-        ],
-    }
-
-
-def _account_update_payload_dict() -> dict :
-    
-    return {
-        "object" : "whatsapp_business_account",
-        "entry"  : [
-            {
-                "id"      : "123456789012345",
-                "changes" : [
-                    {
-                        "field" : "account_update",
-                        "value" : {
-                            "event"     : "PARTNER_ADDED",
-                            "waba_info" : {
-                                "waba_id"           : "123456789012345",
-                                "owner_business_id" : "987654321098765",
-                            },
-                        },
-                    }
-                ],
-            }
-        ],
-    }
-
-
-def _patch_fake_connection( monkeypatch, payload_row : dict) -> _FakeConnection :
-    
-    conn = _FakeConnection(payload_row)
     monkeypatch.setattr(
-        supabase_storage,
-        "sync_pooled_conection",
-        lambda _database_url : _FakeConnectionContext(conn),
-    )
-    
-    return conn
-
-
-def test_webhook_payload_hash_is_canonical() -> None :
-    
-    payload_1 = supabase_storage.WhatsAppPayload.model_validate(_message_payload_dict())
-    payload_2 = supabase_storage.WhatsAppPayload.model_validate(_message_payload_dict())
-    
-    assert _payload_hash(payload_1) == _payload_hash(payload_2)
-
-
-def test_webhook_payload_duplicate_does_not_explode_rows( monkeypatch) -> None :
-    
-    payload = supabase_storage.WhatsAppPayload.model_validate(_message_payload_dict())
-    conn    = _patch_fake_connection(
-        monkeypatch,
-        { "id" : 11, "inserted" : False },
-    )
-    
-    stored = supabase_storage.webhook_payload_write(payload)
-    
-    assert stored is False
-    assert len(conn.calls) == 2
-    assert conn.calls[0][0] == SQL_INSERT_WEBHOOK_PAYLOAD
-    assert conn.calls[1][0] == SQL_UPSERT_OPERATOR
-
-
-def test_webhook_message_payload_expands_message_row( monkeypatch) -> None :
-    
-    payload = supabase_storage.WhatsAppPayload.model_validate(_message_payload_dict())
-    conn    = _patch_fake_connection(
-        monkeypatch,
-        { "id" : 12, "inserted" : True },
-    )
-    
-    stored = supabase_storage.webhook_payload_write(payload)
-    
-    assert stored is True
-    assert [ call[0] for call in conn.calls ] == [
-        SQL_INSERT_WEBHOOK_PAYLOAD,
-        SQL_UPSERT_OPERATOR,
-        SQL_INSERT_WEBHOOK_MESSAGE,
-    ]
-    
-    msg_params = conn.calls[2][1]
-    assert msg_params["payload_id"] == 12
-    assert msg_params["operator_id"] == "1234567890"
-    assert msg_params["waba_id"] == "123456789012345"
-    assert msg_params["user_id"] == "593995341161"
-    assert msg_params["message_id"] == "wamid.ABC123="
-    assert msg_params["message_type"] == "text"
-
-
-def test_webhook_status_only_payload_expands_status_row( monkeypatch) -> None :
-    
-    payload = supabase_storage.WhatsAppPayload.model_validate(_status_payload_dict())
-    conn    = _patch_fake_connection(
-        monkeypatch,
-        { "id" : 13, "inserted" : True },
-    )
-    
-    assert payload.has_messages() is False
-    
-    stored = supabase_storage.webhook_payload_write(payload)
-    
-    assert stored is True
-    assert [ call[0] for call in conn.calls ] == [
-        SQL_INSERT_WEBHOOK_PAYLOAD,
-        SQL_UPSERT_OPERATOR,
-        SQL_INSERT_WEBHOOK_STATUS,
-    ]
-    
-    status_params = conn.calls[2][1]
-    assert status_params["payload_id"] == 13
-    assert status_params["operator_id"] == "1234567890"
-    assert status_params["recipient_id"] == "593995341161"
-    assert status_params["message_id"] == "wamid.ABC123="
-    assert status_params["status"] == "delivered"
-    assert status_params["conversation_id"] == "987654321098765"
-    assert status_params["pricing_category"] == "service"
-
-
-def test_webhook_account_update_skips_message_expansion( monkeypatch) -> None :
-    
-    payload = supabase_storage.WhatsAppPayload.model_validate(
-        _account_update_payload_dict()
-    )
-    conn = _patch_fake_connection(
-        monkeypatch,
-        { "id" : 14, "inserted" : True },
-    )
-    
-    assert supabase_storage.webhook_payload_write(payload) is True
-    assert [ call[0] for call in conn.calls ] == [ SQL_INSERT_WEBHOOK_PAYLOAD ]
-
-
-class _QueueStub :
-    
-    def __init__(self) -> None :
-        self.enqueued = False
-        return
-    
-    def enqueue(self, _payload) -> bool :
-        self.enqueued = True
-        return True
-
-
-class _AsyncQueueStub :
-    
-    def __init__(self) -> None :
-        self.enqueued = False
-        return
-    
-    async def enqueue(self, _payload) -> bool :
-        self.enqueued = True
-        return True
-
-
-class _AsyncHandlerStub :
-    
-    pass
-
-
-def test_listener_enqueues_when_webhook_storage_fails( monkeypatch) -> None :
-    
-    queue = _QueueStub()
-    app   = Listener( __name__, queue)
-    
-    def raise_storage_error(_payload) -> bool :
-        raise RuntimeError("storage offline")
-    
-    monkeypatch.setattr(
-        supabase_storage,
-        "webhook_payload_write",
-        raise_storage_error,
-    )
-    
-    response = app.test_client().post(
-        "/webhook",
-        json = _message_payload_dict(),
-    )
-    
-    data = response.get_json()
-    
-    assert response.status_code == 200
-    assert data["status"] == "ok"
-    assert data["enqueued"] is True
-    assert data["stored"] is False
-    assert "storage offline" in data["storage_error"]
-    assert queue.enqueued is True
-
-
-def test_fastapi_webhook_enqueues_when_webhook_storage_fails( monkeypatch) -> None :
-    
-    from fastapi.testclient import TestClient
-    
-    queue = _AsyncQueueStub()
-    app   = WhatsAppAPIServer(
-        title       = "Test WhatsApp Bot",
-        handler_cls = _AsyncHandlerStub,
-        queue_db    = queue,
-    )
-    
-    async def raise_storage_error(_payload) -> bool :
-        raise RuntimeError("storage offline")
-    
-    monkeypatch.setattr(
-        supabase_storage,
-        "async_webhook_payload_write",
-        raise_storage_error,
-    )
-    
-    response = TestClient(app).post(
-        "/webhook",
-        json = _message_payload_dict(),
-    )
-    
-    data = response.json()
-    
-    assert response.status_code == 200
-    assert data["status"] == "ok"
-    assert data["enqueued"] is True
-    assert data["stored"] is False
-    assert "storage offline" in data["storage_error"]
-    assert queue.enqueued is True
-
-
-def test_fastapi_webhook_verification( monkeypatch) -> None :
-    
-    from fastapi.testclient import TestClient
-    
-    monkeypatch.setenv( "WA_VERIFY_TOKEN", "verify-secret")
-    app = WhatsAppAPIServer(
-        title       = "Test WhatsApp Bot",
-        handler_cls = _AsyncHandlerStub,
-        queue_db    = _AsyncQueueStub(),
-    )
-    
-    response = TestClient(app).get(
-        "/webhook",
-        params = {
-            "hub.verify_token" : "verify-secret",
-            "hub.challenge"    : "challenge-1",
+        storage,
+        "_fetch_one",
+        lambda _sql, _params : {
+            "id"            : 5,
+            "contact"       : 3,
+            "created_at"    : now,
+            "updated_at"    : now,
+            "is_open"       : True,
+            "machine_state" : "confirm_model",
         },
     )
-    
-    assert response.status_code == 200
-    assert response.text == "challenge-1"
-
-
-class _FakeQueueConnection :
-    
-    def __init__( self, rows : dict[str, dict | None]) -> None :
-        self.rows  = rows
-        self.calls = []
-        return
-    
-    def execute( self, sql : str, params : dict) -> _FakeCursor :
-        self.calls.append(( sql, params))
-        return _FakeCursor(self.rows.get(sql))
-
-
-class _FakeQueueConnectionContext :
-    
-    def __init__( self, conn : _FakeQueueConnection) -> None :
-        self.conn = conn
-        return
-    
-    def __enter__(self) -> _FakeQueueConnection :
-        return self.conn
-    
-    def __exit__( self, exc_type, exc, tb) -> None :
-        return
-
-
-def _patch_fake_queue_connection(
-    monkeypatch,
-    rows : dict[str, dict | None],
-) -> _FakeQueueConnection :
-    
-    conn = _FakeQueueConnection(rows)
     monkeypatch.setattr(
-        queue_db,
-        "sync_pooled_conection",
-        lambda _database_url : _FakeQueueConnectionContext(conn),
+        storage,
+        "_fetch_all",
+        lambda _sql, _params : [ { "id" : 11 }, { "id" : 12 } ],
     )
-    
-    return conn
+
+    manifest = storage.get_case_manifest( case_id = 5, contact = 3)
+
+    assert isinstance( manifest, CaseManifest)
+    assert manifest.machine_state == "confirm_model"
+    assert manifest.message_ids == [ 11, 12 ]
 
 
-def test_queue_enqueue_returns_true_only_for_insert( monkeypatch) -> None :
-    
-    payload = supabase_storage.WhatsAppPayload.model_validate(_message_payload_dict())
-    conn    = _patch_fake_queue_connection(
-        monkeypatch,
-        { queue_db.SQL_ENQUEUE_PAYLOAD : { "id" : 1 } },
+def test_contact_leases_are_explicit_operations( monkeypatch) -> None :
+    storage = supabase.SyncSupabaseStorage("postgresql://test")
+    calls   = []
+
+    def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return { "contact" : params["contact"] }
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+
+    assert storage.acquire_contact_lease( 3, "token")
+    assert storage.renew_contact_lease( 3, "token")
+    assert storage.release_contact_lease( 3, "token") is True
+    assert [ sql for sql, _params in calls ] == [
+        supabase.SQL_ACQUIRE_CONTACT_LEASE,
+        supabase.SQL_RENEW_CONTACT_LEASE,
+        supabase.SQL_RELEASE_CONTACT_LEASE,
+    ]
+    assert not hasattr( storage, "__enter__")
+
+
+def test_async_payload_insert_uses_same_contract( monkeypatch) -> None :
+    storage = supabase.AsyncSupabaseStorage("postgresql://test")
+    calls   = []
+
+    async def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return { "id" : 8, "inserted" : True }
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+    row = asyncio.run(storage.insert_inbound_payload({ "hello" : "async" }))
+
+    assert row == { "id" : 8, "inserted" : True }
+    assert calls[0][0] == supabase.SQL_INSERT_INBOUND_PAYLOAD
+    assert calls[0][1]["data_raw"].obj == { "hello" : "async" }
+
+
+def test_media_object_key_uses_business_contact_case_and_filename() -> None :
+    assert media_object_key( 11, 17, 29, "31.jpeg") == "11/17/29/31.jpeg"
+
+
+@pytest.mark.parametrize(
+    "business_id, contact_id, case_id, filename",
+    [
+        ( 0, 1, 2, "file.jpeg"),
+        ( 1, 0, 2, "file.jpeg"),
+        ( 1, 1, -1, "file.jpeg"),
+        ( 1, 1, 2, "nested/file.jpeg"),
+        ( 1, 1, 2, ".."),
+    ],
+)
+def test_media_object_key_rejects_invalid_components(
+    business_id : int,
+    contact_id : int,
+    case_id    : int,
+    filename   : str,
+) -> None :
+    with pytest.raises(ValueError) :
+        media_object_key( business_id, contact_id, case_id, filename)
+
+
+def test_s3_media_write_returns_database_object_key( monkeypatch) -> None :
+    calls = []
+    media = MediaObject(
+        mime    = "image/jpeg",
+        name    = "31.jpeg",
+        content = b"image bytes",
     )
-    
-    queue = queue_db.QueueDB()
-    
-    assert queue.enqueue(payload) is True
-    assert conn.calls[0][0] == queue_db.SQL_ENQUEUE_PAYLOAD
-    assert "payload_hash" in conn.calls[0][1]
-    assert "payload" in conn.calls[0][1]
 
-
-def test_queue_enqueue_returns_false_for_duplicate( monkeypatch) -> None :
-    
-    payload = supabase_storage.WhatsAppPayload.model_validate(_message_payload_dict())
-    _patch_fake_queue_connection(
-        monkeypatch,
-        { queue_db.SQL_ENQUEUE_PAYLOAD : None },
+    monkeypatch.setattr(
+        S3_bucket_storage,
+        "b3_put_media",
+        lambda *args : calls.append(args),
     )
-    
-    queue = queue_db.QueueDB()
-    
-    assert queue.enqueue(payload) is False
+
+    object_key = S3BucketStorage().media_write( 11, 17, 29, media)
+
+    assert object_key == "11/17/29/31.jpeg"
+    assert calls == [ ( "11/17/29/31.jpeg", b"image bytes", "image/jpeg") ]
 
 
-def test_queue_claim_next_validates_payload( monkeypatch) -> None :
-    
-    payload = supabase_storage.WhatsAppPayload.model_validate(_message_payload_dict())
-    conn    = _patch_fake_queue_connection(
-        monkeypatch,
-        {
-            queue_db.SQL_CLAIM_NEXT : {
-                "row_id"  : 7,
-                "payload" : payload.model_dump( mode = "json", by_alias = True),
-            }
-        },
+def test_async_s3_media_write_returns_database_object_key( monkeypatch) -> None :
+    calls = []
+    media = MediaObject(
+        mime    = "image/jpeg",
+        name    = "31.jpeg",
+        content = b"image bytes",
     )
-    
-    queue = queue_db.QueueDB()
-    item  = queue.claim_next()
-    
-    assert item["row_id"] == 7
-    assert isinstance( item["payload"], supabase_storage.WhatsAppPayload)
-    assert item["payload"].entry[0].changes[0].value.messages[0].id == "wamid.ABC123="
-    assert conn.calls[0][0] == queue_db.SQL_CLAIM_NEXT
 
+    async def fake_put_media( *args) :
+        calls.append(args)
 
-def test_queue_mark_done_and_error( monkeypatch) -> None :
-    
-    conn  = _patch_fake_queue_connection(monkeypatch, {})
-    queue = queue_db.QueueDB()
-    
-    queue.mark_done(3)
-    queue.mark_error( 4, "failed")
-    
-    assert conn.calls[0] == ( queue_db.SQL_MARK_QUEUE_DONE, { "row_id" : 3 })
-    assert conn.calls[1] == (
-        queue_db.SQL_MARK_QUEUE_ERROR,
-        { "row_id" : 4, "last_error" : "failed" },
-    )
+    monkeypatch.setattr( S3_bucket_storage, "async_b3_put_media", fake_put_media)
+    object_key = asyncio.run(AsyncS3BucketStorage().media_write( 11, 17, 29, media))
+
+    assert object_key == "11/17/29/31.jpeg"
+    assert calls == [ ( "11/17/29/31.jpeg", b"image bytes", "image/jpeg") ]

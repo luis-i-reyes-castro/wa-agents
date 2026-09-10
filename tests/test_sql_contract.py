@@ -124,6 +124,18 @@ def test_contact_lease_defaults_to_ninety_seconds() -> None :
     assert "owner_token = @owner_token" in _normalized_sql(renew)
 
 
+def test_queue_claim_acquires_contact_lease_atomically() -> None :
+    claim = ( SQL_DIR / "claim_next_case_handler_message.sql").read_text(
+        encoding = "utf-8"
+    )
+    normalized = _normalized_sql(claim)
+
+    assert "INSERT INTO public.wa_case_handler_contact_leases" in normalized
+    assert "FOR UPDATE OF que SKIP LOCKED" in normalized
+    assert "@owner_token" in claim
+    assert "msg_status = 'processing'" in normalized
+
+
 def test_case_handler_message_can_map_to_multiple_api_messages() -> None :
     assert "wa_case_handler_to_api_case_handler_msg_id_unique" not in DDL
     assert "wa_case_handler_to_api_case_handler_msg_id_idx" in DDL
