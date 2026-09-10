@@ -1,200 +1,201 @@
 """
-Supabase-backed queue for incoming WhatsApp payloads.
+Supabase-backed queue for normalized inbound WhatsApp messages.
 """
 
-from __future__ import annotations
-
-from hashlib import sha256
 from pathlib import Path
 from typing import Any
+from uuid import (
+    UUID,
+    uuid4,
+)
 
 from sofia_utils.psycopg import (
-    Jsonb,
     async_pooled_connection,
     load_sql_script,
     sync_pooled_conection,
 )
 
-from .supabase import get_database_url
-from .whatsapp_models import WhatsAppPayload
+from .supabase import (
+    AsyncSupabaseStorage,
+    SyncSupabaseStorage,
+    get_database_url,
+)
 
 
-SQL_DIR               = Path(__file__).parent / "sql"
-SQL_ENQUEUE_PAYLOAD   = load_sql_script( SQL_DIR / "enqueue_queue_payload.sql" )
-SQL_CLAIM_NEXT        = load_sql_script( SQL_DIR / "claim_next_queue_payload.sql" )
-SQL_MARK_QUEUE_DONE   = load_sql_script( SQL_DIR / "mark_queue_done.sql" )
-SQL_MARK_QUEUE_ERROR  = load_sql_script( SQL_DIR / "mark_queue_error.sql" )
+SQL_DIR = Path(__file__).parent / "sql"
 
-
-def _canonical_payload_json( payload : WhatsAppPayload) -> str :
-    
-    return payload.model_dump_json( by_alias = True)
-
-
-def _payload_hash( payload : WhatsAppPayload) -> str :
-    
-    payload_json = _canonical_payload_json(payload)
-    
-    return sha256( payload_json.encode("utf-8")).hexdigest()
-
-
-def _enqueue_params( payload : WhatsAppPayload) -> dict[str, Any] :
-    
-    return {
-        "payload_hash" : _payload_hash(payload),
-        "payload"      : Jsonb(payload.model_dump( mode = "json", by_alias = True)),
-    }
+SQL_CLAIM_NEXT = load_sql_script( SQL_DIR / "claim_next_case_handler_message.sql")
+SQL_ENQUEUE    = load_sql_script( SQL_DIR / "enqueue_case_handler_message.sql")
+SQL_MARK_DONE  = load_sql_script( SQL_DIR / "mark_case_handler_message_done.sql")
+SQL_MARK_ERROR = load_sql_script( SQL_DIR / "mark_case_handler_message_error.sql")
 
 
 class QueueDB :
     """
-    Supabase-backed queue for incoming WhatsApp messages.
+    Sequential inbound-message queue.
     """
     
-    def __init__( self, db_path : str | Path | None = None) -> None :
-        """
-        Initialize the queue object. \\
-        Args:
-            db_path : Ignored; kept for compatibility with older local queues.
-        """
-        self._db_path      = Path(db_path) if db_path else None
-        self.database_url  = get_database_url()
+    def __init__( self, database_url : str | None = None) -> None :
+        
+        self.database_url = database_url or get_database_url()
+        self.storage      = SyncSupabaseStorage(self.database_url)
         
         return
     
-    def enqueue( self, payload : WhatsAppPayload) -> bool :
-        """
-        Insert a payload only if it has not been seen before. \\
-        Args:
-            payload : WhatsAppPayload object to enqueue
-        Returns:
-            True if the payload was enqueued; False if it was a duplicate.
-        """
-        with sync_pooled_conection(self.database_url) as conn :
-            row = conn.execute(
-                SQL_ENQUEUE_PAYLOAD,
-                _enqueue_params(payload),
-            ).fetchone()
+    def _fetch_one(
+        self,
+        sql    : str,
+        params : dict[str, Any],
+    ) -> dict[str, Any] | None :
         
-        return bool(row)
+        with sync_pooled_conection(self.database_url) as conn :
+            row = conn.execute( sql, params).fetchone()
+        
+        return dict(row) if row else None
     
-    def claim_next(self) -> dict[ str, int | WhatsAppPayload] | None :
+    def enqueue( self, msg_id : str) -> bool :
         """
-        Atomically claim the oldest pending payload. \\
-        Returns:
-            Dict with keys `row_id` and `payload`, or None if queue empty.
+        Enqueue one persisted WhatsApp message ID unless already present.
         """
-        with sync_pooled_conection(self.database_url) as conn :
-            row = conn.execute( SQL_CLAIM_NEXT, {}).fetchone()
-        
-        if not row :
+        return bool(self._fetch_one( SQL_ENQUEUE, { "msg_id" : msg_id }))
+    
+    def claim_next(self) -> dict[str, Any] | None :
+        """
+        Atomically claim one message and its contact lease.
+        """
+        owner_token = uuid4()
+        queue_row   = self._fetch_one(
+            SQL_CLAIM_NEXT,
+            { "owner_token" : owner_token },
+        )
+        if not queue_row :
             return None
         
-        return {
-            "row_id"  : row["row_id"],
-            "payload" : WhatsAppPayload.model_validate(row["payload"]),
-        }
-    
-    def mark_done( self, row_id : int) -> None :
-        """
-        Mark a queue row as processed successfully. \\
-        Args:
-            row_id : Queue row identifier
-        """
-        with sync_pooled_conection(self.database_url) as conn :
-            conn.execute( SQL_MARK_QUEUE_DONE, { "row_id" : row_id })
-        
-        return
-    
-    def mark_error( self, row_id : int, error_msg : str) -> None :
-        """
-        Mark a queue row as failed and store the error message. \\
-        Args:
-            row_id    : Queue row identifier
-            error_msg : Error details to persist
-        """
-        with sync_pooled_conection(self.database_url) as conn :
-            conn.execute(
-                SQL_MARK_QUEUE_ERROR,
-                { "row_id" : row_id, "last_error" : error_msg },
+        message_row = self.storage.get_inbound_message(queue_row["msg_id"])
+        if not message_row :
+            self.mark_error(queue_row["row_id"])
+            self.storage.release_contact_lease(
+                queue_row["contact"],
+                owner_token,
+            )
+            raise RuntimeError(
+                f"Queued WhatsApp message '{queue_row['msg_id']}' was not found"
             )
         
-        return
+        return {
+            **message_row,
+            "row_id"      : queue_row["row_id"],
+            "msg_status"  : queue_row["msg_status"],
+            "owner_token" : owner_token,
+        }
+    
+    def mark_done( self, row_id : int) -> bool :
+        """
+        Mark a claimed queue row as successfully processed.
+        """
+        return bool(self._fetch_one( SQL_MARK_DONE, { "row_id" : row_id }))
+    
+    def mark_error( self, row_id : int) -> bool :
+        """
+        Mark a claimed queue row as failed.
+        """
+        return bool(self._fetch_one( SQL_MARK_ERROR, { "row_id" : row_id }))
+    
+    def release_contact_lease(
+        self,
+        contact     : int,
+        owner_token : UUID | str,
+    ) -> bool :
+        """
+        Release the lease associated with a claimed queue row.
+        """
+        return self.storage.release_contact_lease( contact, owner_token)
 
 
 class AsyncQueueDB :
     """
-    Async Supabase-backed queue for incoming WhatsApp messages.
+    Asynchronous inbound-message queue.
     """
     
-    def __init__( self, db_path : str | Path | None = None) -> None :
-        """
-        Initialize the queue object. \\
-        Args:
-            db_path : Ignored; kept for compatibility with older local queues.
-        """
-        self._db_path     = Path(db_path) if db_path else None
-        self.database_url = get_database_url()
+    def __init__( self, database_url : str | None = None) -> None :
+        
+        self.database_url = database_url or get_database_url()
+        self.storage      = AsyncSupabaseStorage(self.database_url)
         
         return
     
-    async def enqueue( self, payload : WhatsAppPayload) -> bool :
-        """
-        Insert a payload only if it has not been seen before. \\
-        Args:
-            payload : WhatsAppPayload object to enqueue
-        Returns:
-            True if the payload was enqueued; False if it was a duplicate.
-        """
+    async def _fetch_one(
+        self,
+        sql    : str,
+        params : dict[str, Any],
+    ) -> dict[str, Any] | None :
+        
         async with async_pooled_connection(self.database_url) as conn :
-            row = await (
-                await conn.execute(
-                    SQL_ENQUEUE_PAYLOAD,
-                    _enqueue_params(payload),
-                )
-            ).fetchone()
+            cursor = await conn.execute( sql, params)
+            row    = await cursor.fetchone()
+        
+        return dict(row) if row else None
+    
+    async def enqueue( self, msg_id : str) -> bool :
+        """
+        Enqueue one persisted WhatsApp message ID unless already present.
+        """
+        row = await self._fetch_one( SQL_ENQUEUE, { "msg_id" : msg_id })
         
         return bool(row)
     
-    async def claim_next(self) -> dict[ str, int | WhatsAppPayload] | None :
+    async def claim_next(self) -> dict[str, Any] | None :
         """
-        Atomically claim the oldest pending payload. \\
-        Returns:
-            Dict with keys `row_id` and `payload`, or None if queue empty.
+        Atomically claim one message and its contact lease.
         """
-        async with async_pooled_connection(self.database_url) as conn :
-            row = await ( await conn.execute( SQL_CLAIM_NEXT, {})).fetchone()
-        
-        if not row :
+        owner_token = uuid4()
+        queue_row   = await self._fetch_one(
+            SQL_CLAIM_NEXT,
+            { "owner_token" : owner_token },
+        )
+        if not queue_row :
             return None
         
-        return {
-            "row_id"  : row["row_id"],
-            "payload" : WhatsAppPayload.model_validate(row["payload"]),
-        }
-    
-    async def mark_done( self, row_id : int) -> None :
-        """
-        Mark a queue row as processed successfully. \\
-        Args:
-            row_id : Queue row identifier
-        """
-        async with async_pooled_connection(self.database_url) as conn :
-            await conn.execute( SQL_MARK_QUEUE_DONE, { "row_id" : row_id })
-        
-        return
-    
-    async def mark_error( self, row_id : int, error_msg : str) -> None :
-        """
-        Mark a queue row as failed and store the error message. \\
-        Args:
-            row_id    : Queue row identifier
-            error_msg : Error details to persist
-        """
-        async with async_pooled_connection(self.database_url) as conn :
-            await conn.execute(
-                SQL_MARK_QUEUE_ERROR,
-                { "row_id" : row_id, "last_error" : error_msg },
+        message_row = await self.storage.get_inbound_message(queue_row["msg_id"])
+        if not message_row :
+            await self.mark_error(queue_row["row_id"])
+            await self.storage.release_contact_lease(
+                queue_row["contact"],
+                owner_token,
+            )
+            raise RuntimeError(
+                f"Queued WhatsApp message '{queue_row['msg_id']}' was not found"
             )
         
-        return
+        return {
+            **message_row,
+            "row_id"      : queue_row["row_id"],
+            "msg_status"  : queue_row["msg_status"],
+            "owner_token" : owner_token,
+        }
+    
+    async def mark_done( self, row_id : int) -> bool :
+        """
+        Mark a claimed queue row as successfully processed.
+        """
+        row = await self._fetch_one( SQL_MARK_DONE, { "row_id" : row_id })
+        
+        return bool(row)
+    
+    async def mark_error( self, row_id : int) -> bool :
+        """
+        Mark a claimed queue row as failed.
+        """
+        row = await self._fetch_one( SQL_MARK_ERROR, { "row_id" : row_id })
+        
+        return bool(row)
+
+    async def release_contact_lease(
+        self,
+        contact     : int,
+        owner_token : UUID | str,
+    ) -> bool :
+        """
+        Release the lease associated with a claimed queue row.
+        """
+        return await self.storage.release_contact_lease( contact, owner_token)

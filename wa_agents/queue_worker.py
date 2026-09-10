@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-Background worker that drains the incoming WhatsApp queue and runs CaseHandler.
+Background workers for normalized inbound WhatsApp messages.
 """
 
 import asyncio
-import gc
 import logging
 import os
 import time
 
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
 from inspect import iscoroutinefunction
 from traceback import format_exc
-from typing import Type
+from typing import (
+    Any,
+    Type,
+)
+from uuid import UUID
 
-from .case_handler_models import MediaContent
 from .case_handler_base import (
     AsyncCaseHandlerBase,
     CaseHandlerBase,
@@ -22,14 +27,16 @@ from .queue_db import (
     AsyncQueueDB,
     QueueDB,
 )
-from .whatsapp_models import (
-    WhatsAppContact,
-    WhatsAppMetaData,
-    WhatsAppPayload,
-)
 from .whatsapp_functions import (
     async_fetch_media,
     fetch_media,
+)
+from .whatsapp_models import (
+    WhatsAppContact,
+    WhatsAppMessage,
+    WhatsAppMessageEcho,
+    WhatsAppMetaData,
+    WhatsAppProfile,
 )
 
 
@@ -38,47 +45,103 @@ POLL_INTERVAL_IDLE = float( os.getenv( "QUEUE_POLL_INTERVAL_IDLE", 1.0))
 RESPONSE_DELAY     = float( os.getenv( "QUEUE_RESPONSE_DELAY",     1.0))
 
 
-type HandlerJob = tuple[ WhatsAppMetaData, WhatsAppContact]
+@dataclass( frozen = True)
+class HandlerJob :
+    """
+    Everything required to reconstruct a contact-bound handler.
+    """
+    business_id        : int
+    contact_id         : int
+    api_inbound_msg_id : int
+    owner_token        : UUID | str
+    operator           : WhatsAppMetaData
+    user               : WhatsAppContact
 
-class JobTimeDict( dict[ HandlerJob, float] ) :
+
+class JobTimeDict ( dict[ HandlerJob, float] ) :
+    """
+    Delayed response times keyed by contact-bound jobs.
+    """
     
     def get_due_now(self) -> list[HandlerJob] :
-        """
-        Return jobs scheduled for immediate response generation \\
-        Returns:
-            List of handler jobs whose response time has elapsed
-        """
-        result = []
-        for handlerjob, job_response_time in self.items() :
-            if job_response_time < time.time() :
-                result.append(handlerjob)
-        
-        return result
+        now = time.time()
+        return [ job for job, response_time in self.items() if response_time <= now ]
     
     def mark_as_done( self, job : HandlerJob) -> None :
-        """
-        Remove a job entry once its delayed response completes \\
-        Args:
-            job : Tuple of ( operator metadata, contact)
-        """
-        self.pop( job, 0.0)
+        self.pop( job, None)
         return
 
 
+def _message_timestamp( value : datetime | str) -> str :
+    
+    if isinstance( value, datetime) :
+        return str(int(value.timestamp()))
+    
+    return str(value)
+
+
+def _job_and_message(
+    item : dict[str, Any],
+) -> tuple[ HandlerJob, WhatsAppMessage] :
+    """
+    Reconstruct handler inputs from `get_inbound_message.sql` output.
+    """
+    profile = (
+        WhatsAppProfile(
+            name     = item["profile_name"],
+            username = item.get("profile_username"),
+        )
+        if item.get("profile_name") else None
+    )
+    operator = WhatsAppMetaData(
+        display_phone_number = item["display_phone_number"],
+        phone_number_id      = item["phone_number_id"],
+    )
+    user = WhatsAppContact(
+        profile = profile,
+        wa_id   = item.get("wa_id"),
+        user_id = item.get("user_id"),
+    )
+    
+    msg_data = dict(item["msg_data"])
+    msg_data.update(
+        {
+            "from"         : item.get("wa_id"),
+            "from_user_id" : item.get("user_id"),
+            "id"           : item["msg_id"],
+            "timestamp"    : _message_timestamp(item["msg_ts"]),
+            "type"         : item["msg_type"],
+        }
+    )
+    MsgBM   = WhatsAppMessageEcho if item["is_echo"] else WhatsAppMessage
+    message = MsgBM.model_validate(msg_data)
+    
+    job = HandlerJob(
+        business_id        = item["business"],
+        contact_id         = item["contact"],
+        api_inbound_msg_id = item["id"],
+        owner_token        = item["owner_token"],
+        operator           = operator,
+        user               = user,
+    )
+    
+    return job, message
+
+
+# =========================================================================================
+# SYNC QUEUE WORKER
+
 class QueueWorker :
     """
-    Background worker that drains QueueDB and runs CaseHandler instances
+    Sequential worker for persisted inbound messages.
     """
     
-    def __init__( self,
-                  queue_db    : QueueDB,
-                  handler_cls : Type[CaseHandlerBase]) -> None :
-        """
-        Configure the worker with its queue database and handler class \\
-        Args:
-            queue_db    : QueueDB instance
-            handler_cls : CaseHandlerBase subclass invoked per user/operator
-        """
+    def __init__(
+        self,
+        queue_db    : QueueDB,
+        handler_cls : Type[CaseHandlerBase],
+    ) -> None :
+        
         self.queue       = queue_db
         self.handler_cls = handler_cls
         self._job_td     = JobTimeDict()
@@ -86,166 +149,144 @@ class QueueWorker :
         
         return
     
+    def _handler( self, job : HandlerJob) -> CaseHandlerBase :
+        
+        return self.handler_cls(
+            job.operator,
+            job.user,
+            business_id        = job.business_id,
+            contact_id         = job.contact_id,
+            api_inbound_msg_id = job.api_inbound_msg_id,
+            owner_token        = job.owner_token,
+        )
+    
     def stop( self, *_ : object) -> None :
-        """
-        Signal the worker loop to exit gracefully
-        """
+        
         self._stop_flag = True
         
         return
     
-    def serve_forever( self) -> None :
-        """
-        Poll the queue database and schedule response jobs indefinitely
-        """
+    def serve_forever(self) -> None :
+        
         logging.info(
             "Queue worker started, poll interval = %ss",
             POLL_INTERVAL_IDLE,
         )
         
         while not self._stop_flag :
-            if self.tick() :
-                time.sleep(POLL_INTERVAL_BUSY)
-            else :
-                time.sleep(POLL_INTERVAL_IDLE)
+            time.sleep(POLL_INTERVAL_BUSY if self.tick() else POLL_INTERVAL_IDLE)
         
         logging.info("Queue worker stopped")
         
         return
     
     def tick(self) -> bool :
-        """
-        Run one queue worker iteration \\
-        Returns:
-            True when the worker is active or has pending delayed jobs;
-            False when the queue is idle.
-        """
-        received_payload  = self._process_payload()
-        processed_jobs    = self._process_jobs(self._job_td.get_due_now())
-        have_pending_jobs = bool(self._job_td)
         
-        return received_payload or processed_jobs or have_pending_jobs
+        received_message = self._process_message()
+        processed_jobs   = self._process_jobs(self._job_td.get_due_now())
+        
+        return received_message or processed_jobs or bool(self._job_td)
     
-    def _process_payload( self) -> bool :
-        """
-        Claim and process a single queue payload \\
-        Returns:
-            True if a payload was processed; False if queue empty.
-        """
+    def _process_message(self) -> bool :
+        
         item = self.queue.claim_next()
         if not item :
             return False
         
-        row_id : str = item["row_id"]
+        row_id  = item["row_id"]
+        handler = None
+        keep_lease = False
+        
         try :
-            payload : WhatsAppPayload = item["payload"]
-            if not payload.has_messages() :
-                self.queue.mark_done(row_id)
-                return True
+            job, message = _job_and_message(item)
+            handler      = self._handler(job)
             
-            for wa_changes in payload.entry :
-                for wa_change_ in wa_changes.changes :
-                    
-                    value    = wa_change_.value
-                    operator = value.metadata
-                    
-                    user_msgs = { user.wa_id : [] for user in value.contacts }
-                    for msg in value.messages :
-                        user_msgs[msg.user].append(msg)
-                    
-                    for user in value.contacts :
-                        
-                        handler = self.handler_cls( operator, user)
-                        respond = False
-                        job     = ( operator, user)
-                        
-                        for msg in user_msgs.get( user.wa_id, []) :
-                            
-                            media_content = None
-                            if msg.media_data :
-                                mime_type     = msg.media_data.mime_type
-                                media_bytes   = fetch_media(msg.media_data)
-                                media_content = MediaContent( mime    = mime_type,
-                                                              content = media_bytes)
-                            
-                            msg_respond = handler.process_message( msg, media_content)
-                            respond     = bool(msg_respond) or respond
-                            
-                            # If this message was answered immediately during
-                            # ingestion, any older delayed response job for
-                            # the same conversation is now stale.
-                            
-                            if getattr( handler, "_responded_in_ingest", False) :
-                                self._job_td.mark_as_done(job)
-                                respond = False
-                        
-                        if respond :
-                            self._job_td[job] = time.time() + RESPONSE_DELAY
+            media_content = (
+                fetch_media(message.media_data)
+                if message.media_data else None
+            )
+            respond = handler.process_message( message, media_content)
+            
+            if getattr( handler, "_responded_in_ingest", False) :
+                self._job_td.mark_as_done(job)
+                respond = False
             
             self.queue.mark_done(row_id)
+            
+            if respond :
+                self._job_td[job] = time.time() + RESPONSE_DELAY
+                keep_lease        = True
         
         except Exception as ex :
             logging.error(
-                f"Worker failed for payload with row id: {row_id}\n"
-                f"Exception raised: {ex}\n"
+                f"Worker failed for queue row {row_id}: {str(ex)}\n"
                 f"Exception trace: {format_exc()}"
             )
-            self.queue.mark_error( row_id, str(ex))
+            self.queue.mark_error(row_id)
         
         finally :
-            gc.collect()
+            if not keep_lease :
+                if handler :
+                    handler.release_contact_lease()
+                else :
+                    self.queue.release_contact_lease(
+                        item["contact"],
+                        item["owner_token"],
+                    )
         
         return True
     
     def _process_jobs( self, jobs_to_process : list[HandlerJob]) -> bool :
-        """
-        Run delayed assistant responses for the provided jobs \\
-        Args:
-            jobs_to_process : Jobs ready to generate responses
-        Returns:
-            True if at least one job finished; else False.
-        """
+        
         processed_jobs = False
-        try :
-            for ( operator, user) in jobs_to_process :
+        
+        for job in jobs_to_process :
+            
+            handler = self._handler(job)
+            
+            try :
+                if not handler.renew_contact_lease() :
+                    logging.warning(
+                        "Contact lease expired before response for contact %s",
+                        job.contact_id,
+                    )
+                    continue
                 
-                handler  = self.handler_cls( operator, user)
-                respond  = True
+                respond = True
                 while respond :
                     respond = handler.generate_response()
+                    if respond and not handler.renew_contact_lease() :
+                        raise RuntimeError("Contact lease expired during response")
                 
-                self._job_td.mark_as_done(( operator, user))
                 processed_jobs = True
-        
-        except Exception as ex :
-            job_batch = [ ( jtp[0].model_dump_json(),
-                            jtp[1].model_dump_json()) for jtp in jobs_to_process ]
-            logging.error(
-                f"Worker failed to for job batch: {job_batch}\n"
-                f"Exception raised: {ex}\n"
-                f"Exception trace: {format_exc()}"
-            )
-        
-        finally :
-            gc.collect()
+            
+            except Exception as ex :
+                logging.error(
+                    f"Response failed for contact {job.contact_id}: {str(ex)}\n"
+                    f"Exception trace: {format_exc()}"
+                )
+            
+            finally :
+                handler.release_contact_lease()
+                self._job_td.mark_as_done(job)
         
         return processed_jobs
 
 
+# =========================================================================================
+# ASYNC QUEUE WORKER
+
 class AsyncQueueWorker :
     """
-    Async background worker that drains AsyncQueueDB and runs CaseHandler instances
+    Asynchronous worker for persisted inbound messages.
     """
     
-    def __init__( self,
-                  queue_db    : AsyncQueueDB,
-                  handler_cls : Type[AsyncCaseHandlerBase]) -> None :
-        """
-        Configure the worker with its queue database and handler class \\
-        Args:
-            queue_db    : AsyncQueueDB instance
-            handler_cls : AsyncCaseHandlerBase subclass invoked per user/operator
-        """
+    def __init__(
+        self,
+        queue_db    : AsyncQueueDB,
+        handler_cls : Type[AsyncCaseHandlerBase],
+    ) -> None :
+        
         self.queue       = queue_db
         self.handler_cls = handler_cls
         self._job_td     = JobTimeDict()
@@ -253,18 +294,25 @@ class AsyncQueueWorker :
         
         return
     
+    def _handler( self, job : HandlerJob) -> AsyncCaseHandlerBase :
+        
+        return self.handler_cls(
+            job.operator,
+            job.user,
+            business_id        = job.business_id,
+            contact_id         = job.contact_id,
+            api_inbound_msg_id = job.api_inbound_msg_id,
+            owner_token        = job.owner_token,
+        )
+    
     def stop( self, *_ : object) -> None :
-        """
-        Signal the worker loop to exit gracefully
-        """
+        
         self._stop_flag = True
         
         return
-
-    async def serve_forever( self) -> None :
-        """
-        Poll the queue database and schedule response jobs indefinitely
-        """
+    
+    async def serve_forever(self) -> None :
+        
         logging.info(
             "Async queue worker started, poll interval = %ss",
             POLL_INTERVAL_IDLE,
@@ -282,143 +330,126 @@ class AsyncQueueWorker :
                 )
                 active = False
             
-            if active :
-                await asyncio.sleep(POLL_INTERVAL_BUSY)
-            else :
-                await asyncio.sleep(POLL_INTERVAL_IDLE)
+            await asyncio.sleep(
+                POLL_INTERVAL_BUSY if active else POLL_INTERVAL_IDLE
+            )
         
         logging.info("Async queue worker stopped")
         
         return
     
     async def tick(self) -> bool :
-        """
-        Run one queue worker iteration \\
-        Returns:
-            True when the worker is active or has pending delayed jobs;
-            False when the queue is idle.
-        """
-        received_payload  = await self._process_payload()
-        processed_jobs    = await self._process_jobs(self._job_td.get_due_now())
-        have_pending_jobs = bool(self._job_td)
         
-        return received_payload or processed_jobs or have_pending_jobs
+        received_message = await self._process_message()
+        processed_jobs   = await self._process_jobs(self._job_td.get_due_now())
+        
+        return received_message or processed_jobs or bool(self._job_td)
     
     async def _call_handler_method(
         self,
-        method : object,
+        method : Callable[..., Any],
         *args  : object,
     ) -> object :
-        """
-        Run a handler method without blocking the event loop
-        """
+        
         if iscoroutinefunction(method) :
             return await method(*args)
         
         return await asyncio.to_thread( method, *args)
     
-    async def _process_payload(self) -> bool :
-        """
-        Claim and process a single queue payload \\
-        Returns:
-            True if a payload was processed; False if queue empty.
-        """
+    async def _process_message(self) -> bool :
+        
         item = await self.queue.claim_next()
         if not item :
             return False
         
-        row_id : int = item["row_id"]
+        row_id    = item["row_id"]
+        handler   = None
+        keep_lease = False
+        
         try :
-            payload : WhatsAppPayload = item["payload"]
-            if not payload.has_messages() :
-                await self.queue.mark_done(row_id)
-                return True
+            job, message = _job_and_message(item)
+            handler      = self._handler(job)
             
-            for wa_changes in payload.entry :
-                for wa_change_ in wa_changes.changes :
-                    
-                    value    = wa_change_.value
-                    operator = value.metadata
-                    
-                    user_msgs = { user.wa_id : [] for user in value.contacts }
-                    for msg in value.messages :
-                        user_msgs[msg.user].append(msg)
-                    
-                    for user in value.contacts :
-                        
-                        handler = self.handler_cls( operator, user)
-                        respond = False
-                        job     = ( operator, user)
-                        
-                        for msg in user_msgs.get( user.wa_id, []) :
-                            
-                            media_content = None
-                            if msg.media_data :
-                                mime_type     = msg.media_data.mime_type
-                                media_bytes   = await async_fetch_media(msg.media_data)
-                                media_content = MediaContent( mime    = mime_type,
-                                                              content = media_bytes)
-                            
-                            msg_respond = await self._call_handler_method(
-                                handler.process_message,
-                                msg,
-                                media_content,
-                            )
-                            respond = bool(msg_respond) or respond
-                            
-                            if getattr( handler, "_responded_in_ingest", False) :
-                                self._job_td.mark_as_done(job)
-                                respond = False
-                        
-                        if respond :
-                            self._job_td[job] = time.time() + RESPONSE_DELAY
+            media_content = (
+                await async_fetch_media(message.media_data)
+                if message.media_data else None
+            )
+            respond = await self._call_handler_method(
+                handler.process_message,
+                message,
+                media_content,
+            )
+            
+            if getattr( handler, "_responded_in_ingest", False) :
+                self._job_td.mark_as_done(job)
+                respond = False
             
             await self.queue.mark_done(row_id)
+            
+            if respond :
+                self._job_td[job] = time.time() + RESPONSE_DELAY
+                keep_lease        = True
         
         except Exception as ex :
             logging.error(
-                f"Worker failed for payload with row id: {row_id}\n"
-                f"Exception raised: {ex}\n"
+                f"Worker failed for queue row {row_id}: {str(ex)}\n"
                 f"Exception trace: {format_exc()}"
             )
-            await self.queue.mark_error( row_id, str(ex))
+            await self.queue.mark_error(row_id)
         
         finally :
-            gc.collect()
+            if not keep_lease :
+                if handler :
+                    await handler.release_contact_lease()
+                else :
+                    await self.queue.release_contact_lease(
+                        item["contact"],
+                        item["owner_token"],
+                    )
         
         return True
     
     async def _process_jobs( self, jobs_to_process : list[HandlerJob]) -> bool :
-        """
-        Run delayed assistant responses for the provided jobs \\
-        Args:
-            jobs_to_process : Jobs ready to generate responses
-        Returns:
-            True if at least one job finished; else False.
-        """
+        
         processed_jobs = False
-        try :
-            for ( operator, user) in jobs_to_process :
-                handler = self.handler_cls( operator, user)
+        
+        for job in jobs_to_process :
+            
+            handler = self._handler(job)
+            
+            try :
+                renewed = await self._call_handler_method(
+                    handler.renew_contact_lease
+                )
+                if not renewed :
+                    logging.warning(
+                        "Contact lease expired before response for contact %s",
+                        job.contact_id,
+                    )
+                    continue
+                
                 respond = True
                 while respond :
-                    respond = await self._call_handler_method(
-                        handler.generate_response
+                    respond = bool(
+                        await self._call_handler_method(handler.generate_response)
                     )
+                    if respond :
+                        renewed = await self._call_handler_method(
+                            handler.renew_contact_lease
+                        )
+                        if not renewed :
+                            raise RuntimeError("Contact lease expired during response")
                 
-                self._job_td.mark_as_done(( operator, user))
                 processed_jobs = True
-        
-        except Exception as ex :
-            job_batch = [ ( jtp[0].model_dump_json(),
-                            jtp[1].model_dump_json()) for jtp in jobs_to_process ]
-            logging.error(
-                f"Worker failed to for job batch: {job_batch}\n"
-                f"Exception raised: {ex}\n"
-                f"Exception trace: {format_exc()}"
-            )
-        
-        finally :
-            gc.collect()
+            
+            except Exception as ex :
+                logging.error(
+                    f"Response failed for contact {job.contact_id}: {str(ex)}\n"
+                    f"Exception trace: {format_exc()}"
+                )
+            
+            finally :
+                await self._call_handler_method(handler.release_contact_lease)
+                self._job_td.mark_as_done(job)
         
         return processed_jobs
