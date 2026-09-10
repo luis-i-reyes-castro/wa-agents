@@ -1,49 +1,33 @@
 """
-Supabase PostgreSQL storage for WhatsApp case data.
+Supabase PostgreSQL persistence.
+
+All structured WhatsApp and case-handler data lives here. S3 is deliberately not
+imported by this module; it stores media bytes only.
 """
 
 from __future__ import annotations
 
+import json
 import os
 
-from datetime import (
-    datetime,
-    timezone,
-)
+from datetime import datetime
 from hashlib import sha256
 from inspect import currentframe
 from pathlib import Path
-from pydantic import BaseModel
-from types import TracebackType
 from typing import Any
+from uuid import UUID
 
+from pydantic import BaseModel
 from sofia_utils.psycopg import (
     Jsonb,
     async_pooled_connection,
     load_sql_script,
     sync_pooled_conection,
 )
-from sofia_utils.stamps import utc_iso_to_dt
 
 from .case_handler_models import (
     CaseManifest,
-    MediaContent,
     Message,
-    UserContentMsg,
-)
-from .S3_bucket_io import (
-    b3_exists,
-    b3_get_file,
-    b3_put_media,
-    async_b3_exists,
-    async_b3_get_file,
-    async_b3_put_media,
-)
-from .whatsapp_models import (
-    WhatsAppMessage,
-    WhatsAppPayload,
-    WhatsAppStatus,
-    WhatsAppValue,
 )
 
 
@@ -51,24 +35,21 @@ from .whatsapp_models import (
 # CONFIGURATION
 
 DB_POOL_MIN_SIZE = 1
-""" Database pool minimum size """
+"""Database pool minimum size."""
 DB_POOL_MAX_SIZE = 5
-""" Database pool maximum size """
+"""Database pool maximum size."""
 DB_POOL_TIMEOUT  = 30
-""" Database pool timeout """
+"""Database pool timeout in seconds."""
 
 
 def get_database_url() -> str :
-    """
-    Retrieve the Supabase database URL from the standard project environment. \\
-    Returns:
-        The IPv4 connection URL when available, else the IPv6 URL.
-    """
+    """Return the configured Supabase PostgreSQL connection URL."""
     if ( database_url := os.getenv("SUPABASE_DB_CONNECTION_URL_IPv4") ) \
     or ( database_url := os.getenv("SUPABASE_DB_CONNECTION_URL_IPv6") ) :
         return database_url
     
-    here  = currentframe().f_code.co_name
+    frame = currentframe()
+    here  = frame.f_code.co_name if frame else "get_database_url"
     e_msg = (
         "Environment variables 'SUPABASE_DB_CONNECTION_URL_IPv4' "
         "and 'SUPABASE_DB_CONNECTION_URL_IPv6' are both unset"
@@ -81,835 +62,1044 @@ def get_database_url() -> str :
 
 SQL_DIR = Path(__file__).parent / "sql"
 
-SQL_ENSURE_USER          = load_sql_script( SQL_DIR / "ensure_user.sql" )
-SQL_GET_USER_DATA        = load_sql_script( SQL_DIR / "get_user_data.sql" )
-SQL_UPSERT_USER_DATA     = load_sql_script( SQL_DIR / "upsert_user_data.sql" )
-SQL_GET_CASE_INDEX       = load_sql_script( SQL_DIR / "get_case_index.sql" )
-SQL_SET_CASE_INDEX       = load_sql_script( SQL_DIR / "set_case_index.sql" )
-SQL_GET_NEXT_CASE_ID     = load_sql_script( SQL_DIR / "get_next_case_id.sql" )
-SQL_GET_CASE             = load_sql_script( SQL_DIR / "get_case.sql" )
-SQL_UPSERT_CASE          = load_sql_script( SQL_DIR / "upsert_case.sql" )
-SQL_GET_CASE_MESSAGE_IDS = load_sql_script( SQL_DIR / "get_case_message_ids.sql" )
-SQL_GET_MESSAGE          = load_sql_script( SQL_DIR / "get_message.sql" )
-SQL_GET_MESSAGES         = load_sql_script( SQL_DIR / "get_messages.sql" )
-SQL_INSERT_MESSAGE       = load_sql_script( SQL_DIR / "insert_message.sql" )
-SQL_DEDUP_EXISTS         = load_sql_script( SQL_DIR / "dedup_exists.sql" )
 
-SQL_INSERT_WEBHOOK_PAYLOAD = load_sql_script(
-    SQL_DIR / "insert_webhook_payload.sql"
+def _load_sql( filename : str) -> str :
+    return load_sql_script( SQL_DIR / filename)
+
+
+SQL_ACQUIRE_CONTACT_LEASE           = _load_sql("acquire_contact_lease.sql")
+SQL_CASE_HANDLER_MESSAGE_EXISTS     = _load_sql("case_handler_message_exists.sql")
+SQL_GET_CASE_HANDLER_MEDIA          = _load_sql("get_case_handler_media.sql")
+SQL_GET_CASE_HANDLER_MESSAGE        = _load_sql("get_case_handler_message.sql")
+SQL_GET_CASE_HANDLER_MESSAGES       = _load_sql("get_case_handler_messages.sql")
+SQL_GET_CASE_MANIFEST               = _load_sql("get_case_manifest.sql")
+SQL_GET_CASE_MESSAGE_IDS            = _load_sql("get_case_message_ids.sql")
+SQL_GET_CONTACT                     = _load_sql("get_contact.sql")
+SQL_GET_INBOUND_MESSAGE             = _load_sql("get_inbound_message.sql")
+SQL_GET_INBOUND_PAYLOAD             = _load_sql("get_inbound_payload.sql")
+SQL_GET_OPEN_CASE_MANIFEST          = _load_sql("get_open_case_manifest.sql")
+SQL_INSERT_CASE_HANDLER_MESSAGE     = _load_sql("insert_case_handler_message.sql")
+SQL_INSERT_CASE_MANIFEST            = _load_sql("insert_case_manifest.sql")
+SQL_INSERT_CONTACT_PROFILE          = _load_sql("insert_contact_profile.sql")
+SQL_INSERT_INBOUND_MESSAGE          = _load_sql("insert_inbound_message.sql")
+SQL_INSERT_INBOUND_PAYLOAD          = _load_sql("insert_inbound_payload.sql")
+SQL_INSERT_INBOUND_PAYLOAD_METADATA = _load_sql(
+    "insert_inbound_payload_metadata.sql"
 )
-SQL_UPSERT_OPERATOR        = load_sql_script(
-    SQL_DIR / "upsert_operator.sql"
-)
-SQL_INSERT_WEBHOOK_MESSAGE = load_sql_script(
-    SQL_DIR / "insert_webhook_message.sql"
-)
-SQL_INSERT_WEBHOOK_STATUS = load_sql_script(
-    SQL_DIR / "insert_webhook_status.sql"
-)
+SQL_INSERT_MEDIA                    = _load_sql("insert_media.sql")
+SQL_INSERT_OUTBOUND_MESSAGE         = _load_sql("insert_outbound_message.sql")
+SQL_INSERT_STATUS                   = _load_sql("insert_status.sql")
+SQL_LINK_CASE_HANDLER_TO_API        = _load_sql("link_case_handler_to_api.sql")
+SQL_MARK_INBOUND_PAYLOAD_INVALID    = _load_sql("mark_inbound_payload_invalid.sql")
+SQL_MARK_INBOUND_PAYLOAD_VALID      = _load_sql("mark_inbound_payload_valid.sql")
+SQL_RELEASE_CONTACT_LEASE           = _load_sql("release_contact_lease.sql")
+SQL_RENEW_CONTACT_LEASE             = _load_sql("renew_contact_lease.sql")
+SQL_UPDATE_CASE_MANIFEST            = _load_sql("update_case_manifest.sql")
+SQL_UPSERT_BUSINESS                 = _load_sql("upsert_business.sql")
+SQL_UPSERT_CONTACT                  = _load_sql("upsert_contact.sql")
 
 
 # =========================================================================================
 # HELPERS
 
-def _dt_to_utc_iso( value : Any) -> str | None :
+def _json_param( value : Any) -> Jsonb | None :
     
-    if value is None :
-        return None
-    
-    if isinstance( value, datetime) :
-        dt_obj = value
-    elif isinstance( value, str) :
-        dt_obj = utc_iso_to_dt(value)
-    else :
-        return str(value)
-    
-    if not dt_obj :
-        return None
-    
-    if not dt_obj.tzinfo :
-        dt_obj = dt_obj.replace( tzinfo = timezone.utc)
-    
-    return dt_obj.astimezone(timezone.utc).isoformat().replace( "+00:00", "Z")
+    return None if value is None else Jsonb(value)
 
 
-def _dt_param( value : str | None) -> datetime | None :
+def _json_compatible( value : dict[str, Any] | BaseModel) -> dict[str, Any] :
     
-    return utc_iso_to_dt(value) if value else None
+    if isinstance( value, BaseModel) :
+        return value.model_dump( mode = "json", by_alias = True)
+    
+    return value
 
 
-def _unix_dt_param( value : str | None) -> datetime | None :
+def _payload_hash( payload : dict[str, Any] | BaseModel) -> str :
+    """
+    Hash a canonical JSON representation of a raw webhook payload.
+    """
+    data      = _json_compatible(payload)
+    canonical = json.dumps(
+        data,
+        ensure_ascii = False,
+        separators   = ( ",", ":"),
+        sort_keys    = True,
+    )
     
-    if not value :
-        return None
-    
-    try :
-        return datetime.fromtimestamp( int(value), timezone.utc)
-    except ( TypeError, ValueError, OSError ) :
-        return None
+    return sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _message_from_payload( payload : dict[str, Any] | None) -> Message | None :
+def _message_data( message : Message) -> dict[str, Any] :
     
-    if not payload :
-        return None
+    return message.model_dump(
+        mode    = "json",
+        exclude = { "id", "ts", "basemodel", "origin" },
+    )
+
+
+def _message_from_row( row : dict[str, Any] | None) -> Message | None :
     
-    msg_bm = payload.get("basemodel")
-    if not ( msg_bm and isinstance( msg_bm, str) ) :
+    if not row :
         return None
     
     from . import case_handler_models
     
-    MsgBM = getattr( case_handler_models, msg_bm, None)
-    if MsgBM and issubclass( MsgBM, BaseModel) :
-        return MsgBM.model_validate(payload)
+    basemodel = row.get("basemodel")
+    if not isinstance( basemodel, str) :
+        raise ValueError(f"Invalid case-handler message model '{basemodel}'")
     
-    return None
-
-
-def _default_user_data( user_id : str) -> dict[str, Any] :
+    MsgBM     = getattr( case_handler_models, basemodel, None)
+    if not isinstance( MsgBM, type) or not issubclass( MsgBM, Message) :
+        raise ValueError(f"Unknown case-handler message model '{basemodel}'")
     
-    return { "user_id" : user_id, "names" : [] }
-
-
-def _canonical_payload_json( payload : WhatsAppPayload) -> str :
+    payload = dict(row.get("data") or {})
+    payload.update(
+        {
+            "id"        : row["id"],
+            "ts"        : row["ts"],
+            "basemodel" : basemodel,
+            "origin"    : row.get("origin"),
+        }
+    )
     
-    return payload.model_dump_json( by_alias = True)
+    return MsgBM.model_validate(payload)
 
 
-def _payload_hash( payload : WhatsAppPayload) -> str :
+def _manifest_from_row(
+    row         : dict[str, Any] | None,
+    message_ids : list[int] | None = None,
+) -> CaseManifest | None :
     
-    payload_json = _canonical_payload_json(payload)
+    if not row :
+        return None
     
-    return sha256( payload_json.encode("utf-8")).hexdigest()
-
-
-def _webhook_message_params(
-    payload_id : int,
-    waba_id    : str,
-    value      : WhatsAppValue,
-    message    : WhatsAppMessage,
-) -> dict[str, Any] :
-    
-    media_data = message.media_data
-    
-    return {
-        "payload_id"           : payload_id,
-        "operator_id"          : value.metadata.phone_number_id,
-        "display_phone_number" : value.metadata.display_phone_number,
-        "waba_id"              : waba_id,
-        "user_id"              : message.user,
-        "message_id"           : message.id,
-        "message_type"         : message.type,
-        "timestamp"            : _unix_dt_param(message.timestamp),
-        "media_id"             : media_data.id if media_data else None,
-        "media_mime_type"      : media_data.mime_type if media_data else None,
-        "context_message_id"   : message.context.id if message.context else None,
-        "payload"              : Jsonb(message.model_dump( mode = "json",
-                                                           by_alias = True)),
-    }
-
-
-def _operator_params(
-    waba_id : str,
-    value   : WhatsAppValue,
-) -> dict[str, Any] :
-    
-    return {
-        "waba_id"              : waba_id,
-        "operator_id"          : value.metadata.phone_number_id,
-        "display_phone_number" : value.metadata.display_phone_number,
-    }
-
-
-def _webhook_status_params(
-    payload_id : int,
-    waba_id    : str,
-    value      : WhatsAppValue,
-    status     : WhatsAppStatus,
-) -> dict[str, Any] :
-    
-    return {
-        "payload_id"           : payload_id,
-        "operator_id"          : value.metadata.phone_number_id,
-        "display_phone_number" : value.metadata.display_phone_number,
-        "waba_id"              : waba_id,
-        "recipient_id"         : status.recipient_id,
-        "message_id"           : status.id,
-        "status"               : status.status,
-        "timestamp"            : _unix_dt_param(status.timestamp),
-        "conversation_id"      : (
-            status.conversation.id if status.conversation else None
-        ),
-        "pricing_category"     : status.pricing.category if status.pricing else None,
-        "payload"              : Jsonb(status.model_dump( mode = "json")),
-    }
+    return CaseManifest(
+        id            = row["id"],
+        contact       = row["contact"],
+        created_at    = row["created_at"],
+        updated_at    = row.get("updated_at"),
+        is_open       = row["is_open"],
+        machine_state = row.get("machine_state"),
+        message_ids   = message_ids or [],
+    )
 
 
 # =========================================================================================
-# LOCKS (NO-OP)
-
-class SyncSupabaseStorageLock :
-    """
-    No-op lock for SQL storage; consistency is handled by database constraints.
-    """
-    
-    def __init__( self, *_args : Any, **_kwargs : Any) -> None :
-        return
-    
-    def __enter__(self) -> "SyncSupabaseStorageLock" :
-        return self
-    
-    def __exit__( self,
-                  exc_type : type[BaseException] | None,
-                  exc      : BaseException | None,
-                  tb       : TracebackType | None ) -> None :
-        return
-
-
-class AsyncSupabaseStorageLock :
-    """
-    Async no-op lock for SQL storage.
-    """
-    
-    def __init__( self, *_args : Any, **_kwargs : Any) -> None :
-        return
-    
-    async def __aenter__(self) -> "AsyncSupabaseStorageLock" :
-        return self
-    
-    async def __aexit__( self,
-                         exc_type : type[BaseException] | None,
-                         exc      : BaseException | None,
-                         tb       : TracebackType | None ) -> None :
-        return
-
-
-# =========================================================================================
-# WEBHOOK PAYLOAD STORAGE
-
-def webhook_payload_write( payload : WhatsAppPayload) -> bool :
-    """
-    Persist a validated WhatsApp webhook payload and exploded message/status rows. \\
-    Args:
-        payload : Validated WhatsApp webhook payload
-    Returns:
-        True if a new payload was stored; False if it was already present.
-    """
-    payload_params = {
-        "payload_hash" : _payload_hash(payload),
-        "object_type"  : payload.object_field,
-        "payload"      : Jsonb(payload.model_dump( mode = "json", by_alias = True)),
-    }
-    
-    with sync_pooled_conection(get_database_url()) as conn :
-        
-        row = conn.execute( SQL_INSERT_WEBHOOK_PAYLOAD, payload_params).fetchone()
-        for entry in payload.entry :
-            for change in entry.changes :
-                
-                value = change.value
-                if not isinstance( value, WhatsAppValue) :
-                    continue
-                
-                conn.execute(
-                    SQL_UPSERT_OPERATOR,
-                    _operator_params( waba_id = entry.id, value = value),
-                )
-        
-        if not ( row and row["inserted"] ) :
-            return False
-        
-        payload_id = row["id"]
-        for entry in payload.entry :
-            for change in entry.changes :
-                
-                value = change.value
-                if not isinstance( value, WhatsAppValue) :
-                    continue
-                
-                for message in value.messages :
-                    conn.execute(
-                        SQL_INSERT_WEBHOOK_MESSAGE,
-                        _webhook_message_params(
-                            payload_id = payload_id,
-                            waba_id    = entry.id,
-                            value      = value,
-                            message    = message,
-                        ),
-                    )
-                
-                for status in value.statuses :
-                    conn.execute(
-                        SQL_INSERT_WEBHOOK_STATUS,
-                        _webhook_status_params(
-                            payload_id = payload_id,
-                            waba_id    = entry.id,
-                            value      = value,
-                            status     = status,
-                        ),
-                    )
-    
-    return True
-
-
-async def async_webhook_payload_write( payload : WhatsAppPayload) -> bool :
-    """
-    Persist a validated WhatsApp webhook payload asynchronously. \\
-    Args:
-        payload : Validated WhatsApp webhook payload
-    Returns:
-        True if a new payload was stored; False if it was already present.
-    """
-    payload_params = {
-        "payload_hash" : _payload_hash(payload),
-        "object_type"  : payload.object_field,
-        "payload"      : Jsonb(payload.model_dump( mode = "json", by_alias = True)),
-    }
-    
-    async with async_pooled_connection(get_database_url()) as conn :
-        
-        row = await (
-            await conn.execute( SQL_INSERT_WEBHOOK_PAYLOAD, payload_params)
-        ).fetchone()
-        for entry in payload.entry :
-            for change in entry.changes :
-                
-                value = change.value
-                if not isinstance( value, WhatsAppValue) :
-                    continue
-                
-                await conn.execute(
-                    SQL_UPSERT_OPERATOR,
-                    _operator_params( waba_id = entry.id, value = value),
-                )
-        
-        if not ( row and row["inserted"] ) :
-            return False
-        
-        payload_id = row["id"]
-        for entry in payload.entry :
-            for change in entry.changes :
-                
-                value = change.value
-                if not isinstance( value, WhatsAppValue) :
-                    continue
-                
-                for message in value.messages :
-                    await conn.execute(
-                        SQL_INSERT_WEBHOOK_MESSAGE,
-                        _webhook_message_params(
-                            payload_id = payload_id,
-                            waba_id    = entry.id,
-                            value      = value,
-                            message    = message,
-                        ),
-                    )
-                
-                for status in value.statuses :
-                    await conn.execute(
-                        SQL_INSERT_WEBHOOK_STATUS,
-                        _webhook_status_params(
-                            payload_id = payload_id,
-                            waba_id    = entry.id,
-                            value      = value,
-                            status     = status,
-                        ),
-                    )
-    
-    return True
-
-
-# =========================================================================================
-# SYNC STORAGE
+# SEQUENTIAL ADAPTER
 
 class SyncSupabaseStorage :
-    """
-    PostgreSQL-backed storage helper for an operator/user pair.
-    """
+    """Sequential gateway for the normalized persistence SQL."""
     
-    def __init__( self,
-                  operator_id : str | int,
-                  user_id     : str | int ) -> None :
+    def __init__(
+        self,
+        database_url : str | None = None,
+    ) -> None :
         
-        self.operator_id  = str(operator_id)
-        self.user_id      = str(user_id)
-        self.case_id      = None
-        self.database_url = get_database_url()
-        
+        self.database_url = database_url or get_database_url()
         return
     
-    @staticmethod
-    def webhook_payload_write( payload : WhatsAppPayload) -> bool :
-        return webhook_payload_write(payload)
+    def _fetch_one(
+        self,
+        sql    : str,
+        params : dict[str, Any],
+    ) -> dict[str, Any] | None :
+        
+        with sync_pooled_conection(
+            database_url = self.database_url,
+            min_size     = DB_POOL_MIN_SIZE,
+            max_size     = DB_POOL_MAX_SIZE,
+            timeout      = DB_POOL_TIMEOUT,
+        ) as conn :
+            row = conn.execute( sql, params).fetchone()
+        
+        return dict(row) if row else None
+    
+    def _fetch_all(
+        self,
+        sql    : str,
+        params : dict[str, Any],
+    ) -> list[dict[str, Any]] :
+        
+        with sync_pooled_conection(
+            database_url = self.database_url,
+            min_size     = DB_POOL_MIN_SIZE,
+            max_size     = DB_POOL_MAX_SIZE,
+            timeout      = DB_POOL_TIMEOUT,
+        ) as conn :
+            rows = conn.execute( sql, params).fetchall()
+        
+        return [ dict(row) for row in rows ]
     
     # -------------------------------------------------------------------------------------
-    # COMPATIBILITY PATHS
+    # WHATSAPP API DATA
     
-    def dir_user(self) -> Path :
-        return Path(self.operator_id) / Path(self.user_id)
-    
-    def dir_case(self) -> Path :
+    def upsert_business(
+        self,
+        waba_id              : str,
+        phone_number_id      : str,
+        display_phone_number : str,
+    ) -> dict[str, Any] | None :
         
-        if self.case_id :
-            return self.dir_user() / "cases" / str(self.case_id)
+        return self._fetch_one(
+            SQL_UPSERT_BUSINESS,
+            {
+                "waba_id"              : waba_id,
+                "phone_number_id"      : phone_number_id,
+                "display_phone_number" : display_phone_number,
+            },
+        )
+    
+    def upsert_contact(
+        self,
+        business : int,
+        wa_id    : str | None,
+        user_id  : str | None,
+    ) -> dict[str, Any] | None :
         
-        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-        raise ValueError(f"In {here}: 'case_id' has not been initialized")
+        return self._fetch_one(
+            SQL_UPSERT_CONTACT,
+            { "business" : business, "wa_id" : wa_id, "user_id" : user_id },
+        )
     
-    def dir_media(self) -> Path :
-        return self.dir_case() / "media"
-    
-    def dir_dedup(self) -> Path :
-        return self.dir_user() / "dedup"
-    
-    def dir_messages(self) -> Path :
-        return self.dir_case() / "messages"
-    
-    def path_user_data(self) -> Path :
-        return Path("__supabase__") / "user_data"
-    
-    def path_case_index(self) -> Path :
-        return Path("__supabase__") / "case_index"
-    
-    def path_manifest(self) -> Path :
-        return Path("__supabase__") / "case_manifest"
-    
-    def path_message( self, message_id : str) -> Path :
-        return Path("__supabase__") / "messages" / f"{message_id}.json"
-    
-    def set_case_id( self, case_id : str | int) -> None :
+    def get_contact( self, contact : int) -> dict[str, Any] | None :
         
-        if case_id and isinstance( case_id, int) :
-            self.case_id = case_id
+        return self._fetch_one(
+            SQL_GET_CONTACT,
+            { "contact" : contact },
+        )
+    
+    def insert_contact_profile(
+        self,
+        contact          : int,
+        profile_name     : str,
+        profile_username : str | None,
+    ) -> dict[str, Any] | None :
         
-        elif case_id and isinstance( case_id, str) and case_id.isdigit() :
-            self.case_id = int(case_id)
+        return self._fetch_one(
+            SQL_INSERT_CONTACT_PROFILE,
+            {
+                "contact"          : contact,
+                "profile_name"     : profile_name,
+                "profile_username" : profile_username,
+            },
+        )
+    
+    def insert_inbound_payload(
+        self,
+        data_raw  : dict[str, Any] | BaseModel,
+        data_hash : str | None = None,
+    ) -> dict[str, Any] | None :
         
-        else :
-            here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-            raise ValueError(f"In {here}: Invalid 'case_id' type {type(case_id)}")
+        raw = _json_compatible(data_raw)
         
-        return
+        return self._fetch_one(
+            SQL_INSERT_INBOUND_PAYLOAD,
+            {
+                "data_raw"  : Jsonb(raw),
+                "data_hash" : data_hash or _payload_hash(raw),
+            },
+        )
+    
+    def get_inbound_payload(
+        self,
+        payload_id : int,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_GET_INBOUND_PAYLOAD,
+            { "payload_id" : payload_id },
+        )
+    
+    def mark_inbound_payload_valid(
+        self,
+        payload_id : int,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_MARK_INBOUND_PAYLOAD_VALID,
+            { "payload_id" : payload_id },
+        )
+    
+    def mark_inbound_payload_invalid(
+        self,
+        payload_id : int,
+        errors     : list[dict[str, Any]] | dict[str, Any],
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_MARK_INBOUND_PAYLOAD_INVALID,
+            { "payload_id" : payload_id, "errors" : Jsonb(errors) },
+        )
+    
+    def insert_inbound_payload_metadata(
+        self,
+        payload_id : int,
+        contact    : int,
+        item_idx   : int | None      = None,
+        item_ts    : datetime | None = None,
+        change_idx : int | None      = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_INSERT_INBOUND_PAYLOAD_METADATA,
+            {
+                "item_idx"   : item_idx,
+                "item_ts"    : item_ts,
+                "change_idx" : change_idx,
+                "payload_id" : payload_id,
+                "contact"    : contact,
+            },
+        )
+    
+    def insert_inbound_message(
+        self,
+        payload  : int,
+        msg_id   : str,
+        msg_ts   : datetime,
+        msg_type : str,
+        msg_data : dict[str, Any],
+        is_echo  : bool | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_INSERT_INBOUND_MESSAGE,
+            {
+                "payload"  : payload,
+                "is_echo"  : is_echo,
+                "msg_id"   : msg_id,
+                "msg_ts"   : msg_ts,
+                "msg_type" : msg_type,
+                "msg_data" : Jsonb(msg_data),
+            },
+        )
+    
+    def get_inbound_message(
+        self,
+        msg_id : str,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_GET_INBOUND_MESSAGE,
+            { "msg_id" : msg_id },
+        )
+    
+    def insert_outbound_message(
+        self,
+        contact  : int,
+        msg_id   : str,
+        msg_type : str,
+        msg_data : dict[str, Any],
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_INSERT_OUTBOUND_MESSAGE,
+            {
+                "contact"  : contact,
+                "msg_id"   : msg_id,
+                "msg_type" : msg_type,
+                "msg_data" : Jsonb(msg_data),
+            },
+        )
+    
+    def insert_status(
+        self,
+        payload      : int,
+        msg_id       : str,
+        msg_status   : str,
+        status_ts    : datetime,
+        conversation : dict[str, Any] | None       = None,
+        pricing      : dict[str, Any] | None       = None,
+        errors       : list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_INSERT_STATUS,
+            {
+                "payload"      : payload,
+                "msg_id"       : msg_id,
+                "msg_status"   : msg_status,
+                "status_ts"    : status_ts,
+                "conversation" : _json_param(conversation),
+                "pricing"      : _json_param(pricing),
+                "errors"       : _json_param(errors),
+            },
+        )
+    
+    def insert_media(
+        self,
+        mime_type       : str,
+        size            : int,
+        object_key      : str,
+        inbound_msg_id  : int | None = None,
+        outbound_msg_id : int | None = None,
+        caption         : str | None = None,
+        filename        : str | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_INSERT_MEDIA,
+            {
+                "inbound_msg_id"  : inbound_msg_id,
+                "outbound_msg_id" : outbound_msg_id,
+                "mime_type"       : mime_type,
+                "size"            : size,
+                "object_key"      : object_key,
+                "caption"         : caption,
+                "filename"        : filename,
+            },
+        )
     
     # -------------------------------------------------------------------------------------
-    # CONNECTION AND COMMON PARAMS
+    # CONTACT LEASES
     
-    def _params(self) -> dict[str, Any] :
-        return {
-            "operator_id" : self.operator_id,
-            "user_id"     : self.user_id,
-        }
+    def acquire_contact_lease(
+        self,
+        contact     : int,
+        owner_token : UUID | str,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_ACQUIRE_CONTACT_LEASE,
+            { "contact" : contact, "owner_token" : owner_token },
+        )
     
-    def _ensure_user_row(self) -> None :
+    def renew_contact_lease(
+        self,
+        contact     : int,
+        owner_token : UUID | str,
+    ) -> dict[str, Any] | None :
         
-        params         = self._params()
-        params["data"] = Jsonb(_default_user_data(self.user_id))
-        
-        with sync_pooled_conection(self.database_url) as conn :
-            conn.execute( SQL_ENSURE_USER, params)
-        
-        return
+        return self._fetch_one(
+            SQL_RENEW_CONTACT_LEASE,
+            { "contact" : contact, "owner_token" : owner_token },
+        )
     
-    # -------------------------------------------------------------------------------------
-    # JSON I/O COMPATIBILITY
-    
-    def json_read( self, path : Path) -> Any | None :
+    def release_contact_lease(
+        self,
+        contact     : int,
+        owner_token : UUID | str,
+    ) -> bool :
         
-        params = self._params()
-        with sync_pooled_conection(self.database_url) as conn :
-            
-            if path == self.path_user_data() :
-                row = conn.execute( SQL_GET_USER_DATA, params).fetchone()
-                return row["data"] if row else None
-            
-            if path == self.path_case_index() :
-                row = conn.execute( SQL_GET_CASE_INDEX, params).fetchone()
-                return { "open_case_id" : row["open_case_id"] } if row else None
-        
-        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-        raise ValueError(f"In {here}: Unsupported JSON path '{path}'")
-    
-    def json_write( self, path : Path, obj : Any) -> None :
-        
-        params = self._params()
-        with sync_pooled_conection(self.database_url) as conn :
-            
-            if path == self.path_user_data() :
-                params["data"] = Jsonb(obj)
-                conn.execute( SQL_UPSERT_USER_DATA, params)
-                return
-            
-            if path == self.path_case_index() :
-                params["data"]         = Jsonb(_default_user_data(self.user_id))
-                params["open_case_id"] = obj.get("open_case_id")
-                conn.execute( SQL_SET_CASE_INDEX, params)
-                return
-        
-        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-        raise ValueError(f"In {here}: Unsupported JSON path '{path}'")
-    
-    # -------------------------------------------------------------------------------------
-    # DEDUPLICATION
-    
-    def dedup_exists( self, idempotency_key : str) -> bool :
-        
-        params                    = self._params()
-        params["idempotency_key"] = idempotency_key
-        
-        with sync_pooled_conection(self.database_url) as conn :
-            row = conn.execute( SQL_DEDUP_EXISTS, params).fetchone()
-        
+        row = self._fetch_one(
+            SQL_RELEASE_CONTACT_LEASE,
+            { "contact" : contact, "owner_token" : owner_token },
+        )
         return bool(row)
     
-    def dedup_write( self, _idempotency_key : str) -> None :
-        return
-    
     # -------------------------------------------------------------------------------------
-    # MESSAGES AND MEDIA
+    # CASE HANDLER DATA
     
-    def message_read( self, message_id : str) -> Message | None :
+    def _message_ids( self, case_id : int) -> list[int] :
         
-        params               = self._params()
-        params["case_id"]    = self.case_id
-        params["message_id"] = message_id
-        
-        with sync_pooled_conection(self.database_url) as conn :
-            row = conn.execute( SQL_GET_MESSAGE, params).fetchone()
-        
-        return _message_from_payload( row["payload"] if row else None)
+        rows = self._fetch_all(
+            SQL_GET_CASE_MESSAGE_IDS,
+            { "case_id" : case_id },
+        )
+        return [ row["id"] for row in rows ]
     
-    def messages_load(self) -> list[Message] :
+    def insert_case_manifest(
+        self,
+        contact       : int,
+        machine_state : str | None,
+    ) -> CaseManifest | None :
         
-        params            = self._params()
-        params["case_id"] = self.case_id
+        row = self._fetch_one(
+            SQL_INSERT_CASE_MANIFEST,
+            { "contact" : contact, "machine_state" : machine_state },
+        )
+        return _manifest_from_row(row)
+    
+    def get_case_manifest(
+        self,
+        case_id : int,
+        contact : int,
+    ) -> CaseManifest | None :
         
-        with sync_pooled_conection(self.database_url) as conn :
-            rows = conn.execute( SQL_GET_MESSAGES, params).fetchall()
+        row = self._fetch_one(
+            SQL_GET_CASE_MANIFEST,
+            { "case_id" : case_id, "contact" : contact },
+        )
+        ids = self._message_ids(case_id) if row else []
         
+        return _manifest_from_row( row, ids)
+    
+    def get_open_case_manifest(
+        self,
+        contact : int,
+    ) -> CaseManifest | None :
+        
+        row = self._fetch_one(
+            SQL_GET_OPEN_CASE_MANIFEST,
+            { "contact" : contact },
+        )
+        ids = self._message_ids(row["id"]) if row else []
+        
+        return _manifest_from_row( row, ids)
+    
+    def update_case_manifest(
+        self,
+        manifest : CaseManifest,
+    ) -> CaseManifest | None :
+        
+        row = self._fetch_one(
+            SQL_UPDATE_CASE_MANIFEST,
+            {
+                "case_id"       : manifest.id,
+                "contact"       : manifest.contact,
+                "is_open"       : manifest.is_open,
+                "machine_state" : manifest.machine_state,
+            },
+        )
+        return _manifest_from_row( row, manifest.message_ids)
+    
+    def case_handler_message_exists(
+        self,
+        api_inbound_msg_id : int,
+    ) -> bool :
+        
+        row = self._fetch_one(
+            SQL_CASE_HANDLER_MESSAGE_EXISTS,
+            { "api_inbound_msg_id" : api_inbound_msg_id },
+        )
+        return bool(row)
+    
+    def insert_case_handler_message(
+        self,
+        case_id       : int,
+        message       : Message,
+        machine_state : str | None,
+    ) -> Message | None :
+        
+        row = self._fetch_one(
+            SQL_INSERT_CASE_HANDLER_MESSAGE,
+            {
+                "case_id"       : case_id,
+                "ts"            : message.ts,
+                "basemodel"     : message.basemodel,
+                "origin"        : message.origin,
+                "data"          : Jsonb(_message_data(message)),
+                "machine_state" : machine_state,
+            },
+        )
+        return _message_from_row(row)
+    
+    def get_case_handler_message(
+        self,
+        case_id    : int,
+        message_id : int,
+    ) -> Message | None :
+        
+        row = self._fetch_one(
+            SQL_GET_CASE_HANDLER_MESSAGE,
+            { "case_id" : case_id, "message_id" : message_id },
+        )
+        return _message_from_row(row)
+    
+    def get_case_handler_messages(
+        self,
+        case_id : int,
+    ) -> list[Message] :
+        
+        rows = self._fetch_all(
+            SQL_GET_CASE_HANDLER_MESSAGES,
+            { "case_id" : case_id },
+        )
         return [
-            msg for row in rows
-            if ( msg := _message_from_payload(row["payload"]) )
+            message for row in rows if ( message := _message_from_row(row) )
         ]
     
-    def message_write( self, message : Message) -> None :
+    def link_case_handler_to_api(
+        self,
+        case_handler_msg_id : int,
+        api_inbound_msg_id  : int | None = None,
+        api_outbound_msg_id : int | None = None,
+    ) -> dict[str, Any] | None :
+        """
+        Link one side of the API boundary.
         
-        payload = message.model_dump( mode = "json")
-        params  = self._params()
-        params.update(
-            { 
-                "case_id"         : self.case_id,
-                "message_id"      : message.id,
-                "idempotency_key" : message.idempotency_key,
-                "basemodel"       : message.basemodel,
-                "role"            : message.role,
-                "time_created"    : _dt_param(message.time_created),
-                "time_received"   : _dt_param(message.time_received),
-                "payload"         : Jsonb(payload),
-            }
-        )
-        
-        with sync_pooled_conection(self.database_url) as conn :
-            conn.execute( SQL_INSERT_MESSAGE, params)
-        
-        return
-    
-    def media_get( self, filename : str) -> bytes | None :
-        
-        path = self.dir_media() / filename
-        
-        return b3_get_file(path) if b3_exists(path) else None
-    
-    def media_write( self,
-                     message : UserContentMsg,
-                     media   : MediaContent ) -> None :
-        
-        media_path = self.dir_media() / message.media.name
-        
-        if not b3_exists(media_path) :
-            media_content = media.content if media.content else b""
-            b3_put_media( media_path, media_content, media.mime)
-        
-        return
-    
-    # -------------------------------------------------------------------------------------
-    # MANIFEST
-    
-    def get_next_case_id(self) -> int :
-        
-        self._ensure_user_row()
-        params = self._params()
-        
-        with sync_pooled_conection(self.database_url) as conn :
-            row = conn.execute( SQL_GET_NEXT_CASE_ID, params).fetchone()
-        
-        return int(row["case_id"])
-    
-    def manifest_append( self,
-                         manifest : CaseManifest,
-                         message  : Message ) -> None :
-        
-        if message.id not in manifest.message_ids :
-            manifest.message_ids.append(message.id)
-        
-        existing_last = utc_iso_to_dt(manifest.time_last_message)
-        msg_time      = utc_iso_to_dt(message.time_created)  or \
-                        utc_iso_to_dt(message.time_received) or \
-                        datetime.now(timezone.utc)
-        
-        if ( not existing_last ) or ( existing_last < msg_time ) :
-            manifest.time_last_message = _dt_to_utc_iso(msg_time)
-        
-        self.manifest_write(manifest)
-        
-        return
-    
-    def manifest_load(self) -> CaseManifest | None :
-        
-        params            = self._params()
-        params["case_id"] = self.case_id
-        
-        with sync_pooled_conection(self.database_url) as conn :
-            case_row = conn.execute( SQL_GET_CASE, params).fetchone()
-            msg_rows = conn.execute( SQL_GET_CASE_MESSAGE_IDS, params).fetchall()
-        
-        if not case_row :
-            return None
-        
-        return CaseManifest(
-            case_id           = case_row["case_id"],
-            model             = case_row["model"],
-            status            = case_row["status"],
-            time_opened       = _dt_to_utc_iso(case_row["time_opened"]),
-            time_last_message = _dt_to_utc_iso(case_row["time_last_message"]),
-            time_closed       = _dt_to_utc_iso(case_row["time_closed"]),
-            message_ids       = [ row["message_id"] for row in msg_rows ],
+        None can mean an idempotent duplicate or a rejected conflicting mapping;
+        callers that need to distinguish those cases must inspect existing links.
+        """
+        return self._fetch_one(
+            SQL_LINK_CASE_HANDLER_TO_API,
+            {
+                "case_handler_msg_id" : case_handler_msg_id,
+                "api_inbound_msg_id"  : api_inbound_msg_id,
+                "api_outbound_msg_id" : api_outbound_msg_id,
+            },
         )
     
-    def manifest_write( self, manifest : CaseManifest) -> None :
+    def get_case_handler_media(
+        self,
+        case_handler_msg_id : int,
+    ) -> list[dict[str, Any]] :
         
-        self._ensure_user_row()
-        
-        params = self._params()
-        params.update(
-            { "case_id"           : manifest.case_id,
-              "model"             : manifest.model,
-              "status"            : manifest.status,
-              "time_opened"       : _dt_param(manifest.time_opened),
-              "time_last_message" : _dt_param(manifest.time_last_message),
-              "time_closed"       : _dt_param(manifest.time_closed) }
+        return self._fetch_all(
+            SQL_GET_CASE_HANDLER_MEDIA,
+            { "case_handler_msg_id" : case_handler_msg_id },
         )
-        
-        with sync_pooled_conection(self.database_url) as conn :
-            conn.execute( SQL_UPSERT_CASE, params)
-        
-        return
 
 
 # =========================================================================================
-# ASYNC STORAGE
+# ASYNCHRONOUS ADAPTER
 
-class AsyncSupabaseStorage (SyncSupabaseStorage) :
-    """
-    Async PostgreSQL-backed storage helper.
-    """
-    
-    @staticmethod
-    async def webhook_payload_write( payload : WhatsAppPayload) -> bool :
-        return await async_webhook_payload_write(payload)
-    
-    async def _ensure_user_row(self) -> None :
+class AsyncSupabaseStorage :
+    """Asynchronous gateway for the normalized persistence SQL."""
+
+    def __init__(
+        self,
+        database_url : str | None = None,
+    ) -> None :
         
-        params         = self._params()
-        params["data"] = Jsonb(_default_user_data(self.user_id))
-        
-        async with async_pooled_connection(self.database_url) as conn :
-            await conn.execute( SQL_ENSURE_USER, params)
-        
+        self.database_url = database_url or get_database_url()
         return
     
-    async def json_read( self, path : Path) -> Any | None :
+    async def _fetch_one(
+        self,
+        sql    : str,
+        params : dict[str, Any],
+    ) -> dict[str, Any] | None :
         
-        params = self._params()
-        async with async_pooled_connection(self.database_url) as conn :
-            
-            if path == self.path_user_data() :
-                row = await ( await conn.execute( SQL_GET_USER_DATA, params)).fetchone()
-                return row["data"] if row else None
-            
-            if path == self.path_case_index() :
-                row = await ( await conn.execute( SQL_GET_CASE_INDEX, params)).fetchone()
-                return { "open_case_id" : row["open_case_id"] } if row else None
+        async with async_pooled_connection(
+            database_url = self.database_url,
+            min_size     = DB_POOL_MIN_SIZE,
+            max_size     = DB_POOL_MAX_SIZE,
+            timeout      = DB_POOL_TIMEOUT,
+        ) as conn :
+            cursor = await conn.execute( sql, params)
+            row    = await cursor.fetchone()
         
-        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-        raise ValueError(f"In {here}: Unsupported JSON path '{path}'")
+        return dict(row) if row else None
     
-    async def json_write( self, path : Path, obj : Any) -> None :
+    async def _fetch_all(
+        self,
+        sql    : str,
+        params : dict[str, Any],
+    ) -> list[dict[str, Any]] :
         
-        params = self._params()
-        async with async_pooled_connection(self.database_url) as conn :
-            
-            if path == self.path_user_data() :
-                params["data"] = Jsonb(obj)
-                await conn.execute( SQL_UPSERT_USER_DATA, params)
-                return
-            
-            if path == self.path_case_index() :
-                params["data"]         = Jsonb(_default_user_data(self.user_id))
-                params["open_case_id"] = obj.get("open_case_id")
-                await conn.execute( SQL_SET_CASE_INDEX, params)
-                return
+        async with async_pooled_connection(
+            database_url = self.database_url,
+            min_size     = DB_POOL_MIN_SIZE,
+            max_size     = DB_POOL_MAX_SIZE,
+            timeout      = DB_POOL_TIMEOUT,
+        ) as conn :
+            cursor = await conn.execute( sql, params)
+            rows   = await cursor.fetchall()
         
-        here = f"{self.__class__.__name__}/{currentframe().f_code.co_name}"
-        raise ValueError(f"In {here}: Unsupported JSON path '{path}'")
+        return [ dict(row) for row in rows ]
     
-    async def dedup_exists( self, idempotency_key : str) -> bool :
+    # -------------------------------------------------------------------------------------
+    # WHATSAPP API DATA
+    
+    async def upsert_business(
+        self,
+        waba_id              : str,
+        phone_number_id      : str,
+        display_phone_number : str,
+    ) -> dict[str, Any] | None :
         
-        params                    = self._params()
-        params["idempotency_key"] = idempotency_key
+        return await self._fetch_one(
+            SQL_UPSERT_BUSINESS,
+            {
+                "waba_id"              : waba_id,
+                "phone_number_id"      : phone_number_id,
+                "display_phone_number" : display_phone_number,
+            },
+        )
+    
+    async def upsert_contact(
+        self,
+        business : int,
+        wa_id    : str | None,
+        user_id  : str | None,
+    ) -> dict[str, Any] | None :
         
-        async with async_pooled_connection(self.database_url) as conn :
-            row = await ( await conn.execute( SQL_DEDUP_EXISTS, params)).fetchone()
+        return await self._fetch_one(
+            SQL_UPSERT_CONTACT,
+            { "business" : business, "wa_id" : wa_id, "user_id" : user_id },
+        )
+    
+    async def get_contact(
+        self,
+        contact : int,
+    ) -> dict[str, Any] | None :
         
+        return await self._fetch_one(
+            SQL_GET_CONTACT,
+            { "contact" : contact },
+        )
+    
+    async def insert_contact_profile(
+        self,
+        contact          : int,
+        profile_name     : str,
+        profile_username : str | None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_INSERT_CONTACT_PROFILE,
+            {
+                "contact"          : contact,
+                "profile_name"     : profile_name,
+                "profile_username" : profile_username,
+            },
+        )
+    
+    async def insert_inbound_payload(
+        self,
+        data_raw  : dict[str, Any] | BaseModel,
+        data_hash : str | None = None,
+    ) -> dict[str, Any] | None :
+        
+        raw = _json_compatible(data_raw)
+        
+        return await self._fetch_one(
+            SQL_INSERT_INBOUND_PAYLOAD,
+            {
+                "data_raw"  : Jsonb(raw),
+                "data_hash" : data_hash or _payload_hash(raw),
+            },
+        )
+    
+    async def get_inbound_payload(
+        self,
+        payload_id : int,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_GET_INBOUND_PAYLOAD,
+            { "payload_id" : payload_id },
+        )
+    
+    async def mark_inbound_payload_valid(
+        self,
+        payload_id : int,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_MARK_INBOUND_PAYLOAD_VALID,
+            { "payload_id" : payload_id },
+        )
+    
+    async def mark_inbound_payload_invalid(
+        self,
+        payload_id : int,
+        errors     : list[dict[str, Any]] | dict[str, Any],
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_MARK_INBOUND_PAYLOAD_INVALID,
+            { "payload_id" : payload_id, "errors" : Jsonb(errors) },
+        )
+    
+    async def insert_inbound_payload_metadata(
+        self,
+        payload_id : int,
+        contact    : int,
+        item_idx   : int | None      = None,
+        item_ts    : datetime | None = None,
+        change_idx : int | None      = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_INSERT_INBOUND_PAYLOAD_METADATA,
+            {
+                "item_idx"   : item_idx,
+                "item_ts"    : item_ts,
+                "change_idx" : change_idx,
+                "payload_id" : payload_id,
+                "contact"    : contact,
+            },
+        )
+    
+    async def insert_inbound_message(
+        self,
+        payload  : int,
+        msg_id   : str,
+        msg_ts   : datetime,
+        msg_type : str,
+        msg_data : dict[str, Any],
+        is_echo  : bool | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_INSERT_INBOUND_MESSAGE,
+            {
+                "payload"  : payload,
+                "is_echo"  : is_echo,
+                "msg_id"   : msg_id,
+                "msg_ts"   : msg_ts,
+                "msg_type" : msg_type,
+                "msg_data" : Jsonb(msg_data),
+            },
+        )
+    
+    async def get_inbound_message(
+        self,
+        msg_id : str,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_GET_INBOUND_MESSAGE,
+            { "msg_id" : msg_id },
+        )
+    
+    async def insert_outbound_message(
+        self,
+        contact  : int,
+        msg_id   : str,
+        msg_type : str,
+        msg_data : dict[str, Any],
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_INSERT_OUTBOUND_MESSAGE,
+            {
+                "contact"  : contact,
+                "msg_id"   : msg_id,
+                "msg_type" : msg_type,
+                "msg_data" : Jsonb(msg_data),
+            },
+        )
+    
+    async def insert_status(
+        self,
+        payload      : int,
+        msg_id       : str,
+        msg_status   : str,
+        status_ts    : datetime,
+        conversation : dict[str, Any] | None       = None,
+        pricing      : dict[str, Any] | None       = None,
+        errors       : list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_INSERT_STATUS,
+            {
+                "payload"      : payload,
+                "msg_id"       : msg_id,
+                "msg_status"   : msg_status,
+                "status_ts"    : status_ts,
+                "conversation" : _json_param(conversation),
+                "pricing"      : _json_param(pricing),
+                "errors"       : _json_param(errors),
+            },
+        )
+    
+    async def insert_media(
+        self,
+        mime_type       : str,
+        size            : int,
+        object_key      : str,
+        inbound_msg_id  : int | None = None,
+        outbound_msg_id : int | None = None,
+        caption         : str | None = None,
+        filename        : str | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_INSERT_MEDIA,
+            {
+                "inbound_msg_id"  : inbound_msg_id,
+                "outbound_msg_id" : outbound_msg_id,
+                "mime_type"       : mime_type,
+                "size"            : size,
+                "object_key"      : object_key,
+                "caption"         : caption,
+                "filename"        : filename,
+            },
+        )
+    
+    # -------------------------------------------------------------------------------------
+    # CONTACT LEASES
+    
+    async def acquire_contact_lease(
+        self,
+        contact     : int,
+        owner_token : UUID | str,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_ACQUIRE_CONTACT_LEASE,
+            { "contact" : contact, "owner_token" : owner_token },
+        )
+    
+    async def renew_contact_lease(
+        self,
+        contact     : int,
+        owner_token : UUID | str,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_RENEW_CONTACT_LEASE,
+            { "contact" : contact, "owner_token" : owner_token },
+        )
+    
+    async def release_contact_lease(
+        self,
+        contact     : int,
+        owner_token : UUID | str,
+    ) -> bool :
+        
+        row = await self._fetch_one(
+            SQL_RELEASE_CONTACT_LEASE,
+            { "contact" : contact, "owner_token" : owner_token },
+        )
         return bool(row)
     
-    async def dedup_write( self, _idempotency_key : str) -> None :
-        return
+    # -------------------------------------------------------------------------------------
+    # CASE HANDLER DATA
     
-    async def message_read( self, message_id : str) -> Message | None :
+    async def _message_ids(
+        self,
+        case_id : int,
+    ) -> list[int] :
         
-        params               = self._params()
-        params["case_id"]    = self.case_id
-        params["message_id"] = message_id
-        
-        async with async_pooled_connection(self.database_url) as conn :
-            row = await ( await conn.execute( SQL_GET_MESSAGE, params)).fetchone()
-        
-        return _message_from_payload( row["payload"] if row else None)
+        rows = await self._fetch_all(
+            SQL_GET_CASE_MESSAGE_IDS,
+            { "case_id" : case_id },
+        )
+        return [ row["id"] for row in rows ]
     
-    async def messages_load(self) -> list[Message] :
+    async def insert_case_manifest(
+        self,
+        contact       : int,
+        machine_state : str | None,
+    ) -> CaseManifest | None :
         
-        params            = self._params()
-        params["case_id"] = self.case_id
+        row = await self._fetch_one(
+            SQL_INSERT_CASE_MANIFEST,
+            { "contact" : contact, "machine_state" : machine_state },
+        )
+        return _manifest_from_row(row)
+    
+    async def get_case_manifest(
+        self,
+        case_id : int,
+        contact : int,
+    ) -> CaseManifest | None :
         
-        async with async_pooled_connection(self.database_url) as conn :
-            rows = await ( await conn.execute( SQL_GET_MESSAGES, params)).fetchall()
+        row = await self._fetch_one(
+            SQL_GET_CASE_MANIFEST,
+            { "case_id" : case_id, "contact" : contact },
+        )
+        ids = await self._message_ids(case_id) if row else []
         
+        return _manifest_from_row( row, ids)
+    
+    async def get_open_case_manifest(
+        self,
+        contact : int,
+    ) -> CaseManifest | None :
+        
+        row = await self._fetch_one(
+            SQL_GET_OPEN_CASE_MANIFEST,
+            { "contact" : contact },
+        )
+        ids = await self._message_ids(row["id"]) if row else []
+        
+        return _manifest_from_row( row, ids)
+    
+    async def update_case_manifest(
+        self,
+        manifest : CaseManifest,
+    ) -> CaseManifest | None :
+        
+        row = await self._fetch_one(
+            SQL_UPDATE_CASE_MANIFEST,
+            {
+                "case_id"       : manifest.id,
+                "contact"       : manifest.contact,
+                "is_open"       : manifest.is_open,
+                "machine_state" : manifest.machine_state,
+            },
+        )
+        return _manifest_from_row( row, manifest.message_ids)
+    
+    async def case_handler_message_exists(
+        self,
+        api_inbound_msg_id : int,
+    ) -> bool :
+        
+        row = await self._fetch_one(
+            SQL_CASE_HANDLER_MESSAGE_EXISTS,
+            { "api_inbound_msg_id" : api_inbound_msg_id },
+        )
+        return bool(row)
+    
+    async def insert_case_handler_message(
+        self,
+        case_id       : int,
+        message       : Message,
+        machine_state : str | None,
+    ) -> Message | None :
+        
+        row = await self._fetch_one(
+            SQL_INSERT_CASE_HANDLER_MESSAGE,
+            {
+                "case_id"       : case_id,
+                "ts"            : message.ts,
+                "basemodel"     : message.basemodel,
+                "origin"        : message.origin,
+                "data"          : Jsonb(_message_data(message)),
+                "machine_state" : machine_state,
+            },
+        )
+        return _message_from_row(row)
+    
+    async def get_case_handler_message(
+        self,
+        case_id    : int,
+        message_id : int,
+    ) -> Message | None :
+        
+        row = await self._fetch_one(
+            SQL_GET_CASE_HANDLER_MESSAGE,
+            { "case_id" : case_id, "message_id" : message_id },
+        )
+        return _message_from_row(row)
+    
+    async def get_case_handler_messages(
+        self,
+        case_id : int,
+    ) -> list[Message] :
+        
+        rows = await self._fetch_all(
+            SQL_GET_CASE_HANDLER_MESSAGES,
+            { "case_id" : case_id },
+        )
         return [
-            msg for row in rows
-            if ( msg := _message_from_payload(row["payload"]) )
+            message for row in rows if ( message := _message_from_row(row) )
         ]
     
-    async def message_write( self, message : Message) -> None :
+    async def link_case_handler_to_api(
+        self,
+        case_handler_msg_id : int,
+        api_inbound_msg_id  : int | None = None,
+        api_outbound_msg_id : int | None = None,
+    ) -> dict[str, Any] | None :
+        """
+        Link one side of the API boundary.
         
-        payload = message.model_dump( mode = "json")
-        params  = self._params()
-        params.update(
+        None can mean an idempotent duplicate or a rejected conflicting mapping;
+        callers that need to distinguish those cases must inspect existing links.
+        """
+        return await self._fetch_one(
+            SQL_LINK_CASE_HANDLER_TO_API,
             {
-                "case_id"         : self.case_id,
-                "message_id"      : message.id,
-                "idempotency_key" : message.idempotency_key,
-                "basemodel"       : message.basemodel,
-                "role"            : message.role,
-                "time_created"    : _dt_param(message.time_created),
-                "time_received"   : _dt_param(message.time_received),
-                "payload"         : Jsonb(payload),
-            }
-        )
-        
-        async with async_pooled_connection(self.database_url) as conn :
-            await conn.execute( SQL_INSERT_MESSAGE, params)
-        
-        return
-    
-    async def media_get( self, filename : str) -> bytes | None :
-        
-        path = self.dir_media() / filename
-        
-        return await async_b3_get_file(path) if await async_b3_exists(path) else None
-    
-    async def media_write( self,
-                           message : UserContentMsg,
-                           media   : MediaContent ) -> None :
-        
-        media_path = self.dir_media() / message.media.name
-        
-        if not await async_b3_exists(media_path) :
-            media_content = media.content if media.content else b""
-            await async_b3_put_media( media_path, media_content, media.mime)
-        
-        return
-    
-    async def get_next_case_id(self) -> int :
-        
-        await self._ensure_user_row()
-        params = self._params()
-        
-        async with async_pooled_connection(self.database_url) as conn :
-            row = await ( await conn.execute( SQL_GET_NEXT_CASE_ID, params)).fetchone()
-        
-        return int(row["case_id"])
-    
-    async def manifest_append( self,
-                               manifest : CaseManifest,
-                               message  : Message ) -> None :
-        
-        if message.id not in manifest.message_ids :
-            manifest.message_ids.append(message.id)
-        
-        existing_last = utc_iso_to_dt(manifest.time_last_message)
-        msg_time      = utc_iso_to_dt(message.time_created)  or \
-                        utc_iso_to_dt(message.time_received) or \
-                        datetime.now(timezone.utc)
-        
-        if ( not existing_last ) or ( existing_last < msg_time ) :
-            manifest.time_last_message = _dt_to_utc_iso(msg_time)
-        
-        await self.manifest_write(manifest)
-        
-        return
-    
-    async def manifest_load(self) -> CaseManifest | None :
-        
-        params            = self._params()
-        params["case_id"] = self.case_id
-        
-        async with async_pooled_connection(self.database_url) as conn :
-            case_row = await ( await conn.execute( SQL_GET_CASE, params)).fetchone()
-            msg_rows = await (
-                await conn.execute( SQL_GET_CASE_MESSAGE_IDS, params)
-            ).fetchall()
-        
-        if not case_row :
-            return None
-        
-        return CaseManifest(
-            case_id           = case_row["case_id"],
-            model             = case_row["model"],
-            status            = case_row["status"],
-            time_opened       = _dt_to_utc_iso(case_row["time_opened"]),
-            time_last_message = _dt_to_utc_iso(case_row["time_last_message"]),
-            time_closed       = _dt_to_utc_iso(case_row["time_closed"]),
-            message_ids       = [ row["message_id"] for row in msg_rows ],
+                "case_handler_msg_id" : case_handler_msg_id,
+                "api_inbound_msg_id"  : api_inbound_msg_id,
+                "api_outbound_msg_id" : api_outbound_msg_id,
+            },
         )
     
-    async def manifest_write( self, manifest : CaseManifest) -> None :
+    async def get_case_handler_media(
+        self,
+        case_handler_msg_id : int,
+    ) -> list[dict[str, Any]] :
         
-        await self._ensure_user_row()
-        
-        params = self._params()
-        params.update(
-            {
-                "case_id"           : manifest.case_id,
-                "model"             : manifest.model,
-                "status"            : manifest.status,
-                "time_opened"       : _dt_param(manifest.time_opened),
-                "time_last_message" : _dt_param(manifest.time_last_message),
-                "time_closed"       : _dt_param(manifest.time_closed),
-            }
+        return await self._fetch_all(
+            SQL_GET_CASE_HANDLER_MEDIA,
+            { "case_handler_msg_id" : case_handler_msg_id },
         )
-        
-        async with async_pooled_connection(self.database_url) as conn :
-            await conn.execute( SQL_UPSERT_CASE, params)
-        
-        return

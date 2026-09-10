@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- data_raw  : bytes
+  -- data_raw  : dict
   -- data_hash : SHA256_Hex
 
 WITH inserted AS (
