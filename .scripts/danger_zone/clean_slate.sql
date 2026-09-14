@@ -1,13 +1,12 @@
 -- WARNING:
--- This deletes all wa-agents data from the configured Supabase database and
--- resets identity counters. Run manually only when you intentionally want a
--- clean test database.
+-- This truncates all wa-agents tables in the configured Supabase database.
+-- Run manually only when you intentionally want to reset the database.
 
 TRUNCATE TABLE
   public.wa_case_handler_to_api,
   public.wa_case_handler_messages,
-  public.wa_case_handler_contact_leases,
   public.wa_case_handler_case_manifests,
+  public.wa_case_handler_contact_leases,
   public.wa_api_to_case_handler_queue,
   public.wa_api_statuses,
   public.wa_api_media,

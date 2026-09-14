@@ -21,7 +21,7 @@ from sofia_utils.psycopg import (
 )
 
 
-REQUIRED_TABLES = (
+REQUIRED_TABLES = ( # TODO: UPDATE TO NEW SCHEMA
     "wa_users",
     "wa_cases",
     "wa_messages",
@@ -43,6 +43,7 @@ def _strip_env_value( value : str) -> str :
 
 def load_env_file( filepath : Path) -> None :
     """
+    WTF IS THIS SLOP??? USE LOADENV
     Load simple KEY=VALUE lines from a .env file into os.environ.
     """
     if not filepath.exists() :
