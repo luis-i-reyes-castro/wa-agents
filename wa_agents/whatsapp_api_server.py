@@ -13,10 +13,6 @@ from contextlib import (
     asynccontextmanager,
     suppress,
 )
-from datetime import (
-    UTC,
-    datetime,
-)
 from fastapi import (
     FastAPI,
     Request,
@@ -44,13 +40,6 @@ from sofia_utils.psycopg import (
 )
 
 from .whatsapp_functions import verify_app_secret
-from .whatsapp_models import (
-    WhatsAppContact,
-    WhatsAppMessage,
-    WhatsAppMessageEcho,
-    WhatsAppPayload,
-    WhatsAppValue,
-)
 
 
 if TYPE_CHECKING :
@@ -250,162 +239,10 @@ class WhatsAppAPIServer(FastAPI) :
             "Verification failed",
             status_code = status.HTTP_403_FORBIDDEN,
         )
-
-    @staticmethod
-    def _message_data(
-        message : WhatsAppMessage | WhatsAppMessageEcho,
-    ) -> dict[str, Any] :
-        """
-        Return message-specific data stored outside normalized columns.
-        """
-        return message.model_dump(
-            mode         = "json",
-            by_alias     = True,
-            exclude_none = True,
-            exclude      = { "user", "user_id", "id", "timestamp", "type" },
-        )
-
-    @staticmethod
-    def _value_contact( value : WhatsAppValue) -> WhatsAppContact :
-        """
-        Return the contact represented by one WhatsApp change value.
-        """
-        if value.contacts :
-            return value.contacts[0]
-        if value.messages :
-            message = value.messages[0]
-            return WhatsAppContact( wa_id = message.user, user_id = message.user_id)
-        if value.message_echoes :
-            message = value.message_echoes[0]
-            return WhatsAppContact(
-                wa_id   = message.to,
-                user_id = message.to_user_id,
-            )
-        if value.statuses :
-            message_status = value.statuses[0]
-            return WhatsAppContact(
-                wa_id   = message_status.recipient_id,
-                user_id = message_status.recipient_user_id,
-            )
-
-        raise RuntimeError(f"In {here()}: WhatsApp value has no contact identity")
-
-    async def _persist_valid_payload(
-        self,
-        payload_id : int,
-        payload    : WhatsAppPayload,
-    ) -> bool :
-        """
-        Normalize a validated payload and enqueue newly persisted messages.
-        """
-        storage  = self.queue_db.storage
-        enqueued = False
-
-        for item_idx, item in enumerate(payload.entry) :
-            item_ts = (
-                datetime.fromtimestamp( int(item.time), UTC)
-                if item.time is not None else None
-            )
-
-            for change_idx, change in enumerate(item.changes) :
-                value = change.value
-                if not isinstance( value, WhatsAppValue) :
-                    continue
-
-                business = await storage.upsert_business(
-                    waba_id              = item.id,
-                    phone_number_id      = value.metadata.phone_number_id,
-                    display_phone_number = value.metadata.display_phone_number,
-                )
-                if not business :
-                    raise RuntimeError(f"In {here()}: Unable to persist business")
-
-                contact_model = self._value_contact(value)
-                contact       = await storage.upsert_contact(
-                    business = business["id"],
-                    wa_id    = contact_model.wa_id,
-                    user_id  = contact_model.user_id,
-                )
-                if not contact :
-                    raise RuntimeError(f"In {here()}: Unable to persist contact")
-
-                if contact_model.profile :
-                    profile = await storage.insert_contact_profile(
-                        contact          = contact["id"],
-                        profile_name     = contact_model.profile.name,
-                        profile_username = contact_model.profile.username,
-                    )
-                    if not profile :
-                        raise RuntimeError(
-                            f"In {here()}: Unable to persist contact profile"
-                        )
-
-                metadata = await storage.insert_inbound_payload_metadata(
-                    payload_id = payload_id,
-                    contact    = contact["id"],
-                    item_idx   = item_idx,
-                    item_ts    = item_ts,
-                    change_idx = change_idx,
-                )
-                if not metadata :
-                    raise RuntimeError(
-                        f"In {here()}: Unable to persist inbound payload metadata"
-                    )
-
-                messages = [ ( message, False) for message in value.messages ]
-                messages.extend(
-                    ( message, True) for message in value.message_echoes
-                )
-                for message, is_echo in messages :
-                    message_row = await storage.insert_inbound_message(
-                        payload  = metadata["id"],
-                        is_echo  = is_echo,
-                        msg_id   = message.id,
-                        msg_ts   = datetime.fromtimestamp(
-                            int(message.timestamp),
-                            UTC,
-                        ),
-                        msg_type = message.type,
-                        msg_data = self._message_data(message),
-                    )
-                    if message_row :
-                        enqueued = await self.queue_db.enqueue(message.id) or enqueued
-
-                for message_status in value.statuses :
-                    status_row = await storage.insert_status(
-                        payload      = metadata["id"],
-                        msg_id       = message_status.id,
-                        msg_status   = message_status.status,
-                        status_ts    = datetime.fromtimestamp(
-                            int(message_status.timestamp),
-                            UTC,
-                        ),
-                        conversation = (
-                            message_status.conversation.model_dump( mode = "json")
-                            if message_status.conversation else None
-                        ),
-                        pricing = (
-                            message_status.pricing.model_dump( mode = "json")
-                            if message_status.pricing else None
-                        ),
-                        errors = (
-                            [
-                                error.model_dump( mode = "json")
-                                for error in message_status.errors
-                            ]
-                            if message_status.errors else None
-                        ),
-                    )
-                    if not status_row :
-                        raise RuntimeError(
-                            f"In {here()}: Unable to persist message status"
-                        )
-
-        return enqueued
     
     async def webhook( self, request : Request) -> JSONResponse :
         """
-        Persist, validate, normalize, and enqueue a WhatsApp webhook payload.
+        Parse an incoming webhook request and hand its payload to the queue.
         """
         try :
             payload_bytes = await request.body()
@@ -446,113 +283,35 @@ class WhatsAppAPIServer(FastAPI) :
         
         print_sep()
         print( "Incoming:", data)
-
-        try :
-            raw_payload = await self.queue_db.storage.insert_inbound_payload(data)
-            if not raw_payload or raw_payload.get("id") is None :
-                raise RuntimeError(f"In {here()}: Unable to persist inbound payload")
-        except Exception as ex :
-            logging.error(
-                f"In {here()}: Failed to store raw webhook payload: {str(ex)}"
-            )
-            return JSONResponse(
-                content = {
-                    "status" : "error",
-                    "error"  : str(ex),
-                    "stored" : False,
-                },
-                status_code = status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        payload_id = int(raw_payload["id"])
-        stored     = bool(raw_payload.get("inserted"))
         
         try :
-            payload = WhatsAppPayload.model_validate(data)
+            enqueue_result = await self.queue_db.enqueue(data)
         except ValidationError as ve :
             logging.error(f"In {here()}: Malformed payload: {str(ve)}")
-            errors = json.loads(ve.json(include_url = False))
-            try :
-                invalid = await self.queue_db.storage.mark_inbound_payload_invalid(
-                    payload_id,
-                    errors,
-                )
-                if not invalid :
-                    raise RuntimeError(
-                        f"In {here()}: Unable to persist payload validation errors"
-                    )
-            except Exception as ex :
-                logging.error(
-                    f"In {here()}: Failed to store validation errors: {str(ex)}"
-                )
-                return JSONResponse(
-                    content = {
-                        "status" : "error",
-                        "error"  : str(ex),
-                        "stored" : stored,
-                    },
-                    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-
             return JSONResponse(
                 content = {
                     "status" : "error",
                     "error"  : f"Malformed payload: {ve}",
-                    "stored" : stored,
                 },
                 status_code = status.HTTP_200_OK,
             )
-
-        try :
-            valid = await self.queue_db.storage.mark_inbound_payload_valid(payload_id)
-            if not valid :
-                raise RuntimeError(
-                    f"In {here()}: Unable to mark inbound payload as valid"
-                )
         except Exception as ex :
             logging.error(
-                f"In {here()}: Failed to store validation result: {str(ex)}"
+                f"In {here()}: Failed to enqueue webhook payload: {str(ex)}"
             )
             return JSONResponse(
                 content = {
                     "status" : "error",
                     "error"  : str(ex),
-                    "stored" : stored,
                 },
                 status_code = status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-        if not stored :
-            return JSONResponse(
-                content = {
-                    "status"   : "ok",
-                    "enqueued" : False,
-                    "stored"   : False,
-                },
-                status_code = status.HTTP_200_OK,
-            )
-
-        try :
-            enqueue_result = await self._persist_valid_payload( payload_id, payload)
-        except Exception as ex :
-            logging.error(
-                f"In {here()}: Failed to normalize webhook payload: {str(ex)}"
-            )
-            return JSONResponse(
-                content = {
-                    "status" : "error",
-                    "error"  : str(ex),
-                    "stored" : stored,
-                },
-                status_code = status.HTTP_200_OK,
-            )
         
         response = {
-            "status"   : "ok",
-            "enqueued" : enqueue_result,
-            "stored"   : stored,
+            "status" : "ok",
+            **enqueue_result,
         }
-
+        
         return JSONResponse(
             content     = response,
             status_code = status.HTTP_200_OK,

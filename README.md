@@ -43,10 +43,9 @@ pip install -r requirements.txt
 
 `wa-agents` is designed around this flow:
 
-1. `WhatsAppAPIServer` receives webhook payloads and validates them as
-   `WhatsAppPayload`.
-2. Payloads are enqueued in `QueueDB` (Supabase Postgres) to decouple HTTP from
-   processing.
+1. `WhatsAppAPIServer` receives webhook payload dictionaries and passes them to `QueueDB`.
+2. `QueueDB` audits and validates each payload, normalizes its messages in Supabase
+   Postgres, and enqueues newly persisted message IDs.
 3. `AsyncQueueWorker` runs inside the FastAPI lifespan, drains queue items, and
    calls your `CaseHandler`.
 4. `CaseHandlerBase` handles dedup, case open/close logic, context persistence, and
@@ -140,8 +139,8 @@ uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
 The server registers `GET /webhook` for Meta verification, `POST /webhook` for
-validated payload ingestion, and `GET /healthz` for container health checks.
-Webhook payload audit storage and queue enqueue are attempted in the request
+payload ingestion, and `GET /healthz` for container health checks. `QueueDB`
+performs payload auditing, validation, normalization, and enqueueing in the request
 path; the async queue worker starts and stops with the FastAPI lifespan.
 
 An example container recipe is available at
