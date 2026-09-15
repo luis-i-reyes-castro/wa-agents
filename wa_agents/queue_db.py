@@ -180,16 +180,16 @@ class QueueDB :
                             f"In {here()}: Unable to persist contact profile"
                         )
                 
-                metadata = self.storage.insert_inbound_payload_metadata(
+                payload_row = self.storage.update_inbound_payload_metadata(
                     payload_id = payload_id,
                     contact    = contact["id"],
                     item_idx   = item_idx,
                     item_ts    = item_ts,
                     change_idx = change_idx,
                 )
-                if not metadata :
+                if not payload_row :
                     raise RuntimeError(
-                        f"In {here()}: Unable to persist inbound payload metadata"
+                        f"In {here()}: Unable to update inbound payload metadata"
                     )
                 
                 messages = [ ( message, False) for message in value.messages ]
@@ -198,7 +198,7 @@ class QueueDB :
                 )
                 for message, is_echo in messages :
                     message_row = self.storage.insert_inbound_message(
-                        payload  = metadata["id"],
+                        payload  = payload_row["id"],
                         is_echo  = is_echo,
                         msg_id   = message.id,
                         msg_ts   = _timestamp(message.timestamp),
@@ -210,7 +210,7 @@ class QueueDB :
                 
                 for message_status in value.statuses :
                     status_row = self.storage.insert_status(
-                        payload      = metadata["id"],
+                        payload      = payload_row["id"],
                         msg_id       = message_status.id,
                         msg_status   = message_status.status,
                         status_ts    = _timestamp(message_status.timestamp),
@@ -296,7 +296,8 @@ class QueueDB :
                 owner_token,
             )
             raise RuntimeError(
-                f"Queued WhatsApp message '{queue_row['msg_id']}' was not found"
+                f"In {here()}: Queued WhatsApp message "
+                f"'{queue_row['msg_id']}' was not found"
             )
         
         return {
@@ -405,16 +406,16 @@ class AsyncQueueDB :
                             f"In {here()}: Unable to persist contact profile"
                         )
                 
-                metadata = await self.storage.insert_inbound_payload_metadata(
+                payload_row = await self.storage.update_inbound_payload_metadata(
                     payload_id = payload_id,
                     contact    = contact["id"],
                     item_idx   = item_idx,
                     item_ts    = item_ts,
                     change_idx = change_idx,
                 )
-                if not metadata :
+                if not payload_row :
                     raise RuntimeError(
-                        f"In {here()}: Unable to persist inbound payload metadata"
+                        f"In {here()}: Unable to update inbound payload metadata"
                     )
                 
                 messages = [ ( message, False) for message in value.messages ]
@@ -423,7 +424,7 @@ class AsyncQueueDB :
                 )
                 for message, is_echo in messages :
                     message_row = await self.storage.insert_inbound_message(
-                        payload  = metadata["id"],
+                        payload  = payload_row["id"],
                         is_echo  = is_echo,
                         msg_id   = message.id,
                         msg_ts   = _timestamp(message.timestamp),
@@ -435,7 +436,7 @@ class AsyncQueueDB :
                 
                 for message_status in value.statuses :
                     status_row = await self.storage.insert_status(
-                        payload      = metadata["id"],
+                        payload      = payload_row["id"],
                         msg_id       = message_status.id,
                         msg_status   = message_status.status,
                         status_ts    = _timestamp(message_status.timestamp),
@@ -521,7 +522,8 @@ class AsyncQueueDB :
                 owner_token,
             )
             raise RuntimeError(
-                f"Queued WhatsApp message '{queue_row['msg_id']}' was not found"
+                f"In {here()}: Queued WhatsApp message "
+                f"'{queue_row['msg_id']}' was not found"
             )
         
         return {

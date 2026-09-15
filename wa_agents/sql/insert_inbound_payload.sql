@@ -17,6 +17,10 @@ WITH inserted AS (
   RETURNING
     id,
     received_at,
+    item_idx,
+    item_ts,
+    change_idx,
+    contact,
     data_raw,
     data_hash,
     validated,
@@ -27,6 +31,10 @@ WITH inserted AS (
 SELECT
   pay.id,
   pay.received_at,
+  pay.item_idx,
+  pay.item_ts,
+  pay.change_idx,
+  pay.contact,
   pay.data_raw,
   pay.data_hash,
   pay.validated,
@@ -40,6 +48,10 @@ UNION ALL
 SELECT
   pay.id,
   pay.received_at,
+  pay.item_idx,
+  pay.item_ts,
+  pay.change_idx,
+  pay.contact,
   pay.data_raw,
   pay.data_hash,
   pay.validated,

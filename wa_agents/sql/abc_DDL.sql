@@ -152,12 +152,23 @@ ALTER TABLE public.wa_api_contact_profiles
 CREATE TABLE IF NOT EXISTS public.wa_api_inbound_payloads (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  received_at   TIMESTAMPTZ       NOT NULL DEFAULT now(),
+  
+  item_idx      SMALLINT          NOT NULL DEFAULT 0,
+  item_ts       TIMESTAMPTZ       NOT NULL DEFAULT now(),
+  change_idx    SMALLINT          NOT NULL DEFAULT 0,
+  contact       BIGINT            DEFAULT NULL,
   
   data_raw      JSONB             NOT NULL,
   data_hash     T_SHA256_HEX_HASH NOT NULL,
   validated     BOOLEAN           NOT NULL DEFAULT FALSE,
   errors        JSONB             DEFAULT NULL,
+  
+  CONSTRAINT wa_api_inbound_payloads_contact_fkey
+    FOREIGN KEY (contact)
+    REFERENCES public.wa_api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
   
   CONSTRAINT wa_api_inbound_payloads_data_hash_unique
     UNIQUE (data_hash),
@@ -170,49 +181,14 @@ CREATE TABLE IF NOT EXISTS public.wa_api_inbound_payloads (
 CREATE INDEX IF NOT EXISTS wa_api_inbound_payloads_received_at_idx
   ON public.wa_api_inbound_payloads (received_at);
 
+CREATE INDEX IF NOT EXISTS wa_api_inbound_payloads_contact_idx
+  ON public.wa_api_inbound_payloads (contact);
+
 CREATE INDEX IF NOT EXISTS wa_api_inbound_payloads_validation_errors_idx
   ON public.wa_api_inbound_payloads (received_at)
-  WHERE ( NOT validated ) AND ( errors IS NOT NULL );
+  WHERE ( ( NOT validated ) AND ( errors IS NOT NULL ) );
 
 ALTER TABLE public.wa_api_inbound_payloads
-  ENABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS public.wa_api_inbound_payload_metadata (
-  
-  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  received_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
-  
-  item_idx      SMALLINT      DEFAULT 0,
-  item_ts       TIMESTAMPTZ   DEFAULT now(),
-  change_idx    SMALLINT      DEFAULT 0,
-  
-  payload_id    BIGINT        NOT NULL,
-  contact       BIGINT        NOT NULL,
-  
-  CONSTRAINT wa_api_inbound_payload_metadata_payload_id_fkey
-    FOREIGN KEY (payload_id)
-    REFERENCES public.wa_api_inbound_payloads(id)
-    ON UPDATE CASCADE
-    ON DELETE CASCADE,
-  
-  CONSTRAINT wa_api_inbound_payload_metadata_contact_fkey
-    FOREIGN KEY (contact)
-    REFERENCES public.wa_api_contacts(id)
-    ON UPDATE CASCADE
-    ON DELETE CASCADE
-
-);
-
-CREATE INDEX IF NOT EXISTS wa_api_inbound_payload_metadata_received_at_idx
-  ON public.wa_api_inbound_payload_metadata (received_at);
-
-CREATE INDEX IF NOT EXISTS wa_api_inbound_payload_metadata_payload_id_idx
-  ON public.wa_api_inbound_payload_metadata (payload_id);
-
-CREATE INDEX IF NOT EXISTS wa_api_inbound_payload_metadata_contact_idx
-  ON public.wa_api_inbound_payload_metadata (contact);
-
-ALTER TABLE public.wa_api_inbound_payload_metadata
   ENABLE ROW LEVEL SECURITY;
 
 
@@ -232,7 +208,7 @@ CREATE TABLE IF NOT EXISTS public.wa_api_inbound_messages (
   
   CONSTRAINT wa_api_inbound_messages_payload_fkey
     FOREIGN KEY (payload)
-    REFERENCES public.wa_api_inbound_payload_metadata(id)
+    REFERENCES public.wa_api_inbound_payloads(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
@@ -340,7 +316,7 @@ CREATE TABLE IF NOT EXISTS public.wa_api_statuses (
   
   CONSTRAINT wa_api_statuses_payload_fkey
     FOREIGN KEY (payload)
-    REFERENCES public.wa_api_inbound_payload_metadata(id)
+    REFERENCES public.wa_api_inbound_payloads(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   

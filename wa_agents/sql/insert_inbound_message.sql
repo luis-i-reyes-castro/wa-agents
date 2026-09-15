@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- payload  : wa_api_inbound_payload_metadata.id
+  -- payload  : wa_api_inbound_payloads.id
   -- is_echo  : bool | None
   -- msg_id   : WhatsAppMessageID
   -- msg_ts   : datetime

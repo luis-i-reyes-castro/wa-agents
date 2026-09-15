@@ -4,6 +4,10 @@
 SELECT
   id,
   received_at,
+  item_idx,
+  item_ts,
+  change_idx,
+  contact,
   data_raw,
   data_hash,
   validated,

@@ -84,9 +84,6 @@ SQL_INSERT_CASE_HANDLER_MESSAGE     = _load_sql("insert_case_handler_message.sql
 SQL_INSERT_CASE_MANIFEST            = _load_sql("insert_case_manifest.sql")
 SQL_INSERT_INBOUND_MESSAGE          = _load_sql("insert_inbound_message.sql")
 SQL_INSERT_INBOUND_PAYLOAD          = _load_sql("insert_inbound_payload.sql")
-SQL_INSERT_INBOUND_PAYLOAD_METADATA = _load_sql(
-    "insert_inbound_payload_metadata.sql"
-)
 SQL_INSERT_MEDIA                    = _load_sql("insert_media.sql")
 SQL_INSERT_OUTBOUND_MESSAGE         = _load_sql("insert_outbound_message.sql")
 SQL_INSERT_STATUS                   = _load_sql("insert_status.sql")
@@ -96,6 +93,9 @@ SQL_MARK_INBOUND_PAYLOAD_VALID      = _load_sql("mark_inbound_payload_valid.sql"
 SQL_RELEASE_CONTACT_LEASE           = _load_sql("release_contact_lease.sql")
 SQL_RENEW_CONTACT_LEASE             = _load_sql("renew_contact_lease.sql")
 SQL_UPDATE_CASE_MANIFEST            = _load_sql("update_case_manifest.sql")
+SQL_UPDATE_INBOUND_PAYLOAD_METADATA = _load_sql(
+    "update_inbound_payload_metadata.sql"
+)
 SQL_UPSERT_BUSINESS                 = _load_sql("upsert_business.sql")
 SQL_UPSERT_CONTACT                  = _load_sql("upsert_contact.sql")
 SQL_UPSERT_CONTACT_PROFILE          = _load_sql("upsert_contact_profile.sql")
@@ -151,11 +151,15 @@ def _message_from_row( row : dict[str, Any] | None) -> Message | None :
     
     basemodel = row.get("basemodel")
     if not isinstance( basemodel, str) :
-        raise ValueError(f"Invalid case-handler message model '{basemodel}'")
+        raise ValueError(
+            f"In {here()}: Invalid case-handler message model '{basemodel}'"
+        )
     
     MsgBM     = getattr( case_handler_models, basemodel, None)
     if not isinstance( MsgBM, type) or not issubclass( MsgBM, Message) :
-        raise ValueError(f"Unknown case-handler message model '{basemodel}'")
+        raise ValueError(
+            f"In {here()}: Unknown case-handler message model '{basemodel}'"
+        )
     
     payload = dict(row.get("data") or {})
     payload.update(
@@ -338,7 +342,7 @@ class SyncSupabaseStorage :
             { "payload_id" : payload_id, "errors" : Jsonb(errors) },
         )
     
-    def insert_inbound_payload_metadata(
+    def update_inbound_payload_metadata(
         self,
         payload_id : int,
         contact    : int,
@@ -348,7 +352,7 @@ class SyncSupabaseStorage :
     ) -> dict[str, Any] | None :
         
         return self._fetch_one(
-            SQL_INSERT_INBOUND_PAYLOAD_METADATA,
+            SQL_UPDATE_INBOUND_PAYLOAD_METADATA,
             {
                 "item_idx"   : item_idx,
                 "item_ts"    : item_ts,
@@ -801,7 +805,7 @@ class AsyncSupabaseStorage :
             { "payload_id" : payload_id, "errors" : Jsonb(errors) },
         )
     
-    async def insert_inbound_payload_metadata(
+    async def update_inbound_payload_metadata(
         self,
         payload_id : int,
         contact    : int,
@@ -811,7 +815,7 @@ class AsyncSupabaseStorage :
     ) -> dict[str, Any] | None :
         
         return await self._fetch_one(
-            SQL_INSERT_INBOUND_PAYLOAD_METADATA,
+            SQL_UPDATE_INBOUND_PAYLOAD_METADATA,
             {
                 "item_idx"   : item_idx,
                 "item_ts"    : item_ts,

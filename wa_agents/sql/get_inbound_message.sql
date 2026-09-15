@@ -2,6 +2,13 @@
   -- msg_id : WhatsAppMessageID
 
 SELECT
+  bus.id                    AS business,
+  bus.waba_id               AS waba_id,
+  bus.phone_number_id       AS phone_number_id,
+  bus.display_phone_number  AS display_phone_number,
+  con.wa_id                 AS wa_id,
+  con.user_id               AS user_id,
+  pay.contact               AS contact,
   msg.id                    AS id,
   msg.payload               AS payload,
   msg.is_echo               AS is_echo,
@@ -9,23 +16,16 @@ SELECT
   msg.msg_ts                AS msg_ts,
   msg.msg_type              AS msg_type,
   msg.msg_data              AS msg_data,
-  pmd.contact               AS contact,
-  con.wa_id                 AS wa_id,
-  con.user_id               AS user_id,
   pro.profile_name          AS profile_name,
-  pro.profile_username      AS profile_username,
-  bus.id                    AS business,
-  bus.waba_id               AS waba_id,
-  bus.phone_number_id       AS phone_number_id,
-  bus.display_phone_number  AS display_phone_number
+  pro.profile_username      AS profile_username
 FROM
-  public.wa_api_inbound_messages         AS msg
+  public.wa_api_businesses       AS bus
 JOIN
-  public.wa_api_inbound_payload_metadata AS pmd ON pmd.id  = msg.payload
+  public.wa_api_contacts         AS con ON con.business = bus.id
 JOIN
-  public.wa_api_contacts                 AS con ON con.id  = pmd.contact
+  public.wa_api_inbound_payloads AS pay ON pay.contact = con.id
 JOIN
-  public.wa_api_businesses               AS bus ON bus.id  = con.business
+  public.wa_api_inbound_messages AS msg ON msg.payload = pay.id
 LEFT JOIN LATERAL (
   SELECT
     prf.profile_name,

@@ -3,17 +3,19 @@
 
 WITH candidate AS MATERIALIZED (
   SELECT
+    pay.contact,
     que.id,
-    que.msg_id,
-    pmd.contact
+    que.msg_id
   FROM
-    public.wa_api_to_case_handler_queue AS que
+    public.wa_api_businesses            AS bus
   JOIN
-    public.wa_api_inbound_messages AS msg ON
-      ( msg.msg_id = que.msg_id )
+    public.wa_api_contacts              AS con ON bus.id = con.business
   JOIN
-    public.wa_api_inbound_payload_metadata AS pmd ON
-      ( pmd.id = msg.payload )
+    public.wa_api_inbound_payloads      AS pay ON con.id = pay.contact
+  JOIN
+    public.wa_api_inbound_messages      AS msg ON pay.id = msg.payload
+  JOIN
+    public.wa_api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
   WHERE
     ( que.msg_status = 'pending' ) AND
     NOT EXISTS (
@@ -22,7 +24,7 @@ WITH candidate AS MATERIALIZED (
       FROM
         public.wa_case_handler_contact_leases AS old
       WHERE
-        ( old.contact    = pmd.contact ) AND
+        ( old.contact    = pay.contact ) AND
         ( old.expires_at > now()       )
     )
   ORDER BY
@@ -74,8 +76,8 @@ JOIN
 WHERE
   ( que.id = can.id )
 RETURNING
-  que.id         AS row_id,
-  que.msg_id     AS msg_id,
-  que.msg_status AS msg_status,
-  can.contact    AS contact,
-  lea.owner_token;
+  can.contact     AS contact,
+  lea.owner_token AS owner_token,
+  que.id          AS row_id,
+  que.msg_id      AS msg_id,
+  que.msg_status  AS msg_status;

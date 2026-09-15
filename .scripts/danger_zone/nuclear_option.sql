@@ -12,7 +12,6 @@ DROP TABLE IF EXISTS
   public.wa_api_media,
   public.wa_api_outbound_messages,
   public.wa_api_inbound_messages,
-  public.wa_api_inbound_payload_metadata,
   public.wa_api_inbound_payloads,
   public.wa_api_contact_profiles,
   public.wa_api_contacts,
