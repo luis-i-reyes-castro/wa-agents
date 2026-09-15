@@ -124,7 +124,14 @@ CREATE TABLE IF NOT EXISTS public.wa_api_contact_profiles (
     FOREIGN KEY (contact)
     REFERENCES public.wa_api_contacts(id)
     ON UPDATE CASCADE
-    ON DELETE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_contact_profile_unique
+    UNIQUE NULLS NOT DISTINCT (
+      contact,
+      profile_name,
+      profile_username
+    )
 
 );
 

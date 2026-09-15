@@ -13,6 +13,11 @@ VALUES (
   @profile_name,
   @profile_username
 )
+ON CONFLICT ON CONSTRAINT wa_api_contact_profile_unique
+DO
+  UPDATE
+SET
+  last_seen_at = now()
 RETURNING
   id,
   last_seen_at,

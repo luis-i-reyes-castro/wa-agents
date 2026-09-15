@@ -170,7 +170,7 @@ class QueueDB :
                     raise RuntimeError(f"In {here()}: Unable to persist contact")
                 
                 if contact_model.profile :
-                    profile = self.storage.insert_contact_profile(
+                    profile = self.storage.upsert_contact_profile(
                         contact          = contact["id"],
                         profile_name     = contact_model.profile.name,
                         profile_username = contact_model.profile.username,
@@ -395,7 +395,7 @@ class AsyncQueueDB :
                     raise RuntimeError(f"In {here()}: Unable to persist contact")
                 
                 if contact_model.profile :
-                    profile = await self.storage.insert_contact_profile(
+                    profile = await self.storage.upsert_contact_profile(
                         contact          = contact["id"],
                         profile_name     = contact_model.profile.name,
                         profile_username = contact_model.profile.username,
