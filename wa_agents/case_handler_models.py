@@ -32,6 +32,7 @@ from sofia_utils.pydantic import (
     NE_str,
     NE_var_name,
     SHA256_Hex,
+    UnixTS,
 )
 from sofia_utils.stamps import (
     generate_UUID,
@@ -115,8 +116,9 @@ class Message ( BaseModel, ABC) :
         Must implement abstract property `role`.
     """
     id        : NonNegativeInt | None = None
-    ts        : datetime = Field( default_factory = lambda : datetime.now(UTC))
-    basemodel : NE_str         | None = None
+    ts        : Annotated[ datetime | UnixTS,
+                           Field( default_factory = lambda : datetime.now(UTC) )]
+    basemodel : NE_str                = "<BASEMODEL>"
     origin    : NE_str         | None = None
     
     def model_post_init( self, __context : Any) -> None :
@@ -124,6 +126,9 @@ class Message ( BaseModel, ABC) :
         Populates `basemodel` with the class name
         """
         self.basemodel = self.__class__.__name__
+        
+        if isinstance( self.ts, str) :
+            self.ts = datetime.fromtimestamp( float(self.ts), UTC)
         
         return
     

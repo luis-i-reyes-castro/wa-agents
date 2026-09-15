@@ -16,6 +16,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     NonNegativeInt,
+    TypeAdapter,
     model_validator,
 )
 from types import SimpleNamespace
@@ -37,7 +38,6 @@ from uuid import (
     uuid4,
 )
 
-from sofia_utils.io import write_to_json_string
 from sofia_utils.printing import get_qualname as here
 from sofia_utils.pydantic import (
     NE_str,
@@ -75,6 +75,7 @@ from .whatsapp_functions import (
 )
 from .whatsapp_models import (
     WhatsAppContact,
+    WhatsAppContactPayload,
     WhatsAppMessage,
     WhatsAppMetaData,
 )
@@ -105,7 +106,7 @@ class WhatsAppDatabaseRecord (BaseModel) :
     model_config = ConfigDict( frozen = False)
     
     row_id : NonNegativeInt
-    api_id : NE_str = "API_ID_UNSET"
+    api_id : NE_str = "<PHONE_NUMBER_ID|WA_ID|USER_ID>"
 
 
 class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsAppMetaData) :
@@ -559,7 +560,7 @@ class CaseHandlerBase ( Machine, ABC) :
 
             msg = UserContentMsg(
                 origin = here(),
-                ts     = datetime.fromtimestamp( int(message.timestamp), UTC),
+                ts     = message.timestamp,
                 text   = text,
                 media  = media,
             )
@@ -573,8 +574,25 @@ class CaseHandlerBase ( Machine, ABC) :
 
             msg = UserInteractiveReplyMsg(
                 origin = here(),
-                ts     = datetime.fromtimestamp( int(message.timestamp), UTC),
+                ts     = message.timestamp,
                 choice = choice,
+            )
+
+        elif message.contacts :
+            msg = UserContentMsg(
+                origin = here(),
+                ts     = message.timestamp,
+                text   = (
+                    TypeAdapter( tuple[ WhatsAppContactPayload, ...] )
+                    .dump_json(message.contacts).decode()
+                ),
+            )
+
+        elif message.location :
+            msg = UserContentMsg(
+                origin = here(),
+                ts     = message.timestamp,
+                text   = message.location.model_dump_json(),
             )
 
         if not msg :
@@ -1190,7 +1208,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
             msg = UserContentMsg(
                 origin = here(),
-                ts     = datetime.fromtimestamp( int(message.timestamp), UTC),
+                ts     = message.timestamp,
                 text   = text,
                 media  = media,
             )
@@ -1204,8 +1222,25 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
             msg = UserInteractiveReplyMsg(
                 origin = here(),
-                ts     = datetime.fromtimestamp( int(message.timestamp), UTC),
+                ts     = message.timestamp,
                 choice = choice,
+            )
+
+        elif message.contacts :
+            msg = UserContentMsg(
+                origin = here(),
+                ts     = message.timestamp,
+                text   = (
+                    TypeAdapter( tuple[ WhatsAppContactPayload, ...] )
+                    .dump_json(message.contacts).decode()
+                ),
+            )
+
+        elif message.location :
+            msg = UserContentMsg(
+                origin = here(),
+                ts     = message.timestamp,
+                text   = message.location.model_dump_json(),
             )
 
         if not msg :
