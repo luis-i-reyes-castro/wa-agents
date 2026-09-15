@@ -481,7 +481,7 @@ class AssistantMsg (BasicMsg) :
         print(
             self.model_dump_json(
                 indent  = JSON_INDENT,
-                exclude = { "instructions", "tools" },
+                exclude = { "instructions", "tools", "context" },
             )
         )
         return
