@@ -2,7 +2,7 @@
 S3 media storage.
 
 Object layout:
-    <business_id>/<contact_id>/<case_id>/<filename>
+    <business_id>/<contact_id>/<case_id>_<message_id>.<extension>
 
 Only media bytes live in S3. All metadata, messages, manifests, deduplication data,
 and contact leases live in PostgreSQL.
@@ -61,7 +61,11 @@ def media_object_key(
         )
     
     return str(
-        PurePosixPath( str(business_id), str(contact_id), str(case_id), filename)
+        PurePosixPath(
+            str(business_id),
+            str(contact_id),
+            f"{case_id}_{filename}",
+        )
     )
 
 
