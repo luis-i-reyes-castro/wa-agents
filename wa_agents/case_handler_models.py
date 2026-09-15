@@ -472,6 +472,20 @@ class AssistantMsg (BasicMsg) :
     def is_empty(self) -> bool :
         return not bool( self.text or self.tool_calls or self.st_output )
     
+    def print(self) -> None :
+        """
+        Print itself
+        """
+        print_sep()
+        print("[INFO] wa-agents case handler message:")
+        print(
+            self.model_dump_json(
+                indent  = JSON_INDENT,
+                exclude = { "instructions", "tools" },
+            )
+        )
+        return
+    
     @property
     def role(self) -> str :
         return "assistant"
