@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import httpx
+import json
 import os
 import re
 
@@ -11,6 +12,7 @@ from typing import (
     TypedDict,
 )
 
+from sofia_utils.io import JSON_INDENT
 from sofia_utils.printing import print_sep
 
 from .case_handler_models import (
@@ -69,7 +71,8 @@ def _collect_send_results(
     response_data = response.json()
     
     print_sep()
-    print( "WhatsApp API response to sent message:", response_data)
+    print("[INFO] WhatsApp API response to sent message:")
+    print(json.dumps( response_data, indent = JSON_INDENT))
     
     response.raise_for_status()
     

@@ -137,7 +137,7 @@ class Message ( BaseModel, ABC) :
         Print itself
         """
         print_sep()
-        print("[INFO] WA-AGENTS MESSAGE:")
+        print("[INFO] wa-agents case handler message:")
         print(self.model_dump_json( indent = JSON_INDENT))
         return
     

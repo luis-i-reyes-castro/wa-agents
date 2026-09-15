@@ -30,6 +30,7 @@ from typing import (
     Type,
 )
 
+from sofia_utils.io import JSON_INDENT
 from sofia_utils.printing import (
     get_qualname as here,
     print_sep,
@@ -282,7 +283,8 @@ class WhatsAppAPIServer(FastAPI) :
             data = {}
         
         print_sep()
-        print( "Incoming:", data)
+        print("[INFO] WhatsApp API incoming payload:")
+        print(json.dumps( data, indent = JSON_INDENT))
         
         try :
             enqueue_result = await self.queue_db.enqueue(data)
