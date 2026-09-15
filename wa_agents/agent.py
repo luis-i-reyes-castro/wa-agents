@@ -423,7 +423,9 @@ class AgentBase (ABC) :
             model        = getattr( response, "model", None),
             instructions = self.prompts_merged,
             tools        = self.tools,
-            context      = [ message.id for message in context ],
+            context      = [
+                message.id for message in context if message.id is not None
+            ],
         )
         
         usage = getattr( response, "usage", None)

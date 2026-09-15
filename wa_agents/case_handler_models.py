@@ -449,7 +449,7 @@ class AssistantMsg (BasicMsg) :
     tokens_total  : NonNegativeInt | None = None
     instructions  : str            | None = None
     tools         : list[Any]      | None = None
-    context       : list[NE_str]   | None = None
+    context       : list[NonNegativeInt] | None = None
     
     def append_to_text( self, text_block : str | None) -> None :
         
