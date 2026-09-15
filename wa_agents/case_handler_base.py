@@ -12,16 +12,18 @@ from datetime import (
     datetime,
     timedelta,
 )
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    NonNegativeInt,
+    model_validator,
+)
 from types import SimpleNamespace
 from typing import (
     Any,
+    Self,
     TypedDict,
 )
-from uuid import (
-    UUID,
-    uuid4,
-)
-
 from transitions import (
     Machine,
     State,
@@ -30,9 +32,17 @@ from transitions.extensions.asyncio import (
     AsyncMachine,
     AsyncState,
 )
+from uuid import (
+    UUID,
+    uuid4,
+)
 
 from sofia_utils.io import write_to_json_string
 from sofia_utils.printing import get_qualname as here
+from sofia_utils.pydantic import (
+    NE_str,
+    NumericID,
+)
 
 from .case_handler_models import (
     AssistantMsg,
@@ -77,6 +87,46 @@ class TransitionDict (TypedDict) :
     source  : str
     trigger : str
     dest    : str
+
+
+class WhatsAppDatabaseRecord (BaseModel) :
+    """
+    Normalized WhatsApp business or contact record:
+        `row_id`: column `id` in the corresponding table
+        `api_id`: the business/contact API ID for sending messages
+    Structure for businesses:
+        `row_id` : `wa_api_businesses.id`
+        `api_id` : `wa_api_businesses.phone_number_id` | null
+    Structure for contacts:
+        `row_id` : `wa_api_contacts.id`
+        `api_id` : `wa_api_contacts.wa_id` | `wa_api_contacts.user_id` | null
+    """
+    model_config = ConfigDict( frozen = False)
+    
+    row_id : NonNegativeInt
+    api_id : NE_str = "API_ID_UNSET"
+
+
+class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsAppMetaData) :
+    
+    model_config = ConfigDict( frozen = False)
+    
+    waba_id : NumericID
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        self.api_id = self.phone_number_id
+        return self
+
+
+class WhatsAppDatabaseRecord_Contact ( WhatsAppDatabaseRecord, WhatsAppContact) :
+    
+    model_config = ConfigDict( frozen = False)
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        self.api_id = self.wa_id or self.user_id
+        return self
 
 
 # =========================================================================================
@@ -141,11 +191,9 @@ class CaseHandlerBase ( Machine, ABC) :
 
     def __init__(
         self,
-        operator : WhatsAppMetaData,
-        user     : WhatsAppContact,
+        operator : WhatsAppDatabaseRecord_Business,
+        user     : WhatsAppDatabaseRecord_Contact,
         *,
-        business_id       : int,
-        contact_id        : int,
         api_inbound_msg_id : int | None   = None,
         owner_token        : UUID | str | None = None,
         debug              : bool              = False,
@@ -156,28 +204,26 @@ class CaseHandlerBase ( Machine, ABC) :
         Args:
             operator          : WhatsApp business phone metadata
             user              : WhatsApp contact data
-            business_id       : `wa_api_businesses.id`
-            contact_id        : `wa_api_contacts.id`
             api_inbound_msg_id: Current `wa_api_inbound_messages.id`, if any
             owner_token       : Token owning the contact lease
             debug             : Whether to send verbose WhatsApp copies
             database_url      : Optional PostgreSQL URL override
         """
-        self.business_id        = business_id
-        self.contact_id         = contact_id
+        self.business_id        = operator.row_id
+        self.contact_id         = user.row_id
         self.api_inbound_msg_id = api_inbound_msg_id
         self.owner_token        = owner_token or uuid4()
 
         self.operator_num = operator.display_phone_number
-        self.operator_id  = operator.phone_number_id
-        self.user_id      = str(user.wa_id or user.user_id)
+        self.operator_id  = operator.api_id
+        self.user_id      = user.api_id
         self.user_name    = user.profile.name if user.profile else None
         self.debug        = debug
 
         profile = user.profile
         self.user_data = (
             UserData(
-                id           = contact_id,
+                id           = user.row_id,
                 name         = profile.name,
                 username     = profile.username,
                 lan_reg_data = (
@@ -733,11 +779,9 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
     def __init__(
         self,
-        operator : WhatsAppMetaData,
-        user     : WhatsAppContact,
+        operator : WhatsAppDatabaseRecord_Business,
+        user     : WhatsAppDatabaseRecord_Contact,
         *,
-        business_id       : int,
-        contact_id        : int,
         api_inbound_msg_id : int | None   = None,
         owner_token        : UUID | str | None = None,
         debug              : bool              = False,
@@ -748,28 +792,26 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         Args:
             operator          : WhatsApp business phone metadata.
             user              : WhatsApp contact data.
-            business_id       : `wa_api_businesses.id`.
-            contact_id        : `wa_api_contacts.id`.
             api_inbound_msg_id: Current `wa_api_inbound_messages.id`, if any.
             owner_token       : Token owning the contact lease.
             debug             : Whether to send verbose WhatsApp copies.
             database_url      : Optional PostgreSQL URL override.
         """
-        self.business_id        = business_id
-        self.contact_id         = contact_id
+        self.business_id        = operator.row_id
+        self.contact_id         = user.row_id
         self.api_inbound_msg_id = api_inbound_msg_id
         self.owner_token        = owner_token or uuid4()
 
         self.operator_num = operator.display_phone_number
-        self.operator_id  = operator.phone_number_id
-        self.user_id      = str(user.wa_id or user.user_id)
+        self.operator_id  = operator.api_id
+        self.user_id      = user.api_id
         self.user_name    = user.profile.name if user.profile else None
         self.debug        = debug
 
         profile = user.profile
         self.user_data = (
             UserData(
-                id           = contact_id,
+                id           = user.row_id,
                 name         = profile.name,
                 username     = profile.username,
                 lan_reg_data = (

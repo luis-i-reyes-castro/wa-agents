@@ -370,11 +370,11 @@ class SyncSupabaseStorage :
             SQL_INSERT_INBOUND_MESSAGE,
             {
                 "payload"  : payload,
-                "is_echo"  : is_echo,
                 "msg_id"   : msg_id,
                 "msg_ts"   : msg_ts,
                 "msg_type" : msg_type,
                 "msg_data" : Jsonb(msg_data),
+                "is_echo"  : is_echo,
             },
         )
     
@@ -444,11 +444,11 @@ class SyncSupabaseStorage :
         return self._fetch_one(
             SQL_INSERT_MEDIA,
             {
-                "inbound_msg_id"  : inbound_msg_id,
-                "outbound_msg_id" : outbound_msg_id,
                 "mime_type"       : mime_type,
                 "size"            : size,
                 "object_key"      : object_key,
+                "inbound_msg_id"  : inbound_msg_id,
+                "outbound_msg_id" : outbound_msg_id,
                 "caption"         : caption,
                 "filename"        : filename,
             },
@@ -833,11 +833,11 @@ class AsyncSupabaseStorage :
             SQL_INSERT_INBOUND_MESSAGE,
             {
                 "payload"  : payload,
-                "is_echo"  : is_echo,
                 "msg_id"   : msg_id,
                 "msg_ts"   : msg_ts,
                 "msg_type" : msg_type,
                 "msg_data" : Jsonb(msg_data),
+                "is_echo"  : is_echo,
             },
         )
     
@@ -907,11 +907,11 @@ class AsyncSupabaseStorage :
         return await self._fetch_one(
             SQL_INSERT_MEDIA,
             {
-                "inbound_msg_id"  : inbound_msg_id,
-                "outbound_msg_id" : outbound_msg_id,
                 "mime_type"       : mime_type,
                 "size"            : size,
                 "object_key"      : object_key,
+                "inbound_msg_id"  : inbound_msg_id,
+                "outbound_msg_id" : outbound_msg_id,
                 "caption"         : caption,
                 "filename"        : filename,
             },

@@ -7,20 +7,22 @@ assistant response -> tool execution -> tool results -> assistant response.
 """
 
 from pathlib import Path
+from uuid import UUID
 
 from sofia_utils.printing import get_qualname as here
 
 from wa_agents.agent import AsyncAgent
-from wa_agents.case_handler_base import AsyncCaseHandlerBase
+from wa_agents.case_handler_base import (
+    AsyncCaseHandlerBase,
+    WhatsAppDatabaseRecord_Business,
+    WhatsAppDatabaseRecord_Contact,
+)
 from wa_agents.case_handler_models import (
-    MediaContent,
     ToolCall,
     ToolResult,
     ToolResultsMsg,
 )
 from wa_agents.whatsapp_models import (
-    WhatsAppContact,
-    WhatsAppMetaData,
     WhatsAppMessage,
 )
 
@@ -65,11 +67,24 @@ class CaseHandler (AsyncCaseHandlerBase) :
 
     MAIN_AGENT_MODELS = [ "openai/gpt-5-mini" ]
 
-    def __init__( self,
-                  operator : WhatsAppMetaData,
-                  user     : WhatsAppContact,
-                  debug    : bool = False ) -> None :
-        super().__init__( operator, user, debug )
+    def __init__(
+        self,
+        operator : WhatsAppDatabaseRecord_Business,
+        user     : WhatsAppDatabaseRecord_Contact,
+        *,
+        api_inbound_msg_id : int | None        = None,
+        owner_token        : UUID | str | None = None,
+        debug              : bool              = False,
+        database_url       : str | None        = None,
+    ) -> None :
+        super().__init__(
+            operator,
+            user,
+            api_inbound_msg_id = api_inbound_msg_id,
+            owner_token        = owner_token,
+            debug              = debug,
+            database_url       = database_url,
+        )
         self.main_agent  : AsyncAgent | None = None
         self.tool_server = ToolServer()
         return
@@ -89,7 +104,7 @@ class CaseHandler (AsyncCaseHandlerBase) :
     async def process_message(
         self,
         message       : WhatsAppMessage,
-        media_content : MediaContent | None = None,
+        media_content : bytes | None = None,
     ) -> bool :
         """
         Deduplicate + ingest and decide whether to respond.

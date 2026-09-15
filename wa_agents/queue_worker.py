@@ -22,6 +22,8 @@ from uuid import UUID
 from .case_handler_base import (
     AsyncCaseHandlerBase,
     CaseHandlerBase,
+    WhatsAppDatabaseRecord_Business,
+    WhatsAppDatabaseRecord_Contact,
 )
 from .queue_db import (
     AsyncQueueDB,
@@ -32,10 +34,8 @@ from .whatsapp_functions import (
     fetch_media,
 )
 from .whatsapp_models import (
-    WhatsAppContact,
     WhatsAppMessage,
     WhatsAppMessageEcho,
-    WhatsAppMetaData,
     WhatsAppProfile,
 )
 
@@ -50,12 +50,10 @@ class HandlerJob :
     """
     Everything required to reconstruct a contact-bound handler.
     """
-    business_id        : int
-    contact_id         : int
+    operator           : WhatsAppDatabaseRecord_Business
+    user               : WhatsAppDatabaseRecord_Contact
     api_inbound_msg_id : int
     owner_token        : UUID | str
-    operator           : WhatsAppMetaData
-    user               : WhatsAppContact
 
 
 class JobTimeDict ( dict[ HandlerJob, float] ) :
@@ -93,11 +91,14 @@ def _job_and_message(
         )
         if item.get("profile_name") else None
     )
-    operator = WhatsAppMetaData(
+    operator = WhatsAppDatabaseRecord_Business(
+        row_id               = item["business"],
+        waba_id              = item["waba_id"],
         display_phone_number = item["display_phone_number"],
         phone_number_id      = item["phone_number_id"],
     )
-    user = WhatsAppContact(
+    user = WhatsAppDatabaseRecord_Contact(
+        row_id  = item["contact"],
         profile = profile,
         wa_id   = item.get("wa_id"),
         user_id = item.get("user_id"),
@@ -117,8 +118,6 @@ def _job_and_message(
     message = MsgBM.model_validate(msg_data)
     
     job = HandlerJob(
-        business_id        = item["business"],
-        contact_id         = item["contact"],
         api_inbound_msg_id = item["id"],
         owner_token        = item["owner_token"],
         operator           = operator,
@@ -154,8 +153,6 @@ class QueueWorker :
         return self.handler_cls(
             job.operator,
             job.user,
-            business_id        = job.business_id,
-            contact_id         = job.contact_id,
             api_inbound_msg_id = job.api_inbound_msg_id,
             owner_token        = job.owner_token,
         )
@@ -248,7 +245,7 @@ class QueueWorker :
                 if not handler.renew_contact_lease() :
                     logging.warning(
                         "Contact lease expired before response for contact %s",
-                        job.contact_id,
+                        job.user.row_id,
                     )
                     continue
                 
@@ -262,7 +259,7 @@ class QueueWorker :
             
             except Exception as ex :
                 logging.error(
-                    f"Response failed for contact {job.contact_id}: {str(ex)}\n"
+                    f"Response failed for contact {job.user.row_id}: {str(ex)}\n"
                     f"Exception trace: {format_exc()}"
                 )
             
@@ -299,8 +296,6 @@ class AsyncQueueWorker :
         return self.handler_cls(
             job.operator,
             job.user,
-            business_id        = job.business_id,
-            contact_id         = job.contact_id,
             api_inbound_msg_id = job.api_inbound_msg_id,
             owner_token        = job.owner_token,
         )
@@ -424,7 +419,7 @@ class AsyncQueueWorker :
                 if not renewed :
                     logging.warning(
                         "Contact lease expired before response for contact %s",
-                        job.contact_id,
+                        job.user.row_id,
                     )
                     continue
                 
@@ -444,7 +439,7 @@ class AsyncQueueWorker :
             
             except Exception as ex :
                 logging.error(
-                    f"Response failed for contact {job.contact_id}: {str(ex)}\n"
+                    f"Response failed for contact {job.user.row_id}: {str(ex)}\n"
                     f"Exception trace: {format_exc()}"
                 )
             

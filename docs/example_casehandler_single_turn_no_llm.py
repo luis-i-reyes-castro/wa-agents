@@ -9,13 +9,10 @@ from sofia_utils.printing import get_qualname as here
 
 from wa_agents.case_handler_base import CaseHandlerBase
 from wa_agents.case_handler_models import (
-    MediaContent,
     ServerTextMsg,
     UserContentMsg,
 )
 from wa_agents.whatsapp_models import (
-    WhatsAppContact,
-    WhatsAppMetaData,
     WhatsAppMessage,
 )
 
@@ -25,16 +22,9 @@ class CaseHandler(CaseHandlerBase) :
     Deterministic single-turn handler.
     """
 
-    def __init__( self,
-                  operator : WhatsAppMetaData,
-                  user     : WhatsAppContact,
-                  debug    : bool = False ) -> None :
-        super().__init__( operator, user, debug )
-        return
-
     def process_message( self,
                          message       : WhatsAppMessage,
-                         media_content : MediaContent | None = None ) -> bool :
+                         media_content : bytes | None = None ) -> bool :
         """
         Deduplicate + ingest and decide whether to respond.
         """
