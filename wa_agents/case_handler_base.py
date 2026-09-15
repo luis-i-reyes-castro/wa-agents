@@ -65,6 +65,7 @@ from .supabase import (
     SyncSupabaseStorage,
 )
 from .whatsapp_functions import (
+    WhatsAppSendResult,
     async_send_whatsapp_interactive,
     async_send_whatsapp_template,
     async_send_whatsapp_text,
@@ -242,6 +243,8 @@ class CaseHandlerBase ( Machine, ABC) :
 
         self.storage       = SyncSupabaseStorage(database_url)
         self.media_storage : Any | None = None
+
+        self._pending_outbound_msg_ids : dict[ int, list[int] ] = {}
 
         return
 
@@ -492,6 +495,8 @@ class CaseHandlerBase ( Machine, ABC) :
                 f"In {here()}: Unable to persist case-handler message"
             )
 
+        self._link_pending_outbound_messages( message, stored.id)
+
         self.case_manifest.machine_state = machine_state
         self.case_manifest.updated_at    = datetime.now(UTC)
         if stored.id not in self.case_manifest.message_ids :
@@ -613,12 +618,77 @@ class CaseHandlerBase ( Machine, ABC) :
     # =====================================================================================
     # MESSAGE SENDING
 
+    def _link_outbound_messages(
+        self,
+        case_handler_msg_id : int,
+        api_outbound_ids    : list[int],
+    ) -> None :
+        
+        for api_outbound_id in api_outbound_ids :
+            
+            link = self.storage.link_case_handler_to_api(
+                case_handler_msg_id,
+                api_outbound_msg_id = api_outbound_id,
+            )
+            if not link :
+                raise RuntimeError(
+                    f"In {here()}: Unable to link case-handler and outbound messages"
+                )
+        
+        return
+    
+    def _link_pending_outbound_messages(
+        self,
+        message             : Message,
+        case_handler_msg_id : int,
+    ) -> None :
+        
+        pending = self._pending_outbound_msg_ids.pop( id(message), [])
+        self._link_outbound_messages( case_handler_msg_id, pending)
+        
+        return
+    
+    def _persist_outbound_messages(
+        self,
+        message : Message,
+        results : list[WhatsAppSendResult],
+    ) -> None :
+        
+        outbound_ids : list[int] = []
+        
+        for result in results :
+            row = self.storage.insert_outbound_message(
+                contact  = self.contact_id,
+                msg_id   = result["msg_id"],
+                msg_type = result["msg_type"],
+                msg_data = result["msg_data"],
+            )
+            if not row :
+                raise RuntimeError(
+                    f"In {here()}: Unable to persist outbound message"
+                )
+            outbound_ids.append(row["id"])
+        
+        if message.id is not None :
+            self._link_outbound_messages( message.id, outbound_ids)
+        elif outbound_ids :
+            self._pending_outbound_msg_ids.setdefault( id(message), [] ).extend(
+                outbound_ids
+            )
+        
+        return
+    
     def send_template( self, message : ServerTemplateMsg) -> bool :
         """
         Send one WhatsApp template message.
         """
         try :
-            send_whatsapp_template( self.operator_id, self.user_id, message)
+            results = send_whatsapp_template(
+                self.operator_id,
+                self.user_id,
+                message,
+            )
+            self._persist_outbound_messages( message, results)
             return True
         except Exception as ex :
             print(f"In {here()}: {str(ex)}")
@@ -632,45 +702,19 @@ class CaseHandlerBase ( Machine, ABC) :
         Send normal text or verbose debugging artifacts through WhatsApp.
         """
         try :
-            if not self.debug :
-                if isinstance( message, ( ServerTextMsg, AssistantMsg)) \
-                and message.text :
-                    send_whatsapp_text( self.operator_id, self.user_id, message.text)
-                return True
-
-            if isinstance( message, ( ServerTextMsg, AssistantMsg)) :
-                if message.text :
-                    text_str   = message.text
-                    text_str   = (
-                        text_str
-                        if len(text_str) <= 4096 else
-                        "[Result too long to display here]"
-                    )
-                    msg_display = "📝 Text:\n" + text_str
-                    send_whatsapp_text( self.operator_id, self.user_id, msg_display)
-
-                if isinstance( message, AssistantMsg) :
-                    for tool_call in message.tool_calls :
-                        msg_display = "🔧 Tool call:\n" + write_to_json_string(
-                            tool_call.model_dump()
-                        )
-                        send_whatsapp_text(
-                            self.operator_id,
-                            self.user_id,
-                            msg_display,
-                        )
-
-            elif isinstance( message, ToolResultsMsg) :
-                for tool_result in message.tool_results :
-                    result_str = write_to_json_string(tool_result.model_dump())
-                    if len(result_str) > 4096 :
-                        result_str = "[Result too long to display here]"
+            results : list[WhatsAppSendResult] = []
+            if (
+                isinstance( message, ( ServerTextMsg, AssistantMsg)) and
+                message.text
+            ) :
+                results.extend(
                     send_whatsapp_text(
                         self.operator_id,
                         self.user_id,
-                        "📊 Tool result:\n" + result_str,
+                        message.text,
                     )
-
+                )
+            self._persist_outbound_messages( message, results)
             return True
 
         except Exception as ex :
@@ -683,16 +727,12 @@ class CaseHandlerBase ( Machine, ABC) :
         Send one WhatsApp interactive message or its debugging variant.
         """
         try :
-            if not self.debug :
-                send_whatsapp_interactive( self.operator_id, self.user_id, message)
-            else :
-                message_cp      = deepcopy(message)
-                message_cp.body = "📝 Interactive Message:\n" + str(message_cp.body)
-                send_whatsapp_interactive(
-                    self.operator_id,
-                    self.user_id,
-                    message_cp,
-                )
+            results = send_whatsapp_interactive(
+                self.operator_id,
+                self.user_id,
+                message,
+            )
+            self._persist_outbound_messages( message, results)
             return True
 
         except Exception as ex :
@@ -830,6 +870,8 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
         self.storage       = AsyncSupabaseStorage(database_url)
         self.media_storage : Any | None = None
+
+        self._pending_outbound_msg_ids : dict[ int, list[int] ] = {}
 
         return
 
@@ -1084,6 +1126,8 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
                 f"In {here()}: Unable to persist case-handler message"
             )
 
+        await self._link_pending_outbound_messages( message, stored.id)
+
         self.case_manifest.machine_state = machine_state
         self.case_manifest.updated_at    = datetime.now(UTC)
         if stored.id not in self.case_manifest.message_ids :
@@ -1205,16 +1249,77 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     # =====================================================================================
     # MESSAGE SENDING
 
+    async def _link_outbound_messages(
+        self,
+        case_handler_msg_id : int,
+        api_outbound_ids    : list[int],
+    ) -> None :
+        
+        for api_outbound_id in api_outbound_ids :
+            
+            link = await self.storage.link_case_handler_to_api(
+                case_handler_msg_id,
+                api_outbound_msg_id = api_outbound_id,
+            )
+            if not link :
+                raise RuntimeError(
+                    f"In {here()}: Unable to link case-handler and outbound messages"
+                )
+        
+        return
+    
+    async def _link_pending_outbound_messages(
+        self,
+        message             : Message,
+        case_handler_msg_id : int,
+    ) -> None :
+        
+        pending = self._pending_outbound_msg_ids.pop( id(message), [])
+        await self._link_outbound_messages( case_handler_msg_id, pending)
+        
+        return
+    
+    async def _persist_outbound_messages(
+        self,
+        message : Message,
+        results : list[WhatsAppSendResult],
+    ) -> None :
+        
+        outbound_ids : list[int] = []
+        
+        for result in results :
+            row = await self.storage.insert_outbound_message(
+                contact  = self.contact_id,
+                msg_id   = result["msg_id"],
+                msg_type = result["msg_type"],
+                msg_data = result["msg_data"],
+            )
+            if not row :
+                raise RuntimeError(
+                    f"In {here()}: Unable to persist outbound message"
+                )
+            outbound_ids.append(row["id"])
+        
+        if message.id is not None :
+            await self._link_outbound_messages( message.id, outbound_ids)
+        elif outbound_ids :
+            self._pending_outbound_msg_ids.setdefault( id(message), [] ).extend(
+                outbound_ids
+            )
+        
+        return
+    
     async def send_template( self, message : ServerTemplateMsg) -> bool :
         """
         Send one WhatsApp template message asynchronously.
         """
         try :
-            await async_send_whatsapp_template(
+            results = await async_send_whatsapp_template(
                 self.operator_id,
                 self.user_id,
                 message,
             )
+            await self._persist_outbound_messages( message, results)
             return True
         except Exception as ex :
             print(f"In {here()}: {str(ex)}")
@@ -1228,51 +1333,19 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         Send normal text or verbose debugging artifacts asynchronously.
         """
         try :
-            if not self.debug :
-                if isinstance( message, ( ServerTextMsg, AssistantMsg)) \
-                and message.text :
+            results : list[WhatsAppSendResult] = []
+            if (
+                isinstance( message, ( ServerTextMsg, AssistantMsg)) and
+                message.text
+            ) :
+                results.extend(
                     await async_send_whatsapp_text(
                         self.operator_id,
                         self.user_id,
                         message.text,
                     )
-                return True
-
-            if isinstance( message, ( ServerTextMsg, AssistantMsg)) :
-                if message.text :
-                    text_str = (
-                        message.text
-                        if len(message.text) <= 4096 else
-                        "[Result too long to display here]"
-                    )
-                    await async_send_whatsapp_text(
-                        self.operator_id,
-                        self.user_id,
-                        "📝 Text:\n" + text_str,
-                    )
-
-                if isinstance( message, AssistantMsg) :
-                    for tool_call in message.tool_calls :
-                        msg_display = "🔧 Tool call:\n" + write_to_json_string(
-                            tool_call.model_dump()
-                        )
-                        await async_send_whatsapp_text(
-                            self.operator_id,
-                            self.user_id,
-                            msg_display,
-                        )
-
-            elif isinstance( message, ToolResultsMsg) :
-                for tool_result in message.tool_results :
-                    result_str = write_to_json_string(tool_result.model_dump())
-                    if len(result_str) > 4096 :
-                        result_str = "[Result too long to display here]"
-                    await async_send_whatsapp_text(
-                        self.operator_id,
-                        self.user_id,
-                        "📊 Tool result:\n" + result_str,
-                    )
-
+                )
+            await self._persist_outbound_messages( message, results)
             return True
 
         except Exception as ex :
@@ -1285,20 +1358,12 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         Send one WhatsApp interactive message asynchronously.
         """
         try :
-            if not self.debug :
-                await async_send_whatsapp_interactive(
-                    self.operator_id,
-                    self.user_id,
-                    message,
-                )
-            else :
-                message_cp      = deepcopy(message)
-                message_cp.body = "📝 Interactive Message:\n" + str(message_cp.body)
-                await async_send_whatsapp_interactive(
-                    self.operator_id,
-                    self.user_id,
-                    message_cp,
-                )
+            results = await async_send_whatsapp_interactive(
+                self.operator_id,
+                self.user_id,
+                message,
+            )
+            await self._persist_outbound_messages( message, results)
             return True
 
         except Exception as ex :

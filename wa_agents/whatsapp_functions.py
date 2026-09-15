@@ -6,7 +6,10 @@ import httpx
 import os
 import re
 
-from typing import Any
+from typing import (
+    Any,
+    TypedDict,
+)
 
 from sofia_utils.printing import print_sep
 
@@ -45,6 +48,46 @@ from .whatsapp_models import (
 
 
 API_URL = "https://graph.facebook.com/v26.0/"
+
+
+class WhatsAppSendResult (TypedDict) :
+    """
+    One accepted outbound message and the data required to persist it.
+    """
+    msg_id   : str
+    msg_type : str
+    msg_data : dict[str, Any]
+
+
+def _collect_send_results(
+    payload  : dict[str, Any],
+    response : httpx.Response,
+) -> list[WhatsAppSendResult] :
+    """
+    Validate a Graph send response and pair its message IDs with the request data.
+    """
+    response_data = response.json()
+    
+    print_sep()
+    print( "WhatsApp API response to sent message:", response_data)
+    
+    response.raise_for_status()
+    
+    msg_type = str(payload["type"])
+    msg_data = { msg_type : payload[msg_type] }
+    results  = [
+        WhatsAppSendResult(
+            msg_id   = str(message["id"]),
+            msg_type = msg_type,
+            msg_data = msg_data,
+        )
+        for message in response_data.get( "messages", [])
+        if message.get("id")
+    ]
+    if not results :
+        raise RuntimeError("Graph send response did not contain a message ID")
+    
+    return results
 
 
 # =========================================================================================
@@ -128,7 +171,7 @@ def send_whatsapp_text(
     operator_id : str,
     to_number   : str,
     text        : str,
-) -> None :
+) -> list[WhatsAppSendResult] :
     """
     Send a text-only WhatsApp message \\
     Args:
@@ -141,22 +184,23 @@ def send_whatsapp_text(
     msg_url     = f"{API_URL}{operator_id}/messages"
     msg_headers = write_headers( content_type = True)
     
+    results : list[WhatsAppSendResult] = []
+    
     # 2) Chunk the text
     for _text_ in chunk_text(text) :
         # 2-1) Write payload and post message
         payload  = write_payload( to_number, _text_)
         response = httpx.post( msg_url, headers = msg_headers, json = payload)
-        # 2-2) Print response
-        print_sep()
-        print( "Reply response:", response.json())
+        
+        results.extend( _collect_send_results( payload, response) )
     
-    return
+    return results
 
 async def async_send_whatsapp_text(
     operator_id : str,
     to_number   : str,
     text        : str,
-) -> None :
+) -> list[WhatsAppSendResult] :
     """
     Send a text-only WhatsApp message asynchronously \\
     Args:
@@ -167,6 +211,7 @@ async def async_send_whatsapp_text(
     
     msg_url     = f"{API_URL}{operator_id}/messages"
     msg_headers = write_headers( content_type = True)
+    results     : list[WhatsAppSendResult] = []
     
     async with httpx.AsyncClient() as client :
         
@@ -177,10 +222,9 @@ async def async_send_whatsapp_text(
                 headers = msg_headers,
                 json    = payload,
             )
-            print_sep()
-            print( "Reply response:", response.json())
+            results.extend( _collect_send_results( payload, response) )
     
-    return
+    return results
 
 
 # -----------------------------------------------------------------------------------------
@@ -190,7 +234,7 @@ def send_whatsapp_interactive(
     operator_id : str,
     to_number   : str,
     message     : ServerInteractiveOptsMsg,
-) -> None :
+) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp interactive responses (buttons/lists) \\
     Args:
@@ -205,17 +249,14 @@ def send_whatsapp_interactive(
     # 2) Write payload and post message
     payload  = write_payload( to_number, message)
     response = httpx.post( msg_url, headers = msg_headers, json = payload)
-    # 3) Print response
-    print_sep()
-    print( "Reply response:", response.json())
     
-    return
+    return _collect_send_results( payload, response)
 
 async def async_send_whatsapp_interactive(
     operator_id : str,
     to_number   : str,
     message     : ServerInteractiveOptsMsg,
-) -> None :
+) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp interactive responses asynchronously \\
     Args:
@@ -231,10 +272,7 @@ async def async_send_whatsapp_interactive(
     async with httpx.AsyncClient() as client :
         response = await client.post( msg_url, headers = msg_headers, json = payload)
     
-    print_sep()
-    print( "Reply response:", response.json())
-    
-    return
+    return _collect_send_results( payload, response)
 
 
 # =========================================================================================
@@ -244,7 +282,7 @@ def send_whatsapp_template(
     operator_id : str,
     to_number   : str,
     message     : ServerTemplateMsg,
-) -> None :
+) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp template messages \\
     Args:
@@ -258,16 +296,13 @@ def send_whatsapp_template(
     payload     = write_payload( to_number, message)
     response    = httpx.post( msg_url, headers = msg_headers, json = payload)
     
-    print_sep()
-    print( "Reply response:", response.json())
-    
-    return
+    return _collect_send_results( payload, response)
 
 async def async_send_whatsapp_template(
     operator_id : str,
     to_number   : str,
     message     : ServerTemplateMsg,
-) -> None :
+) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp template messages asynchronously \\
     Args:
@@ -283,10 +318,7 @@ async def async_send_whatsapp_template(
     async with httpx.AsyncClient() as client :
         response = await client.post( msg_url, headers = msg_headers, json = payload)
     
-    print_sep()
-    print( "Reply response:", response.json())
-    
-    return
+    return _collect_send_results( payload, response)
 
 
 # -----------------------------------------------------------------------------------------
@@ -296,7 +328,7 @@ def send_whatsapp_content(
     operator_id : str,
     to_number   : str,
     content     : WhatsAppContactPayload | WhatsAppLocation,
-) -> None :
+) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp content message \\
     Args:
@@ -312,17 +344,14 @@ def send_whatsapp_content(
     # 2) Write payload and post message
     payload  = write_payload( to_number, content)
     response = httpx.post( msg_url, headers = msg_headers, json = payload)
-    # 3) Print response
-    print_sep()
-    print( "Reply response:", response.json())
     
-    return
+    return _collect_send_results( payload, response)
 
 async def async_send_whatsapp_content(
     operator_id : str,
     to_number   : str,
     content     : WhatsAppContactPayload | WhatsAppLocation,
-) -> None :
+) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp content message asynchronously \\
     Args:
@@ -338,10 +367,7 @@ async def async_send_whatsapp_content(
     async with httpx.AsyncClient() as client :
         response = await client.post( msg_url, headers = msg_headers, json = payload)
     
-    print_sep()
-    print( "Reply response:", response.json())
-    
-    return
+    return _collect_send_results( payload, response)
 
 
 # -----------------------------------------------------------------------------------------
