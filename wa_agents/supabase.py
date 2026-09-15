@@ -109,7 +109,7 @@ def _json_param( value : Any) -> Jsonb | None :
     return None if value is None else Jsonb(value)
 
 
-def _json_compatible( value : dict[str, Any] | BaseModel) -> dict[str, Any] :
+def _json_compatible( value : dict[ str, Any] | BaseModel) -> dict[ str, Any] :
     
     if isinstance( value, BaseModel) :
         return value.model_dump( mode = "json", by_alias = True)
@@ -132,11 +132,13 @@ def _payload_hash( payload : dict[str, Any] | BaseModel) -> str :
     return sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _message_data( message : Message) -> dict[str, Any] :
+def _message_data( message : Message) -> Jsonb :
     
-    return message.model_dump(
-        mode    = "json",
-        exclude = { "id", "ts", "basemodel", "origin" },
+    return Jsonb(
+        message.model_dump(
+            mode    = "json",
+            exclude = { "id", "ts", "basemodel", "origin" },
+        )
     )
 
 
@@ -582,7 +584,7 @@ class SyncSupabaseStorage :
                 "ts"            : message.ts,
                 "basemodel"     : message.basemodel,
                 "origin"        : message.origin,
-                "data"          : Jsonb(_message_data(message)),
+                "data"          : _message_data(message),
                 "machine_state" : machine_state,
             },
         )
@@ -1048,7 +1050,7 @@ class AsyncSupabaseStorage :
                 "ts"            : message.ts,
                 "basemodel"     : message.basemodel,
                 "origin"        : message.origin,
-                "data"          : Jsonb(_message_data(message)),
+                "data"          : _message_data(message),
                 "machine_state" : machine_state,
             },
         )
