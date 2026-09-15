@@ -6,7 +6,7 @@ from abc import (
     ABC,
     abstractmethod,
 )
-from copy import deepcopy
+from base64 import b64decode
 from datetime import (
     UTC,
     datetime,
@@ -551,7 +551,7 @@ class CaseHandlerBase ( Machine, ABC) :
                 media      = MediaObject(
                     mime    = media_data.mime_type,
                     name    = f"{media_data.id}.{media_data.extension}",
-                    sha256  = media_data.sha256,
+                    sha256  = b64decode(media_data.sha256).hex(),
                     size    = len(media_content),
                     content = media_content,
                 )
@@ -1182,7 +1182,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
                 media      = MediaObject(
                     mime    = media_data.mime_type,
                     name    = f"{media_data.id}.{media_data.extension}",
-                    sha256  = media_data.sha256,
+                    sha256  = b64decode(media_data.sha256).hex(),
                     size    = len(media_content),
                     content = media_content,
                 )

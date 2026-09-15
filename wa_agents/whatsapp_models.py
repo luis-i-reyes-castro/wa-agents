@@ -26,7 +26,6 @@ from sofia_utils.pydantic import (
     NE_str,
     NE_var_name,
     NumericID,
-    SHA256_Hex,
     UnixTS,
     serialize_without_nones,
 )
@@ -80,6 +79,11 @@ type WhatsAppInteractiveBody         = Annotated[ str, Field( min_length = 1,
 type WhatsAppInteractiveButtonLabel  = Annotated[ str, Field( min_length = 1,
                                                               max_length = 20), ]
 """ WhatsApp interactive button label """
+
+type WhatsAppMediaSHA256 = Annotated[
+    str, Field( pattern = r"^[A-Za-z0-9+/]{43}=$"),
+]
+""" Base64-encoded SHA-256 digest supplied by Meta for inbound media. """
 
 type WhatsAppMessageType = Literal[
     "text",
@@ -396,7 +400,7 @@ class WhatsAppMediaData (BaseModel) :
     WhatsApp media descriptor
         `id`        : "<media ID>"
         `mime_type` : "<MIME type>"
-        `sha256`    : "<sha256 checksum>"
+        `sha256`    : "<Base64-encoded sha256 checksum>"
         `caption`   : "<caption>" | null
         `filename`  : "<filename>" | null
         `voice`     : true | false | null
@@ -406,7 +410,7 @@ class WhatsAppMediaData (BaseModel) :
     
     id        : NumericID
     mime_type : MIME_Type
-    sha256    : SHA256_Hex
+    sha256    : WhatsAppMediaSHA256
     caption   : WhatsAppTextBody | None = None # image, video, and document
     filename  : NE_str           | None = None # document
     voice     : bool             | None = None # audio
