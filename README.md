@@ -215,6 +215,36 @@ Loop shape:
 5. Store a `ToolResultsMsg` in context.
 6. Return `True` so `generate_response()` runs again with updated context.
 
+## Non-WhatsApp Case Handlers
+
+The models in `case_handler_models.py` and the `Agent` classes are not tied to a
+WhatsApp transport. For a stateless API handler, build the context directly from
+`Message` subclasses, call the agent, and return its result. There is no need to
+instantiate `CaseHandlerBase` or create WhatsApp API database records.
+
+A non-WhatsApp handler can also reuse `CaseHandlerBase` when it needs persisted
+messages, case manifests, or FSM state. The current persistence schema identifies
+cases through `wa_api_contacts`, so this setup requires placeholder business and
+contact rows in `wa_api_businesses` and `wa_api_contacts`. Construct the handler
+with the corresponding `WhatsAppDatabaseRecord_Business` and
+`WhatsAppDatabaseRecord_Contact` values, but use `case_handler_models.Message`
+subclasses for the actual API input and output.
+
+In this mode:
+
+- Implement `process_message()` as a no-op to satisfy the abstract interface.
+- Persist messages with `context_update()` and load them with `context_build()`.
+- Do not call `dedup_and_ingest_message()` or the WhatsApp `send_*()` methods.
+- No row is written to `wa_case_handler_to_api`; that mapping is populated only by
+  the WhatsApp ingestion and sending paths.
+- Start a fresh case for every API call and close it in a `finally` block when the
+  call completes. Before opening it, close or recover any case left open by an
+  interrupted earlier call.
+
+The schema permits only one open case per contact. Calls sharing one placeholder
+contact must therefore be serialized. If requests may overlap, use separate
+placeholder contacts for their independent concurrency keys.
+
 ## WhatsApp Payload Data You Can Use
 
 The parsed payload model is `WhatsAppPayload`.
