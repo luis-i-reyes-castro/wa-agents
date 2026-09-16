@@ -310,6 +310,19 @@ CREATE TABLE IF NOT EXISTS public.wa_api_statuses (
   msg_status    T_WHATSAPP_STATUS     NOT NULL,
   status_ts     TIMESTAMPTZ           NOT NULL,
   
+  /*
+  DESIGN NOTES:
+  - Column `msg_id` is the WhatsApp API Message ID (wamid) of either:
+    - An outbound message sent by the chatbot,
+      with ID in `wa_api_outbound_messages.msg_id`
+    - An inbound message echo sent by the human server,
+      with ID in `wa_api_inbound_messages.msg_id`
+  - A fully normalized foreign key schema would require two nullable references
+    with an XOR constraint: one referencing inbound messages and one referencing
+    outbound messages. However, this approach would introduce a missing reference
+    problem when the message echo status reaches us before its corresponding payload.
+  */
+  
   conversation  JSONB DEFAULT NULL,
   pricing       JSONB DEFAULT NULL,
   errors        JSONB DEFAULT NULL,
@@ -317,12 +330,6 @@ CREATE TABLE IF NOT EXISTS public.wa_api_statuses (
   CONSTRAINT wa_api_statuses_payload_fkey
     FOREIGN KEY (payload)
     REFERENCES public.wa_api_inbound_payloads(id)
-    ON UPDATE CASCADE
-    ON DELETE CASCADE,
-  
-  CONSTRAINT wa_api_statuses_msg_id_fkey
-    FOREIGN KEY (msg_id)
-    REFERENCES public.wa_api_outbound_messages(msg_id)
     ON UPDATE CASCADE
     ON DELETE CASCADE
 
@@ -510,12 +517,12 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_to_api (
     ON DELETE CASCADE,
   
   /*
-    Here we don't add a unique constraint for `case_handler_msg_id` intentionally.
-    The reason is that LLM responses may exceed the Whatspp text message
-    max length, resulting in message chunking,
-    i.e., some single case handler messages may be sent using more than one outbound
-    WhatsApp messages.
-    On the contrary, inbound API messages map to at most one case handler message,
+  DESIGN NOTES:
+  - Here we don't add a unique constraint for `case_handler_msg_id` intentionally.
+    The reason is that LLM responses may exceed the Whatspp text message max length,
+    resulting in message chunking, i.e., some single case handler messages
+    may be sent using more than one outbound WhatsApp messages.
+  - On the contrary, inbound API messages map to at most one case handler message,
     so we add a unique index on case handler messages of inbound API messages.
   */
   
