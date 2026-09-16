@@ -40,11 +40,11 @@ from sofia_utils.printing import (
 from .case_handler_models import (
     AssistantMsg,
     BasicMsg,
+    HumanContentMsg,
     Message,
     StructuredDataMsg,
     ToolCall,
     ToolResultsMsg,
-    UserContentMsg,
 )
 
 
@@ -294,11 +294,11 @@ class AgentBase (ABC) :
                     msg["content"].append(text_cb)
                 
                 # PROCESS IMAGES
-                if isinstance( message, UserContentMsg) and message.media :
+                if isinstance( message, HumanContentMsg) and message.media :
                     # Prepare placeholder text message
                     media   = message.media
                     text_cb = { "type" : "text",
-                                "text" : f"[SYSTEM] User sent media ({media.mime})" }
+                                "text" : f"[SYSTEM] Message includes media ({media.mime})" }
                     # If allowed to load images
                     if load_imgs and media.mime.startswith("image") :
                         # Attempt to retrieve image from cache

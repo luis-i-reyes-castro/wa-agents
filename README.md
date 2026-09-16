@@ -219,13 +219,14 @@ Loop shape:
 
 The parsed payload model is `WhatsAppPayload`.
 
-`ServerMsg` has two useful flags for context hygiene:
-- `is_state=True`: message persists handler-owned replay state. These
-  messages are excluded from both the user-facing flow and the LLM-readable
-  context, but can still be restored by the case handler during replay.
-- `user_eyes=True`: message is meant only for the end user, for example
+`ServerMsg.user_eyes=True` marks a message meant only for the end user, for example
   transient UX text like "Thinking..." or "Looking up in database...". These
   messages are excluded from LLM-readable context.
+
+`dedup_and_ingest_message()` maps normal inbound messages to `HumanUserMsg`
+subclasses and WhatsApp Business message echoes to `HumanServerMsg` subclasses.
+Persist both in context, but generally return `False` for `HumanServerMsg` so an
+operator's message does not trigger a chatbot reply.
 
 Most routing happens in `WhatsAppMessage` fields:
 - `message.type`: `text`, `interactive`, `image`, `video`, `audio`, `sticker`, etc.
@@ -242,6 +243,8 @@ Also useful:
 Example branch logic in `process_message`:
 
 ```python
+from wa_agents.case_handler_models import HumanServerMsg
+
 def process_message(
   self,
   message       : WhatsAppMessage,
@@ -249,6 +252,9 @@ def process_message(
 ) -> bool:
     msg = self.dedup_and_ingest_message( message, media_content)
     if not msg:
+        return False
+
+    if isinstance( msg, HumanServerMsg):
         return False
 
     if message.type == "interactive":
@@ -277,12 +283,12 @@ Constructor behavior:
 
 ```python
 from wa_agents.agent import AsyncAgent
-from wa_agents.case_handler_models import UserContentMsg
+from wa_agents.case_handler_models import HumanUserContentMsg
 
 agent = AsyncAgent( "main", ["openai/gpt-5-mini"])
 agent.load_prompts(["prompts/main.md"])
 
-context = [ UserContentMsg( text = "Hello, summarize this ticket.") ]
+context = [ HumanUserContentMsg( text = "Hello, summarize this ticket.") ]
 resp    = await agent.get_response( context = context, max_tokens = 400)
 ```
 
@@ -318,10 +324,10 @@ if resp and resp.st_output:
 ### 4) Image + text context
 
 ```python
-from wa_agents.case_handler_models import UserContentMsg, load_media
+from wa_agents.case_handler_models import HumanUserContentMsg, load_media
 
 md, mc     = load_media("tests/photo.jpg")
-context    = [ UserContentMsg( text = "Describe this issue.", media = md) ]
+context    = [ HumanUserContentMsg( text = "Describe this issue.", media = md) ]
 imgs_cache = { md.name: mc.content }
 
 resp = await agent.get_response(

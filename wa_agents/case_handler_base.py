@@ -47,6 +47,12 @@ from sofia_utils.pydantic import (
 from .case_handler_models import (
     AssistantMsg,
     CaseManifest,
+    HumanContentMsg,
+    HumanMsg,
+    HumanServerContentMsg,
+    HumanServerInteractiveReplyMsg,
+    HumanUserContentMsg,
+    HumanUserInteractiveReplyMsg,
     LanguageRegionData,
     MediaObject,
     Message,
@@ -54,10 +60,7 @@ from .case_handler_models import (
     ServerTemplateMsg,
     ServerTextMsg,
     ToolResultsMsg,
-    UserContentMsg,
     UserData,
-    UserInteractiveReplyMsg,
-    UserMsg,
     llm_context_truncate,
 )
 from .supabase import (
@@ -77,6 +80,7 @@ from .whatsapp_models import (
     WhatsAppContact,
     WhatsAppContactPayload,
     WhatsAppMessage,
+    WhatsAppMessageEcho,
     WhatsAppMetaData,
 )
 
@@ -183,7 +187,9 @@ class CH_State (State) :
 
 
 class CaseHandlerBase ( Machine, ABC) :
-    """Synchronous case, context, FSM, and persistence base class."""
+    """
+    Synchronous case, context, FSM, and persistence base class.
+    """
 
     MAX_CONTEXT_LEN : int | None = 20
     """ Maximum number of LLM-readable messages retained in context. """
@@ -431,7 +437,7 @@ class CaseHandlerBase ( Machine, ABC) :
 
     def _hydrate_media( self, message : Message) -> None :
         if not (
-            isinstance( message, UserContentMsg) and
+            isinstance( message, HumanContentMsg) and
             message.id and
             message.media
         ) :
@@ -513,10 +519,10 @@ class CaseHandlerBase ( Machine, ABC) :
 
     def dedup_and_ingest_message(
         self,
-        message            : WhatsAppMessage,
+        message            : WhatsAppMessage | WhatsAppMessageEcho,
         media_content      : bytes | None = None,
         api_inbound_msg_id : int | None   = None,
-    ) -> UserMsg | None :
+    ) -> HumanMsg | None :
         """
         Convert and persist one inbound API message unless already linked. \
         Args:
@@ -525,7 +531,7 @@ class CaseHandlerBase ( Machine, ABC) :
             api_inbound_msg_id : Persisted inbound API message ID. Defaults to the
                                  ID supplied when the handler was initialized.
         Returns:
-            Persisted user message, or `None` when already processed or unsupported.
+            Persisted human message, or `None` when already processed or unsupported.
         """
         inbound_msg_id = api_inbound_msg_id or self.api_inbound_msg_id
         if inbound_msg_id is None :
@@ -537,7 +543,17 @@ class CaseHandlerBase ( Machine, ABC) :
 
         self.case_id, self.case_manifest = self.case_decide()
 
-        msg : UserMsg | None = None
+        ContentMsgBM = (
+            HumanUserContentMsg
+            if ( not isinstance( message, WhatsAppMessageEcho) ) else
+            HumanServerContentMsg
+        )
+        InteractiveMsgBM = (
+            HumanUserInteractiveReplyMsg
+            if ( not isinstance( message, WhatsAppMessageEcho) ) else
+            HumanServerInteractiveReplyMsg
+        )
+        msg : HumanMsg | None = None
         if message.text or message.media_data :
             text  = message.text.body if message.text else None
             media = None
@@ -558,7 +574,7 @@ class CaseHandlerBase ( Machine, ABC) :
                 )
                 text = media_data.caption
 
-            msg = UserContentMsg(
+            msg = ContentMsgBM(
                 origin = here(),
                 ts     = message.timestamp,
                 text   = text,
@@ -572,14 +588,14 @@ class CaseHandlerBase ( Machine, ABC) :
                     f"In {here()}: Interactive message has no selected option"
                 )
 
-            msg = UserInteractiveReplyMsg(
+            msg = InteractiveMsgBM(
                 origin = here(),
                 ts     = message.timestamp,
                 choice = choice,
             )
 
         elif message.contacts :
-            msg = UserContentMsg(
+            msg = ContentMsgBM(
                 origin = here(),
                 ts     = message.timestamp,
                 text   = (
@@ -589,7 +605,7 @@ class CaseHandlerBase ( Machine, ABC) :
             )
 
         elif message.location :
-            msg = UserContentMsg(
+            msg = ContentMsgBM(
                 origin = here(),
                 ts     = message.timestamp,
                 text   = message.location.model_dump_json(),
@@ -600,7 +616,7 @@ class CaseHandlerBase ( Machine, ABC) :
 
         msg.print()
         stored = self.context_update(msg)
-        if not isinstance( stored, UserMsg) or stored.id is None :
+        if not isinstance( stored, HumanMsg) or stored.id is None :
             raise RuntimeError(
                 f"In {here()}: Stored inbound message has an invalid model"
             )
@@ -614,7 +630,7 @@ class CaseHandlerBase ( Machine, ABC) :
                 f"In {here()}: Unable to link case-handler and inbound messages"
             )
 
-        if isinstance( stored, UserContentMsg) and stored.media :
+        if isinstance( stored, HumanContentMsg) and stored.media :
             stored.media.content = media_content
             object_key = self._get_media_storage().media_write(
                 self.business_id,
@@ -827,13 +843,15 @@ class Async_CH_State (AsyncState) :
 
 
 class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
-    """Asynchronous case, context, FSM, and persistence base class."""
+    """
+    Asynchronous case, context, FSM, and persistence base class.
+    """
 
     MAX_CONTEXT_LEN : int | None = 20
-    """Maximum number of LLM-readable messages retained in context."""
+    """ Maximum number of LLM-readable messages retained in context. """
 
     TIME_LIMIT_STALE : int | None = 48
-    """Open-case staleness threshold in hours."""
+    """ Open-case staleness threshold in hours. """
 
     def __init__(
         self,
@@ -1079,7 +1097,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
     async def _hydrate_media( self, message : Message) -> None :
         if not (
-            isinstance( message, UserContentMsg) and
+            isinstance( message, HumanContentMsg) and
             message.id and
             message.media
         ) :
@@ -1161,10 +1179,10 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
     async def dedup_and_ingest_message(
         self,
-        message            : WhatsAppMessage,
+        message            : WhatsAppMessage | WhatsAppMessageEcho,
         media_content      : bytes | None = None,
         api_inbound_msg_id : int | None   = None,
-    ) -> UserMsg | None :
+    ) -> HumanMsg | None :
         """
         Convert and persist one inbound API message unless already linked. \
         Args:
@@ -1173,7 +1191,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
             api_inbound_msg_id : Persisted inbound API message ID. Defaults to the
                                  ID supplied when the handler was initialized.
         Returns:
-            Persisted user message, or `None` when already processed or unsupported.
+            Persisted human message, or `None` when already processed or unsupported.
         """
         inbound_msg_id = api_inbound_msg_id or self.api_inbound_msg_id
         if inbound_msg_id is None :
@@ -1185,7 +1203,17 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
         self.case_id, self.case_manifest = await self.case_decide()
 
-        msg : UserMsg | None = None
+        ContentMsgBM = (
+            HumanUserContentMsg
+            if ( not isinstance( message, WhatsAppMessageEcho) ) else
+            HumanServerContentMsg
+        )
+        InteractiveMsgBM = (
+            HumanUserInteractiveReplyMsg
+            if ( not isinstance( message, WhatsAppMessageEcho) ) else
+            HumanServerInteractiveReplyMsg
+        )
+        msg : HumanMsg | None = None
         if message.text or message.media_data :
             text  = message.text.body if message.text else None
             media = None
@@ -1206,7 +1234,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
                 )
                 text = media_data.caption
 
-            msg = UserContentMsg(
+            msg = ContentMsgBM(
                 origin = here(),
                 ts     = message.timestamp,
                 text   = text,
@@ -1220,14 +1248,14 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
                     f"In {here()}: Interactive message has no selected option"
                 )
 
-            msg = UserInteractiveReplyMsg(
+            msg = InteractiveMsgBM(
                 origin = here(),
                 ts     = message.timestamp,
                 choice = choice,
             )
 
         elif message.contacts :
-            msg = UserContentMsg(
+            msg = ContentMsgBM(
                 origin = here(),
                 ts     = message.timestamp,
                 text   = (
@@ -1237,7 +1265,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
             )
 
         elif message.location :
-            msg = UserContentMsg(
+            msg = ContentMsgBM(
                 origin = here(),
                 ts     = message.timestamp,
                 text   = message.location.model_dump_json(),
@@ -1248,7 +1276,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
         msg.print()
         stored = await self.context_update(msg)
-        if not isinstance( stored, UserMsg) or stored.id is None :
+        if not isinstance( stored, HumanMsg) or stored.id is None :
             raise RuntimeError(
                 f"In {here()}: Stored inbound message has an invalid model"
             )
@@ -1262,7 +1290,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
                 f"In {here()}: Unable to link case-handler and inbound messages"
             )
 
-        if isinstance( stored, UserContentMsg) and stored.media :
+        if isinstance( stored, HumanContentMsg) and stored.media :
             stored.media.content = media_content
             object_key = await self._get_media_storage().media_write(
                 self.business_id,

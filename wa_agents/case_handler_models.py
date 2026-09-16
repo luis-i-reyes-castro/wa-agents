@@ -265,19 +265,26 @@ class ToolResult (BaseModel) :
     _silent : bool | None = None
 
 # -----------------------------------------------------------------------------------------
-# USER MESSAGES
+# HUMAN MESSAGES
 
-class UserMsg ( BasicMsg, ABC) :
+# NOTE:
+# With coexistence, a conversation can now have two humans involved:
+# * The human being interacting with the chatbot for service.
+#   Here we will refer to him/her as a "Human User"
+# * The human being using WhatsApp Business to monitor and/or complement the chatbot.
+#   Here we will refer to him/her as a "Human Server"
+
+class HumanMsg ( BasicMsg, ABC) :
     """
-    User Message
+    Human-generated Message
     """
     @property
     def role(self) -> str :
         return "user"
 
-class UserContentMsg (UserMsg) :
+class HumanContentMsg (HumanMsg) :
     """
-    User Message containing either text or media
+    Human-generated Message containing either Text or Media
     """
     media : MediaObject | None = None
     
@@ -296,14 +303,52 @@ class UserContentMsg (UserMsg) :
             raise ValueError(f"In {self.basemodel}: No text or media")
         return self
 
-class UserInteractiveReplyMsg ( UserMsg, StructuredDataMsg) :
+class HumanInteractiveReplyMsg ( HumanMsg, StructuredDataMsg) :
     """
-    User Interactive Reply Message ( User -> Server )
+    Human-generated Interactive Reply Message
     """
     choice : WhatsAppInteractiveOption
     
     def as_text(self) -> str :
         return self.choice.model_dump_json()
+
+class HumanUserMsg (HumanMsg) :
+    """
+    Human-user-generated Message
+    """
+    pass
+
+class HumanUserContentMsg ( HumanUserMsg, HumanContentMsg) :
+    """
+    Human-user-generated Message containing either Text or Media
+    """
+    pass
+
+class HumanUserInteractiveReplyMsg ( HumanUserMsg, HumanInteractiveReplyMsg) :
+    """
+    Human-user-generated Interactive Message ( Human User -> Server )
+    """
+    pass
+
+class HumanServerMsg (HumanMsg) :
+    """
+    Human-server-generated Message
+    """
+    @property
+    def role(self) -> str :
+        return "assistant"
+
+class HumanServerContentMsg ( HumanServerMsg, HumanContentMsg) :
+    """
+    Human-server-generated Message containing either Text or Media
+    """
+    pass
+
+class HumanServerInteractiveReplyMsg ( HumanServerMsg, HumanInteractiveReplyMsg) :
+    """
+    Human-server-generated Interactive Message ( Human Server -> Human User )
+    """
+    pass
 
 # -----------------------------------------------------------------------------------------
 # SERVER MESSAGES

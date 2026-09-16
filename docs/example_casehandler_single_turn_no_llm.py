@@ -9,8 +9,9 @@ from sofia_utils.printing import get_qualname as here
 
 from wa_agents.case_handler_base import CaseHandlerBase
 from wa_agents.case_handler_models import (
+    HumanServerMsg,
+    HumanUserContentMsg,
     ServerTextMsg,
-    UserContentMsg,
 )
 from wa_agents.whatsapp_models import (
     WhatsAppMessage,
@@ -29,7 +30,7 @@ class CaseHandler(CaseHandlerBase) :
         Deduplicate + ingest and decide whether to respond.
         """
         msg = self.dedup_and_ingest_message( message, media_content )
-        if not msg :
+        if not msg or isinstance( msg, HumanServerMsg) :
             return False
 
         if message.type != "text" :
@@ -47,7 +48,7 @@ class CaseHandler(CaseHandlerBase) :
 
         msg_user = None
         for msg in reversed(self.case_context) :
-            if isinstance( msg, UserContentMsg ) and msg.text :
+            if isinstance( msg, HumanUserContentMsg ) and msg.text :
                 msg_user = msg
                 break
 

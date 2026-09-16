@@ -15,6 +15,7 @@ from wa_agents.case_handler_base import (
     WhatsAppDatabaseRecord_Business,
     WhatsAppDatabaseRecord_Contact,
 )
+from wa_agents.case_handler_models import HumanServerMsg
 from wa_agents.whatsapp_models import WhatsAppMessage
 
 
@@ -61,7 +62,7 @@ class CaseHandler (AsyncCaseHandlerBase) :
         Deduplicate + ingest and decide whether to respond.
         """
         msg = await self.dedup_and_ingest_message( message, media_content)
-        if not msg :
+        if not msg or isinstance( msg, HumanServerMsg) :
             return False
 
         if message.type != "text" :

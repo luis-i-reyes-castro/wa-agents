@@ -14,7 +14,7 @@ before editing. The schema and APIs may evolve after this reference is written.
    lease. This prevents concurrent work for the same contact across processes.
 5. `QueueWorker` reconstructs `WhatsAppDatabaseRecord_Business`,
    `WhatsAppDatabaseRecord_Contact`, and the Meta message, then creates the consumer's
-   case handler.
+   case handler as a child of `CaseHandlerBase`.
 6. The handler ingests the message, persists case context and FSM state, and may
    schedule one or more response passes while renewing the same contact lease.
 
@@ -27,6 +27,9 @@ before editing. The schema and APIs may evolve after this reference is written.
 - `case_handler_models.py`: application conversation messages, media descriptors,
   manifests, and LLM context types. `AssistantMsg` owns the LLM model/context fields;
   `CaseManifest.machine_state` owns persisted FSM state.
+- `HumanUserMsg` represents customer-originated messages with LLM role `user`.
+  `HumanServerMsg` represents WhatsApp Business message echoes with LLM role
+  `assistant`; persist them in context without treating them as new customer input.
 - `supabase.py`: thin sync and async PostgreSQL gateways. Keep it independent of S3.
 - `S3_bucket_storage.py`: media-byte storage only.
 
@@ -45,6 +48,9 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
 - Contact profiles are upserted against their unique identity rather than appended
   for every inbound message.
 - Inbound messages and statuses reference the combined payload row directly.
+- Status `msg_id` values may identify API outbound messages or inbound message
+  echoes, so the status table indexes that external ID without an outbound-only
+  foreign key.
 - One contact may have at most one open case through a partial unique index.
 - Case manifests persist `machine_state` so rebuilding a handler does not require
   replay merely to recover its current state.

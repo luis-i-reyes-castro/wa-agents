@@ -18,6 +18,7 @@ from wa_agents.case_handler_base import (
     WhatsAppDatabaseRecord_Contact,
 )
 from wa_agents.case_handler_models import (
+    HumanServerMsg,
     ToolCall,
     ToolResult,
     ToolResultsMsg,
@@ -110,7 +111,7 @@ class CaseHandler (AsyncCaseHandlerBase) :
         Deduplicate + ingest and decide whether to respond.
         """
         msg = await self.dedup_and_ingest_message( message, media_content )
-        if not msg :
+        if not msg or isinstance( msg, HumanServerMsg) :
             return False
 
         return True
