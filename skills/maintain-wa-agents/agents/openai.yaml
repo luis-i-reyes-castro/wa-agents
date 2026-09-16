@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain wa-agents"
+  short_description: "Refactor and verify wa-agents safely"
+  default_prompt: "Use $maintain-wa-agents to inspect, modify, and verify this repository’s WhatsApp persistence or queue behavior."
