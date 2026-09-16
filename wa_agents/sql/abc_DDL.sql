@@ -1,33 +1,16 @@
 /*
   =========================================================================================
-  WHATSAPP MESSAGE PERSISTENCE SCHEMA
+  WHATSAPP API
   =========================================================================================
 */
 
 -- TYPES
 
-CREATE DOMAIN T_NE_STR AS VARCHAR CHECK (
-  VALUE ~ '^[^\s].*$'
+-- Non-empty string containing no whitespace
+-- NOTE: The regex next to each column indicates the usual/expected format
+CREATE DOMAIN T_NO_WS_STR AS VARCHAR CHECK (
+  VALUE ~ '^\S+$'
 );
-CREATE DOMAIN T_NE_VAR_NAME AS VARCHAR CHECK (
-  VALUE ~ '^[A-Za-z_]\w+$'
-);
-CREATE DOMAIN T_NUMERIC_ID AS VARCHAR CHECK (
-  VALUE ~ '^[0-9]+$'
-);
-CREATE DOMAIN T_SHA256_HEX_HASH AS VARCHAR CHECK (
-  VALUE ~ '^[A-Fa-f0-9]{64}$'
-);
-CREATE DOMAIN T_WHATSAPP_BSUID AS VARCHAR CHECK (
-  VALUE ~ '^[A-Z]{2}\.[A-Za-z0-9]{1,128}$'
-);
-CREATE DOMAIN T_WHATSAPP_MESSAGE_ID AS VARCHAR CHECK (
-  VALUE ~ '^wamid\.[A-Za-z0-9\+\/\=]+$'
-);
-CREATE DOMAIN T_WHATSAPP_USERNAME AS VARCHAR CHECK (
-  VALUE ~ '^[A-Za-z0-9\.\_]{3,35}$'
-);
-
 CREATE TYPE T_WHATSAPP_MESSAGE AS ENUM (
   'text',
   'interactive',
@@ -60,9 +43,9 @@ CREATE TABLE IF NOT EXISTS public.wa_api_businesses (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  waba_id               T_NUMERIC_ID NOT NULL,
-  phone_number_id       T_NUMERIC_ID NOT NULL,
-  display_phone_number  T_NUMERIC_ID NOT NULL,
+  waba_id               T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  phone_number_id       T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  display_phone_number  T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
   
   CONSTRAINT wa_api_businesses_phone_number_id_unique
     UNIQUE (phone_number_id),
@@ -83,9 +66,9 @@ CREATE TABLE IF NOT EXISTS public.wa_api_contacts (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  business      BIGINT            NOT NULL,
-  wa_id         T_NUMERIC_ID      DEFAULT NULL,
-  user_id       T_WHATSAPP_BSUID  DEFAULT NULL,
+  business      BIGINT      NOT NULL,
+  wa_id         T_NO_WS_STR DEFAULT NULL, -- '^[0-9]+$'
+  user_id       T_NO_WS_STR DEFAULT NULL, -- '^[A-Z]{2}\.[A-Za-z0-9]{1,128}$'
   
   CONSTRAINT wa_api_contacts_business_fkey
     FOREIGN KEY (business)
@@ -114,11 +97,11 @@ ALTER TABLE public.wa_api_contacts
 CREATE TABLE IF NOT EXISTS public.wa_api_contact_profiles (
   
   id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  last_seen_at      TIMESTAMPTZ           NOT NULL DEFAULT now(),
+  last_seen_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  contact           BIGINT                NOT NULL,
-  profile_name      TEXT                  NOT NULL,
-  profile_username  T_WHATSAPP_USERNAME   DEFAULT NULL,
+  contact           BIGINT      NOT NULL,
+  profile_name      TEXT        NOT NULL,
+  profile_username  T_NO_WS_STR DEFAULT NULL, -- '^[A-Za-z0-9\.\_]{3,35}$'
   
   CONSTRAINT wa_api_contact_profiles_contact_fkey
     FOREIGN KEY (contact)
@@ -152,17 +135,17 @@ ALTER TABLE public.wa_api_contact_profiles
 CREATE TABLE IF NOT EXISTS public.wa_api_inbound_payloads (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  received_at   TIMESTAMPTZ       NOT NULL DEFAULT now(),
+  received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  item_idx      SMALLINT          NOT NULL DEFAULT 0,
-  item_ts       TIMESTAMPTZ       NOT NULL DEFAULT now(),
-  change_idx    SMALLINT          NOT NULL DEFAULT 0,
-  contact       BIGINT            DEFAULT NULL,
+  item_idx      SMALLINT    NOT NULL DEFAULT 0,
+  item_ts       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  change_idx    SMALLINT    NOT NULL DEFAULT 0,
+  contact       BIGINT      DEFAULT NULL,
   
-  data_raw      JSONB             NOT NULL,
-  data_hash     T_SHA256_HEX_HASH NOT NULL,
-  validated     BOOLEAN           NOT NULL DEFAULT FALSE,
-  errors        JSONB             DEFAULT NULL,
+  data_raw      JSONB       NOT NULL,
+  data_hash     T_NO_WS_STR NOT NULL, -- '^[A-Fa-f0-9]{64}$'
+  validated     BOOLEAN     NOT NULL DEFAULT FALSE,
+  errors        JSONB       DEFAULT NULL,
   
   CONSTRAINT wa_api_inbound_payloads_contact_fkey
     FOREIGN KEY (contact)
@@ -198,13 +181,13 @@ ALTER TABLE public.wa_api_inbound_payloads
 CREATE TABLE IF NOT EXISTS public.wa_api_inbound_messages (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  payload       BIGINT                NOT NULL,
+  payload       BIGINT              NOT NULL,
   
-  is_echo       BOOLEAN               NOT NULL DEFAULT FALSE,
-  msg_id        T_WHATSAPP_MESSAGE_ID NOT NULL,
-  msg_ts        TIMESTAMPTZ           NOT NULL,
-  msg_type      T_WHATSAPP_MESSAGE    NOT NULL,
-  msg_data      JSONB                 NOT NULL,
+  is_echo       BOOLEAN             NOT NULL DEFAULT FALSE,
+  msg_id        T_NO_WS_STR         NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
+  msg_ts        TIMESTAMPTZ         NOT NULL,
+  msg_type      T_WHATSAPP_MESSAGE  NOT NULL,
+  msg_data      JSONB               NOT NULL,
   
   CONSTRAINT wa_api_inbound_messages_payload_fkey
     FOREIGN KEY (payload)
@@ -228,12 +211,12 @@ ALTER TABLE public.wa_api_inbound_messages
 CREATE TABLE IF NOT EXISTS public.wa_api_outbound_messages (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  sent_at       TIMESTAMPTZ           NOT NULL DEFAULT now(),
+  sent_at       TIMESTAMPTZ         NOT NULL DEFAULT now(),
   
-  contact       BIGINT                NOT NULL,
-  msg_id        T_WHATSAPP_MESSAGE_ID NOT NULL,
-  msg_type      T_WHATSAPP_MESSAGE    NOT NULL,
-  msg_data      JSONB                 NOT NULL,
+  contact       BIGINT              NOT NULL,
+  msg_id        T_NO_WS_STR         NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
+  msg_type      T_WHATSAPP_MESSAGE  NOT NULL,
+  msg_data      JSONB               NOT NULL,
   
   CONSTRAINT wa_api_outbound_messages_contact_fkey
     FOREIGN KEY (contact)
@@ -257,14 +240,14 @@ ALTER TABLE public.wa_api_outbound_messages
 CREATE TABLE IF NOT EXISTS public.wa_api_media (
   
   id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  inbound_msg_id    BIGINT    DEFAULT NULL,
-  outbound_msg_id   BIGINT    DEFAULT NULL,
+  inbound_msg_id    BIGINT      DEFAULT NULL,
+  outbound_msg_id   BIGINT      DEFAULT NULL,
   
-  mime_type         TEXT      NOT NULL,
-  size              BIGINT    NOT NULL,
-  object_key        T_NE_STR  NOT NULL,
-  caption           TEXT      DEFAULT NULL,
-  filename          TEXT      DEFAULT NULL,
+  mime_type         T_NO_WS_STR NOT NULL, -- MIME type without codec
+  size              BIGINT      NOT NULL,
+  object_key        T_NO_WS_STR NOT NULL, -- '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$'
+  caption           TEXT        DEFAULT NULL,
+  filename          TEXT        DEFAULT NULL,
   
   CONSTRAINT wa_api_media_inbound_msg_id_fkey
     FOREIGN KEY (inbound_msg_id)
@@ -304,11 +287,11 @@ ALTER TABLE public.wa_api_media
 CREATE TABLE IF NOT EXISTS public.wa_api_statuses (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  payload       BIGINT                NOT NULL,
+  payload       BIGINT            NOT NULL,
   
-  msg_id        T_WHATSAPP_MESSAGE_ID NOT NULL,
-  msg_status    T_WHATSAPP_STATUS     NOT NULL,
-  status_ts     TIMESTAMPTZ           NOT NULL,
+  msg_id        T_NO_WS_STR       NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
+  msg_status    T_WHATSAPP_STATUS NOT NULL,
+  status_ts     TIMESTAMPTZ       NOT NULL,
   
   /*
   DESIGN NOTES:
@@ -365,7 +348,7 @@ CREATE TABLE IF NOT EXISTS public.wa_api_to_case_handler_queue (
   updated_at    TIMESTAMPTZ               DEFAULT NULL,
   last_error_at TIMESTAMPTZ               DEFAULT NULL,
   
-  msg_id        T_WHATSAPP_MESSAGE_ID     NOT NULL,
+  msg_id        T_NO_WS_STR               NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
   msg_status    T_ENQUEUED_MESSAGE_STATUS NOT NULL DEFAULT 'pending',
   
   CONSTRAINT wa_api_to_case_handler_queue_msg_id_fkey
@@ -431,11 +414,11 @@ ALTER TABLE public.wa_case_handler_contact_leases
 CREATE TABLE IF NOT EXISTS public.wa_case_handler_case_manifests (
   
   id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  contact         BIGINT        NOT NULL,
-  created_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ   DEFAULT NULL,
-  is_open         BOOLEAN       NOT NULL DEFAULT TRUE,
-  machine_state   T_NE_STR      DEFAULT NULL,
+  contact         BIGINT      NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ DEFAULT NULL,
+  is_open         BOOLEAN     NOT NULL DEFAULT TRUE,
+  machine_state   T_NO_WS_STR DEFAULT NULL,
   
   CONSTRAINT wa_case_handler_case_manifests_contact_fkey
     FOREIGN KEY (contact)
@@ -460,11 +443,11 @@ ALTER TABLE public.wa_case_handler_case_manifests
 CREATE TABLE IF NOT EXISTS public.wa_case_handler_messages (
   
   id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  ts          TIMESTAMPTZ   NOT NULL DEFAULT now(),
-  case_id     BIGINT        NOT NULL,
-  basemodel   T_NE_STR      NOT NULL,
-  origin      T_NE_STR      DEFAULT NULL,
-  data        JSONB         NOT NULL,
+  ts          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  case_id     BIGINT      NOT NULL,
+  basemodel   T_NO_WS_STR NOT NULL,
+  origin      T_NO_WS_STR DEFAULT NULL,
+  data        JSONB       NOT NULL,
   
   CONSTRAINT wa_case_handler_messages_case_id_fkey
     FOREIGN KEY (case_id)
