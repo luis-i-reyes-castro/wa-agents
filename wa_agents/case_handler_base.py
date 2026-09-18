@@ -66,6 +66,8 @@ from .case_handler_models import (
 from .supabase import (
     AsyncSupabaseStorage,
     SyncSupabaseStorage,
+    WhatsAppDatabaseRecord_Business,
+    WhatsAppDatabaseRecord_Contact,
 )
 from .whatsapp_functions import (
     WhatsAppSendResult,
@@ -93,46 +95,6 @@ class TransitionDict (TypedDict) :
     source  : str
     trigger : str
     dest    : str
-
-
-class WhatsAppDatabaseRecord (BaseModel) :
-    """
-    Normalized WhatsApp business or contact record:
-        `row_id`: column `id` in the corresponding table
-        `api_id`: the business/contact API ID for sending messages
-    Structure for businesses:
-        `row_id` : `wa_api_businesses.id`
-        `api_id` : `wa_api_businesses.phone_number_id` | null
-    Structure for contacts:
-        `row_id` : `wa_api_contacts.id`
-        `api_id` : `wa_api_contacts.wa_id` | `wa_api_contacts.user_id` | null
-    """
-    model_config = ConfigDict( frozen = False)
-    
-    row_id : NonNegativeInt
-    api_id : NE_str = "<PHONE_NUMBER_ID|WA_ID|USER_ID>"
-
-
-class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsAppMetaData) :
-    
-    model_config = ConfigDict( frozen = False)
-    
-    waba_id : NumericID
-    
-    @model_validator( mode = "after")
-    def validate(self) -> Self :
-        self.api_id = self.phone_number_id
-        return self
-
-
-class WhatsAppDatabaseRecord_Contact ( WhatsAppDatabaseRecord, WhatsAppContact) :
-    
-    model_config = ConfigDict( frozen = False)
-    
-    @model_validator( mode = "after")
-    def validate(self) -> Self :
-        self.api_id = self.wa_id or self.user_id
-        return self
 
 
 # =========================================================================================

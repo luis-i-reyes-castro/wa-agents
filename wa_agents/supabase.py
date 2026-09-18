@@ -13,10 +13,18 @@ import os
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import (
+    Any,
+    Self,
+)
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    NonNegativeInt,
+    model_validator,
+)
 from sofia_utils.psycopg import (
     Jsonb,
     async_pooled_connection,
@@ -24,11 +32,65 @@ from sofia_utils.psycopg import (
     sync_pooled_conection,
 )
 from sofia_utils.printing import get_qualname as here
+from sofia_utils.pydantic import (
+    NE_str,
+    NumericID,
+)
 
 from .case_handler_models import (
     CaseManifest,
     Message,
 )
+from .whatsapp_models import (
+    WhatsAppContact,
+    WhatsAppMetaData,
+    WhatsAppProfile,
+)
+
+
+# =========================================================================================
+# DATABASE RECORD MODELS
+
+class WhatsAppDatabaseRecord (BaseModel) :
+    """
+    Normalized WhatsApp business or contact record:
+        `row_id`: column `id` in the corresponding table
+        `api_id`: the business/contact API ID for sending messages
+    """
+    model_config = ConfigDict( frozen = False)
+    
+    row_id : NonNegativeInt
+    api_id : NE_str = "<PHONE_NUMBER_ID|WA_ID|USER_ID>"
+
+
+class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsAppMetaData) :
+    """
+    Normalized WhatsApp Business Record:
+        `row_id` : `wa_api_businesses.id`
+        `api_id` : `wa_api_businesses.phone_number_id`
+    """
+    model_config = ConfigDict( frozen = False)
+    
+    waba_id : NumericID
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        self.api_id = self.phone_number_id
+        return self
+
+
+class WhatsAppDatabaseRecord_Contact ( WhatsAppDatabaseRecord, WhatsAppContact) :
+    """
+    Normalized WhatsApp Contact record:
+        `row_id` : `wa_api_contacts.id`
+        `api_id` : `wa_api_contacts.wa_id` | `wa_api_contacts.user_id`
+    """
+    model_config = ConfigDict( frozen = False)
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        self.api_id = self.wa_id or self.user_id
+        return self
 
 
 # =========================================================================================
@@ -71,6 +133,7 @@ def _load_sql( filename : str) -> str :
 
 SQL_ACQUIRE_CONTACT_LEASE           = _load_sql("acquire_contact_lease.sql")
 SQL_CASE_HANDLER_MESSAGE_EXISTS     = _load_sql("case_handler_message_exists.sql")
+SQL_GET_BUSINESS                    = _load_sql("get_business.sql")
 SQL_GET_CASE_HANDLER_MEDIA          = _load_sql("get_case_handler_media.sql")
 SQL_GET_CASE_HANDLER_MESSAGE        = _load_sql("get_case_handler_message.sql")
 SQL_GET_CASE_HANDLER_MESSAGES       = _load_sql("get_case_handler_messages.sql")
@@ -272,12 +335,86 @@ class SyncSupabaseStorage :
             { "business" : business, "wa_id" : wa_id, "user_id" : user_id },
         )
     
-    def get_contact( self, contact : int) -> dict[str, Any] | None :
+    def get_business( self, business : int) -> dict[ str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_GET_BUSINESS,
+            { "business" : business },
+        )
+    
+    def get_contact( self, contact : int) -> dict[ str, Any] | None :
         
         return self._fetch_one(
             SQL_GET_CONTACT,
             { "contact" : contact },
         )
+    
+    def resolve_business_and_contact(
+        self,
+        business : int | WhatsAppDatabaseRecord_Business,
+        contact  : int | WhatsAppDatabaseRecord_Contact,
+    ) -> tuple[ WhatsAppDatabaseRecord_Business, WhatsAppDatabaseRecord_Contact ] :
+        """
+        Resolve business/contact row IDs into their database-record models.
+        """
+        if isinstance( business, WhatsAppDatabaseRecord_Business) :
+            business_record = business
+        
+        elif isinstance( business, int) and not isinstance( business, bool) :
+            
+            row = self.get_business(business)
+            if not row :
+                raise ValueError(f"In {here()}: Unknown business row '{business}'")
+            
+            business_record = WhatsAppDatabaseRecord_Business(
+                row_id               = row["id"],
+                waba_id              = row["waba_id"],
+                display_phone_number = row["display_phone_number"],
+                phone_number_id      = row["phone_number_id"],
+            )
+        
+        else :
+            raise ValueError(f"In {here()}: Invalid business record '{business}'")
+        
+        contact_business = None
+        
+        if isinstance( contact, WhatsAppDatabaseRecord_Contact) :
+            contact_record = contact
+        
+        elif isinstance( contact, int) and not isinstance( contact, bool) :
+            
+            row = self.get_contact(contact)
+            if not row :
+                raise ValueError(f"In {here()}: Unknown contact row '{contact}'")
+            
+            contact_business = row["business"]
+            profile = (
+                WhatsAppProfile(
+                    name     = row["profile_name"],
+                    username = row.get("profile_username"),
+                )
+                if row.get("profile_name") else None
+            )
+            contact_record = WhatsAppDatabaseRecord_Contact(
+                row_id  = row["id"],
+                profile = profile,
+                wa_id   = row.get("wa_id"),
+                user_id = row.get("user_id"),
+            )
+        
+        else :
+            raise ValueError(f"In {here()}: Invalid contact record '{contact}'")
+        
+        if (
+            ( contact_business is not None               ) and
+            ( contact_business != business_record.row_id )
+        ) :
+            raise ValueError(
+                f"In {here()}: Contact row '{contact_record.row_id}' does not "
+                f"belong to business row '{business_record.row_id}'"
+            )
+        
+        return business_record, contact_record
     
     def upsert_contact_profile(
         self,
@@ -732,15 +869,92 @@ class AsyncSupabaseStorage :
             { "business" : business, "wa_id" : wa_id, "user_id" : user_id },
         )
     
+    async def get_business(
+        self,
+        business : int,
+    ) -> dict[ str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_GET_BUSINESS,
+            { "business" : business },
+        )
+    
     async def get_contact(
         self,
         contact : int,
-    ) -> dict[str, Any] | None :
+    ) -> dict[ str, Any] | None :
         
         return await self._fetch_one(
             SQL_GET_CONTACT,
             { "contact" : contact },
         )
+    
+    async def resolve_business_and_contact(
+        self,
+        business : int | WhatsAppDatabaseRecord_Business,
+        contact  : int | WhatsAppDatabaseRecord_Contact,
+    ) -> tuple[ WhatsAppDatabaseRecord_Business, WhatsAppDatabaseRecord_Contact ] :
+        """
+        Resolve business/contact row IDs into their database-record models.
+        """
+        if isinstance( business, WhatsAppDatabaseRecord_Business) :
+            business_record = business
+        
+        elif isinstance( business, int) and not isinstance( business, bool) :
+            
+            row = await self.get_business(business)
+            if not row :
+                raise ValueError(f"In {here()}: Unknown business row '{business}'")
+            
+            business_record = WhatsAppDatabaseRecord_Business(
+                row_id               = row["id"],
+                waba_id              = row["waba_id"],
+                display_phone_number = row["display_phone_number"],
+                phone_number_id      = row["phone_number_id"],
+            )
+        
+        else :
+            raise ValueError(f"In {here()}: Invalid business record '{business}'")
+        
+        contact_business = None
+        
+        if isinstance( contact, WhatsAppDatabaseRecord_Contact) :
+            contact_record = contact
+        
+        elif isinstance( contact, int) and not isinstance( contact, bool) :
+            
+            row = await self.get_contact(contact)
+            if not row :
+                raise ValueError(f"In {here()}: Unknown contact row '{contact}'")
+            
+            contact_business = row["business"]
+            profile = (
+                WhatsAppProfile(
+                    name     = row["profile_name"],
+                    username = row.get("profile_username"),
+                )
+                if row.get("profile_name") else None
+            )
+            contact_record = WhatsAppDatabaseRecord_Contact(
+                row_id  = row["id"],
+                profile = profile,
+                wa_id   = row.get("wa_id"),
+                user_id = row.get("user_id"),
+            )
+        
+        else :
+            raise ValueError(f"In {here()}: Invalid contact record '{contact}'")
+        
+        if (
+            ( contact_business is not None               ) and
+            ( contact_business != business_record.row_id )
+        ) :
+            raise ValueError(
+                f"In {here()}: Contact row '{contact_record.row_id}' does not "
+                f"belong to business row '{business_record.row_id}'"
+            )
+        
+        return business_record, contact_record
     
     async def upsert_contact_profile(
         self,
