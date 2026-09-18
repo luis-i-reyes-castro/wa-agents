@@ -45,6 +45,102 @@ def test_payload_hash_is_canonical() -> None :
     assert supabase._payload_hash(payload_1) == supabase._payload_hash(payload_2)
 
 
+def test_get_business_uses_business_row_id( monkeypatch) -> None :
+    storage = supabase.SyncSupabaseStorage("postgresql://test")
+    calls   = []
+
+    def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return { "id" : params["business"] }
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+
+    assert storage.get_business(41) == { "id" : 41 }
+    assert calls == [ ( supabase.SQL_GET_BUSINESS, { "business" : 41 } ) ]
+
+
+def test_async_get_business_uses_business_row_id( monkeypatch) -> None :
+    storage = supabase.AsyncSupabaseStorage("postgresql://test")
+    calls   = []
+
+    async def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return { "id" : params["business"] }
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+
+    assert asyncio.run(storage.get_business(41)) == { "id" : 41 }
+    assert calls == [ ( supabase.SQL_GET_BUSINESS, { "business" : 41 } ) ]
+
+
+def test_resolve_business_and_contact( monkeypatch) -> None :
+    storage = supabase.SyncSupabaseStorage("postgresql://test")
+
+    monkeypatch.setattr(
+        storage,
+        "get_business",
+        lambda _business : {
+            "id"                   : 41,
+            "waba_id"              : "123456789012345",
+            "phone_number_id"      : "1234567890",
+            "display_phone_number" : "15551234567",
+        },
+    )
+    monkeypatch.setattr(
+        storage,
+        "get_contact",
+        lambda _contact : {
+            "id"               : 31,
+            "business"         : 41,
+            "wa_id"            : "593995341161",
+            "user_id"          : None,
+            "profile_name"     : "Test User",
+            "profile_username" : None,
+        },
+    )
+
+    business, contact = storage.resolve_business_and_contact( 41, 31)
+
+    assert business.row_id == 41
+    assert business.api_id == "1234567890"
+    assert contact.row_id == 31
+    assert contact.api_id == "593995341161"
+    assert contact.profile and contact.profile.name == "Test User"
+
+
+def test_async_resolve_business_and_contact( monkeypatch) -> None :
+    storage = supabase.AsyncSupabaseStorage("postgresql://test")
+
+    async def get_business( _business) :
+        return {
+            "id"                   : 41,
+            "waba_id"              : "123456789012345",
+            "phone_number_id"      : "1234567890",
+            "display_phone_number" : "15551234567",
+        }
+
+    async def get_contact( _contact) :
+        return {
+            "id"               : 31,
+            "business"         : 41,
+            "wa_id"            : "593995341161",
+            "user_id"          : None,
+            "profile_name"     : "Test User",
+            "profile_username" : None,
+        }
+
+    monkeypatch.setattr( storage, "get_business", get_business)
+    monkeypatch.setattr( storage, "get_contact", get_contact)
+
+    business, contact = asyncio.run(storage.resolve_business_and_contact( 41, 31))
+
+    assert business.row_id == 41
+    assert business.api_id == "1234567890"
+    assert contact.row_id == 31
+    assert contact.api_id == "593995341161"
+    assert contact.profile and contact.profile.name == "Test User"
+
+
 def test_inbound_payload_is_bound_as_jsonb( monkeypatch) -> None :
     storage = supabase.SyncSupabaseStorage("postgresql://test")
     calls   = []
@@ -182,7 +278,7 @@ def test_async_payload_insert_uses_same_contract( monkeypatch) -> None :
 
 
 def test_media_object_key_uses_business_contact_case_and_filename() -> None :
-    assert media_object_key( 11, 17, 29, "31.jpeg") == "11/17/29/31.jpeg"
+    assert media_object_key( 11, 17, 29, "31.jpeg") == "11/17/29_31.jpeg"
 
 
 @pytest.mark.parametrize(
@@ -221,8 +317,8 @@ def test_s3_media_write_returns_database_object_key( monkeypatch) -> None :
 
     object_key = S3BucketStorage().media_write( 11, 17, 29, media)
 
-    assert object_key == "11/17/29/31.jpeg"
-    assert calls == [ ( "11/17/29/31.jpeg", b"image bytes", "image/jpeg") ]
+    assert object_key == "11/17/29_31.jpeg"
+    assert calls == [ ( "11/17/29_31.jpeg", b"image bytes", "image/jpeg") ]
 
 
 def test_async_s3_media_write_returns_database_object_key( monkeypatch) -> None :
@@ -239,5 +335,5 @@ def test_async_s3_media_write_returns_database_object_key( monkeypatch) -> None 
     monkeypatch.setattr( S3_bucket_storage, "async_b3_put_media", fake_put_media)
     object_key = asyncio.run(AsyncS3BucketStorage().media_write( 11, 17, 29, media))
 
-    assert object_key == "11/17/29/31.jpeg"
-    assert calls == [ ( "11/17/29/31.jpeg", b"image bytes", "image/jpeg") ]
+    assert object_key == "11/17/29_31.jpeg"
+    assert calls == [ ( "11/17/29_31.jpeg", b"image bytes", "image/jpeg") ]

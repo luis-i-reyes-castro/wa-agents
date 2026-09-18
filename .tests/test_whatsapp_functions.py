@@ -132,7 +132,7 @@ def test_write_document_payload_uses_outbound_model() -> None :
     )
     
     assert message.basemodel == "ServerDocumentMsg"
-    assert message.id
+    assert message.id is None
     serialized = message.model_dump( mode = "json")
     assert "content" not in serialized
     assert ServerDocumentMsg.model_validate(serialized).content is None

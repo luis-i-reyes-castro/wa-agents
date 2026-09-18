@@ -7,7 +7,7 @@ Use this when replies are deterministic (lookups, rules, fixed templates).
 
 from sofia_utils.printing import get_qualname as here
 
-from wa_agents.case_handler_base import CaseHandlerBase
+from wa_agents.case_handler_base import WhatsAppCaseHandler
 from wa_agents.case_handler_models import (
     HumanServerMsg,
     HumanUserContentMsg,
@@ -18,7 +18,7 @@ from wa_agents.whatsapp_models import (
 )
 
 
-class CaseHandler(CaseHandlerBase) :
+class CaseHandler(WhatsAppCaseHandler) :
     """
     Deterministic single-turn handler.
     """

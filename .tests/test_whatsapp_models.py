@@ -26,7 +26,7 @@ from wa_agents.whatsapp_models import (
 DOCUMENT_DATA = {
     "id"        : "123456789",
     "mime_type" : "application/pdf",
-    "sha256"    : "0123456789abcdef",
+    "sha256"    : "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
     "filename"  : "invoice.pdf",
     "caption"   : "Invoice",
 }

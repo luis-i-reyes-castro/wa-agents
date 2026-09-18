@@ -7,14 +7,14 @@ import pytest
 from pydantic import ValidationError
 
 from wa_agents.case_handler_base import (
-    AsyncCaseHandlerBase,
-    CaseHandlerBase,
+    AsyncWhatsAppCaseHandler,
+    WhatsAppCaseHandler,
 )
 from wa_agents.case_handler_models import ServerTemplateMsg
 from wa_agents.whatsapp_functions import write_payload
 
 
-class _TemplateHandler(CaseHandlerBase) :
+class _TemplateHandler(WhatsAppCaseHandler) :
     
     def process_message( self, _message, _media_content = None ) -> bool :
         return False
@@ -23,7 +23,7 @@ class _TemplateHandler(CaseHandlerBase) :
         return False
 
 
-class _AsyncTemplateHandler(AsyncCaseHandlerBase) :
+class _AsyncTemplateHandler(AsyncWhatsAppCaseHandler) :
     
     async def process_message( self, _message, _media_content = None ) -> bool :
         return False
@@ -166,8 +166,13 @@ def test_case_handler_send_template_dispatches_helper( monkeypatch ) -> None :
     
     sent = []
     
-    def _send( operator_id : str, user_id : str, message : ServerTemplateMsg ) -> None :
+    def _send(
+        operator_id : str,
+        user_id     : str,
+        message     : ServerTemplateMsg,
+    ) -> list :
         sent.append(( operator_id, user_id, message ))
+        return []
     
     monkeypatch.setattr( "wa_agents.case_handler_base.send_whatsapp_template", _send )
     
@@ -194,8 +199,9 @@ def test_async_case_handler_send_template_dispatches_helper( monkeypatch ) -> No
         operator_id : str,
         user_id     : str,
         message     : ServerTemplateMsg,
-    ) -> None :
+    ) -> list :
         sent.append(( operator_id, user_id, message ))
+        return []
     
     monkeypatch.setattr(
         "wa_agents.case_handler_base.async_send_whatsapp_template",

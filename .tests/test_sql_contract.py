@@ -99,15 +99,14 @@ def test_payload_validation_result_has_explicit_updates() -> None :
     assert "errors    = @errors" in invalid
 
 
-def test_payload_metadata_references_raw_payload() -> None :
-    metadata = ( SQL_DIR / "insert_inbound_payload_metadata.sql").read_text(
+def test_payload_metadata_updates_raw_payload() -> None :
+    metadata = ( SQL_DIR / "update_inbound_payload_metadata.sql").read_text(
         encoding = "utf-8"
     )
-    nuclear = ( SQL_DIR / "nuclear_option.sql").read_text(encoding = "utf-8")
-    
+
     assert "payload_id" in metadata
     assert "payload_hash" not in metadata
-    assert "public.wa_api_inbound_payloads" in nuclear
+    assert "public.wa_api_inbound_payloads" in metadata
 
 
 def test_contact_lease_defaults_to_ninety_seconds() -> None :

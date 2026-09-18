@@ -80,7 +80,9 @@ class _ImmediateReplyHandler :
 
     instances = []
 
-    def __init__( self, _operator, _user, **kwargs) -> None :
+    def __init__( self, operator, user, **kwargs) -> None :
+        self.operator             = operator
+        self.user                 = user
         self.kwargs               = kwargs
         self._responded_in_ingest = True
         self.released             = False
@@ -98,7 +100,9 @@ class _AsyncImmediateReplyHandler :
 
     instances = []
 
-    def __init__( self, _operator, _user, **kwargs) -> None :
+    def __init__( self, operator, user, **kwargs) -> None :
+        self.operator             = operator
+        self.user                 = user
         self.kwargs               = kwargs
         self._responded_in_ingest = True
         self.released             = False
@@ -141,8 +145,8 @@ class _DelayedReplyHandler :
 def test_queue_row_reconstructs_job_and_message() -> None :
     job, message = _job_and_message(_queue_item())
 
-    assert job.business_id == 41
-    assert job.contact_id == 31
+    assert job.operator.row_id == 41
+    assert job.user.row_id == 31
     assert job.api_inbound_msg_id == 21
     assert isinstance( hash(job), int)
     assert message.id == "wamid.ABC123="
@@ -159,7 +163,7 @@ def test_queue_worker_releases_lease_after_ingest_reply() -> None :
     assert queue.error_ids == []
     assert not worker._job_td
     assert _ImmediateReplyHandler.instances[0].released is True
-    assert _ImmediateReplyHandler.instances[0].kwargs["contact_id"] == 31
+    assert _ImmediateReplyHandler.instances[0].user.row_id == 31
 
 
 def test_async_queue_worker_releases_lease_after_ingest_reply() -> None :
@@ -172,7 +176,7 @@ def test_async_queue_worker_releases_lease_after_ingest_reply() -> None :
     assert queue.error_ids == []
     assert not worker._job_td
     assert _AsyncImmediateReplyHandler.instances[0].released is True
-    assert _AsyncImmediateReplyHandler.instances[0].kwargs["contact_id"] == 31
+    assert _AsyncImmediateReplyHandler.instances[0].user.row_id == 31
 
 
 def test_queue_worker_holds_lease_through_delayed_response() -> None :

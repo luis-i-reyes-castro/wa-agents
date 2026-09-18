@@ -149,15 +149,15 @@ class _AsyncPayloadStorageStub :
         self.events.append("upsert_contact")
         return { "id" : 13 }
 
-    async def insert_contact_profile(self, **_kwargs : Any) -> dict[str, Any] :
-        self.events.append("insert_profile")
+    async def upsert_contact_profile(self, **_kwargs : Any) -> dict[str, Any] :
+        self.events.append("upsert_profile")
         return { "id" : 17 }
 
-    async def insert_inbound_payload_metadata(
+    async def update_inbound_payload_metadata(
         self,
         **_kwargs : Any,
     ) -> dict[str, Any] :
-        self.events.append("insert_metadata")
+        self.events.append("update_metadata")
         return { "id" : 19 }
 
     async def insert_inbound_message(self, **kwargs : Any) -> dict[str, Any] :
@@ -213,8 +213,8 @@ def test_async_queue_validates_normalizes_and_enqueues_payload(
         "mark_valid",
         "upsert_business",
         "upsert_contact",
-        "insert_profile",
-        "insert_metadata",
+        "upsert_profile",
+        "update_metadata",
         "insert_message",
         "enqueue_message",
     ]

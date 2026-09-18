@@ -12,8 +12,8 @@ from uuid import UUID
 from sofia_utils.printing import get_qualname as here
 
 from wa_agents.agent import AsyncAgent
-from wa_agents.case_handler_base import (
-    AsyncCaseHandlerBase,
+from wa_agents.case_handler_base import AsyncWhatsAppCaseHandler
+from wa_agents.supabase import (
     WhatsAppDatabaseRecord_Business,
     WhatsAppDatabaseRecord_Contact,
 )
@@ -61,7 +61,7 @@ class ToolServer :
         return results
 
 
-class CaseHandler (AsyncCaseHandlerBase) :
+class CaseHandler (AsyncWhatsAppCaseHandler) :
     """
     Multi-turn tool-loop handler.
     """

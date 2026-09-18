@@ -3,20 +3,27 @@ from datetime import (
     datetime,
 )
 
+import pytest
+
+from wa_agents import case_handler_base
 from wa_agents.case_handler_base import (
+    AsyncCaseHandlerBase,
+    AsyncWhatsAppCaseHandler,
     CH_State,
     CaseHandlerBase,
+    WhatsAppCaseHandler,
 )
 from wa_agents.case_handler_models import (
     CaseManifest,
     Message,
     ServerTextMsg,
 )
-from wa_agents.whatsapp_models import (
-    WhatsAppContact,
-    WhatsAppMetaData,
-    WhatsAppProfile,
+from wa_agents.supabase import (
+    SyncSupabaseStorage,
+    WhatsAppDatabaseRecord_Business,
+    WhatsAppDatabaseRecord_Contact,
 )
+from wa_agents.whatsapp_models import WhatsAppProfile
 
 
 class _StorageStub :
@@ -49,19 +56,20 @@ class _StateHandler (CaseHandlerBase) :
         return [ CH_State("start"), CH_State("ready") ], "start", []
 
     def __init__( self, manifest : CaseManifest) -> None :
-        operator = WhatsAppMetaData(
-            display_phone_number = "15551234567",
+        business = WhatsAppDatabaseRecord_Business(
+            row_id               = 41,
+            waba_id              = "123456789012345",
             phone_number_id      = "1234567890",
+            display_phone_number = "15551234567",
         )
-        user = WhatsAppContact(
+        contact = WhatsAppDatabaseRecord_Contact(
+            row_id  = 31,
             profile = WhatsAppProfile( name = "Test User"),
             wa_id   = "593995341161",
         )
         super().__init__(
-            operator,
-            user,
-            business_id  = 41,
-            contact_id   = 31,
+            business,
+            contact,
             database_url = "postgresql://test",
         )
         self.ingested = []
@@ -76,6 +84,54 @@ class _StateHandler (CaseHandlerBase) :
         return False
 
     def generate_response( self, _max_tokens = None) -> bool :
+        return False
+
+
+class _LookupStorage :
+
+    resolve_business_and_contact = SyncSupabaseStorage.resolve_business_and_contact
+
+    def __init__( self, database_url : str | None = None) -> None :
+        self.database_url = database_url or "postgresql://test"
+
+    def get_business( self, business : int) -> dict | None :
+        if business != 41 :
+            return None
+        return {
+            "id"                   : 41,
+            "waba_id"              : "123456789012345",
+            "phone_number_id"      : "1234567890",
+            "display_phone_number" : "15551234567",
+        }
+
+    def get_contact( self, contact : int) -> dict | None :
+        if contact != 31 :
+            return None
+        return {
+            "id"               : 31,
+            "business"         : 41,
+            "wa_id"            : "593995341161",
+            "user_id"          : None,
+            "profile_name"     : "Test User",
+            "profile_username" : None,
+        }
+
+
+class _IDHandler(CaseHandlerBase) :
+
+    def process_message( self, _message) -> bool :
+        return False
+
+    def generate_response( self, _max_tokens = None) -> bool :
+        return False
+
+
+class _AsyncIDHandler(AsyncCaseHandlerBase) :
+
+    async def process_message( self, _message) -> bool :
+        return False
+
+    async def generate_response( self, _max_tokens = None) -> bool :
         return False
 
 
@@ -114,3 +170,66 @@ def test_context_update_persists_resulting_fsm_state_atomically() -> None :
     assert handler.case_manifest.machine_state == "ready"
     assert handler.case_manifest.message_ids == [ 51 ]
     assert handler.case_context == [ stored ]
+
+
+def test_whatsapp_methods_live_on_transport_adapters() -> None :
+    assert issubclass( WhatsAppCaseHandler, CaseHandlerBase)
+    assert issubclass( AsyncWhatsAppCaseHandler, AsyncCaseHandlerBase)
+    assert "_get_media_storage" in CaseHandlerBase.__dict__
+    assert "_get_media_storage" in AsyncCaseHandlerBase.__dict__
+    assert "_get_media_storage" not in WhatsAppCaseHandler.__dict__
+    assert "_get_media_storage" not in AsyncWhatsAppCaseHandler.__dict__
+    assert "_hydrate_media" in CaseHandlerBase.__dict__
+    assert "_hydrate_media" in AsyncCaseHandlerBase.__dict__
+    assert not hasattr( CaseHandlerBase, "send_text")
+    assert not hasattr( AsyncCaseHandlerBase, "send_text")
+    assert hasattr( WhatsAppCaseHandler, "send_text")
+    assert hasattr( AsyncWhatsAppCaseHandler, "send_text")
+
+
+def test_handler_resolves_business_and_contact_ids( monkeypatch) -> None :
+    monkeypatch.setattr( case_handler_base, "SyncSupabaseStorage", _LookupStorage)
+
+    handler = _IDHandler( 41, 31, database_url = "postgresql://test")
+
+    assert handler.business_id == 41
+    assert handler.contact_id == 31
+    assert handler.operator_id == "1234567890"
+    assert handler.user_id == "593995341161"
+    assert handler.user_name == "Test User"
+
+
+def test_async_handler_resolves_business_and_contact_ids( monkeypatch) -> None :
+    class _AsyncStorage :
+
+        def __init__( self, database_url : str | None = None) -> None :
+            self.database_url = database_url or "postgresql://test"
+
+    monkeypatch.setattr( case_handler_base, "SyncSupabaseStorage", _LookupStorage)
+    monkeypatch.setattr( case_handler_base, "AsyncSupabaseStorage", _AsyncStorage)
+
+    handler = _AsyncIDHandler( 41, 31, database_url = "postgresql://test")
+
+    assert handler.business_id == 41
+    assert handler.contact_id == 31
+    assert handler.operator_id == "1234567890"
+    assert handler.user_id == "593995341161"
+
+
+def test_handler_rejects_contact_from_another_business( monkeypatch) -> None :
+    class _WrongBusinessStorage(_LookupStorage) :
+
+        def get_contact( self, contact : int) -> dict | None :
+            row = super().get_contact(contact)
+            if row :
+                row["business"] = 99
+            return row
+
+    monkeypatch.setattr(
+        case_handler_base,
+        "SyncSupabaseStorage",
+        _WrongBusinessStorage,
+    )
+
+    with pytest.raises( ValueError, match = "does not belong") :
+        _IDHandler( 41, 31, database_url = "postgresql://test")
