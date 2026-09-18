@@ -48,9 +48,12 @@ pip install -r requirements.txt
    Postgres, and enqueues newly persisted message IDs.
 3. `AsyncQueueWorker` runs inside the FastAPI lifespan, drains queue items, and
    calls your `CaseHandler`.
-4. `CaseHandlerBase` handles dedup, case open/close logic, context persistence, and
-   WhatsApp sending helpers.
-5. Your `CaseHandler` implements business logic in:
+4. `CaseHandlerBase` resolves the persisted business/contact identity and handles
+   case open/close logic, context persistence, FSM state, and S3 media access without
+   depending on a messaging transport.
+5. `WhatsAppCaseHandler` adds webhook-message conversion, deduplication, WhatsApp
+   media-metadata persistence, API-message linking, and sending helpers.
+6. Your `CaseHandler` implements business logic in:
    - `process_message(...)` for ingestion-time decisions,
    - `generate_response(...)` for response generation (single or multi-turn).
 
@@ -148,7 +151,8 @@ An example container recipe is available at
 
 ## `CaseHandler` Design Patterns
 
-All patterns below extend `CaseHandlerBase` and implement:
+The WhatsApp patterns below extend `WhatsAppCaseHandler` or
+`AsyncWhatsAppCaseHandler` and implement:
 - `process_message(...) -> bool`
 - `generate_response(...) -> bool`
 
@@ -179,8 +183,10 @@ Template:
 
 Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py).
 
-- Initialize `CaseHandlerBase` itself as a `transitions.Machine` with `init_machine(...)`.
-- Initialize `AsyncCaseHandlerBase` itself as a `transitions.AsyncMachine`.
+- Initialize `CaseHandlerBase` or `WhatsAppCaseHandler` itself as a
+  `transitions.Machine` with `init_machine(...)`.
+- Initialize `AsyncCaseHandlerBase` or `AsyncWhatsAppCaseHandler` itself as a
+  `transitions.AsyncMachine`.
   Async handlers that fire triggers from `async` methods must use
   `await self.trigger(...)`.
 - [`context_build()`](wa_agents/case_handler_base.py) replays stored case messages into the handler state machine.
@@ -222,12 +228,11 @@ WhatsApp transport. For a stateless API handler, build the context directly from
 `Message` subclasses, call the agent, and return its result. There is no need to
 instantiate `CaseHandlerBase` or create WhatsApp API database records.
 
-A non-WhatsApp handler can also reuse `CaseHandlerBase` when it needs persisted
-messages, case manifests, or FSM state. The current persistence schema identifies
-cases through `wa_api_contacts`, so this setup requires placeholder business and
-contact rows in `wa_api_businesses` and `wa_api_contacts`. Construct the handler
-with the corresponding `WhatsAppDatabaseRecord_Business` and
-`WhatsAppDatabaseRecord_Contact` values, but use `case_handler_models.Message`
+A non-WhatsApp handler can reuse `CaseHandlerBase` or `AsyncCaseHandlerBase` when it
+needs persisted messages, case manifests, or FSM state. The current persistence
+schema identifies cases through `wa_api_contacts`, so this setup requires placeholder
+business and contact rows in `wa_api_businesses` and `wa_api_contacts`. Construct the
+core handler with those rows or their IDs, then use `case_handler_models.Message`
 subclasses for the actual API input and output.
 
 In this mode:
@@ -369,14 +374,23 @@ resp = await agent.get_response(
 
 ## Case and Storage Behavior (built in)
 
-`CaseHandlerBase` already provides:
-- per-user data lookup from phone number (`UserData`),
+`CaseHandlerBase` and `AsyncCaseHandlerBase` provide:
+
+- business/contact lookup when constructed with database row IDs,
+- per-user data lookup from the resolved contact (`UserData`),
 - stale-case rollover (`TIME_LIMIT_STALE`, default 48h),
 - case manifests reconstructed from stored message rows,
-- idempotency through database uniqueness on message idempotency keys,
-- media persistence,
 - context replay into your optional handler state machine,
-- send helpers for text and interactive messages.
+- S3 access and stored-media hydration,
+- persisted FSM state, and
+- contact leases.
+
+`WhatsAppCaseHandler` and `AsyncWhatsAppCaseHandler` additionally provide:
+
+- idempotent inbound-message ingestion,
+- WhatsApp media-metadata persistence,
+- WhatsApp API message linking, and
+- send helpers for text, templates, and interactive messages.
 
 Supabase stores:
 - incoming queue rows in `wa_incoming_queue`,
@@ -388,9 +402,7 @@ Supabase stores:
 S3-compatible bucket storage is only used for media bytes:
 
 ```txt
-<operator_id>/<user_id>/
-  cases/<case_id>/
-    media/<message_id>.<extension>
+<business_id>/<contact_id>/<case_id>_<message_id>.<extension>
 ```
 
 ## Reference Implementations
@@ -399,7 +411,7 @@ Use these as templates when building new bots:
 
 - [`da-assistant`](https://github.com/luis-i-reyes-castro/da-assistant)
   - Multi-turn chatbot.
-  - Uses built-in `CaseHandlerBase` state-machine support + staged agent calls + tool call loop.
+  - Uses built-in case-handler state-machine support + staged agent calls + tool call loop.
   - Includes image flow and interactive model selection.
 
 - [`docs/examples_chatbot_patterns.md`](docs/examples_chatbot_patterns.md)

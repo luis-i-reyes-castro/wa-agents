@@ -14,7 +14,8 @@ before editing. The schema and APIs may evolve after this reference is written.
    lease. This prevents concurrent work for the same contact across processes.
 5. `QueueWorker` reconstructs `WhatsAppDatabaseRecord_Business`,
    `WhatsAppDatabaseRecord_Contact`, and the Meta message, then creates the consumer's
-   case handler as a child of `CaseHandlerBase`.
+   case handler as a child of `WhatsAppCaseHandler` or
+   `AsyncWhatsAppCaseHandler`.
 6. The handler ingests the message, persists case context and FSM state, and may
    schedule one or more response passes while renewing the same contact lease.
 
@@ -22,15 +23,18 @@ before editing. The schema and APIs may evolve after this reference is written.
 
 - `whatsapp_models.py`: structures controlled by Meta. Model observed webhook
   variants accurately; do not place database row models here.
-- `case_handler_base.py`: mutable database-record wrappers used to construct handlers,
-  plus sync and async handler behavior.
+- `case_handler_base.py`: transport-neutral sync and async case/FSM/context bases.
+  The bases resolve business/contact records or row IDs through `supabase.py` and own
+  S3 access and media hydration. WhatsApp subclasses add Meta-message ingestion,
+  API-row linking, and sending.
 - `case_handler_models.py`: application conversation messages, media descriptors,
   manifests, and LLM context types. `AssistantMsg` owns the LLM model/context fields;
   `CaseManifest.machine_state` owns persisted FSM state.
 - `HumanUserMsg` represents customer-originated messages with LLM role `user`.
   `HumanServerMsg` represents WhatsApp Business message echoes with LLM role
   `assistant`; persist them in context without treating them as new customer input.
-- `supabase.py`: thin sync and async PostgreSQL gateways. Keep it independent of S3.
+- `supabase.py`: database-record models and sync/async resolution methods plus thin
+  PostgreSQL gateways. Keep it independent of S3.
 - `S3_bucket_storage.py`: media-byte storage only.
 
 ## Database Invariants

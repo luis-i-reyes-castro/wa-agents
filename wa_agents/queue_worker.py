@@ -20,8 +20,10 @@ from typing import (
 from uuid import UUID
 
 from .case_handler_base import (
-    AsyncCaseHandlerBase,
-    CaseHandlerBase,
+    AsyncWhatsAppCaseHandler,
+    WhatsAppCaseHandler,
+)
+from .supabase import (
     WhatsAppDatabaseRecord_Business,
     WhatsAppDatabaseRecord_Contact,
 )
@@ -138,7 +140,7 @@ class QueueWorker :
     def __init__(
         self,
         queue_db    : QueueDB,
-        handler_cls : Type[CaseHandlerBase],
+        handler_cls : Type[WhatsAppCaseHandler],
     ) -> None :
         
         self.queue       = queue_db
@@ -148,7 +150,7 @@ class QueueWorker :
         
         return
     
-    def _handler( self, job : HandlerJob) -> CaseHandlerBase :
+    def _handler( self, job : HandlerJob) -> WhatsAppCaseHandler :
         
         return self.handler_cls(
             job.operator,
@@ -281,7 +283,7 @@ class AsyncQueueWorker :
     def __init__(
         self,
         queue_db    : AsyncQueueDB,
-        handler_cls : Type[AsyncCaseHandlerBase],
+        handler_cls : Type[AsyncWhatsAppCaseHandler],
     ) -> None :
         
         self.queue       = queue_db
@@ -291,7 +293,7 @@ class AsyncQueueWorker :
         
         return
     
-    def _handler( self, job : HandlerJob) -> AsyncCaseHandlerBase :
+    def _handler( self, job : HandlerJob) -> AsyncWhatsAppCaseHandler :
         
         return self.handler_cls(
             job.operator,

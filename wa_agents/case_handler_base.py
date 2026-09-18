@@ -12,17 +12,10 @@ from datetime import (
     datetime,
     timedelta,
 )
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    NonNegativeInt,
-    TypeAdapter,
-    model_validator,
-)
+from pydantic import TypeAdapter
 from types import SimpleNamespace
 from typing import (
     Any,
-    Self,
     TypedDict,
 )
 from transitions import (
@@ -39,11 +32,6 @@ from uuid import (
 )
 
 from sofia_utils.printing import get_qualname as here
-from sofia_utils.pydantic import (
-    NE_str,
-    NumericID,
-)
-
 from .case_handler_models import (
     AssistantMsg,
     CaseManifest,
@@ -79,11 +67,9 @@ from .whatsapp_functions import (
     send_whatsapp_text,
 )
 from .whatsapp_models import (
-    WhatsAppContact,
     WhatsAppContactPayload,
     WhatsAppMessage,
     WhatsAppMessageEcho,
-    WhatsAppMetaData,
 )
 
 
@@ -150,7 +136,7 @@ class CH_State (State) :
 
 class CaseHandlerBase ( Machine, ABC) :
     """
-    Synchronous case, context, FSM, and persistence base class.
+    Transport-neutral synchronous case, context, FSM, and persistence base class.
     """
 
     MAX_CONTEXT_LEN : int | None = 20
@@ -161,60 +147,66 @@ class CaseHandlerBase ( Machine, ABC) :
 
     def __init__(
         self,
-        operator : WhatsAppDatabaseRecord_Business,
-        user     : WhatsAppDatabaseRecord_Contact,
+        business : int | WhatsAppDatabaseRecord_Business,
+        contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
-        api_inbound_msg_id : int | None   = None,
-        owner_token        : UUID | str | None = None,
-        debug              : bool              = False,
-        database_url       : str | None        = None,
+        database_url  : str | None        = None,
+        debug         : bool              = False,
+        hydrate_media : bool              = True,
+        owner_token   : UUID | str | None = None,
     ) -> None :
         """
-        Initialize a handler for one normalized WhatsApp contact. \
+        Initialize a transport-neutral handler for one persisted contact. \
         Args:
-            operator          : WhatsApp business phone metadata
-            user              : WhatsApp contact data
-            api_inbound_msg_id: Current `wa_api_inbound_messages.id`, if any
-            owner_token       : Token owning the contact lease
-            debug             : Whether to send verbose WhatsApp copies
-            database_url      : Optional PostgreSQL URL override
+            business : Row ID `wa_api_businesses.id` or DB record object.
+            contact  : Row ID `wa_api_contacts.id` or DB record object.
+            database_url  : Optional PostgreSQL URL override.
+            debug         : Whether downstream components should emit debug output.
+            hydrate_media : Whether to hydrate media during `context_build()`.
+            owner_token   : Token owning the contact lease.
         """
-        self.business_id        = operator.row_id
-        self.contact_id         = user.row_id
-        self.api_inbound_msg_id = api_inbound_msg_id
-        self.owner_token        = owner_token or uuid4()
-
-        self.operator_num = operator.display_phone_number
-        self.operator_id  = operator.api_id
-        self.user_id      = user.api_id
-        self.user_name    = user.profile.name if user.profile else None
-        self.debug        = debug
-
-        profile = user.profile
+        self.storage = SyncSupabaseStorage(database_url)
+        
+        business_record, contact_record = (
+            self.storage.resolve_business_and_contact( business, contact)
+        )
+        
+        self.business_id = business_record.row_id
+        self.contact_id  = contact_record.row_id
+        
+        self.debug         = debug
+        self.hydrate_media = hydrate_media
+        self.owner_token   = owner_token or uuid4()
+        
+        self.operator_num = business_record.display_phone_number
+        self.operator_id  = business_record.api_id
+        self.user_id      = contact_record.api_id
+        self.user_name    = (
+            contact_record.profile.name if contact_record.profile else None
+        )
+        
+        profile = contact_record.profile
         self.user_data = (
             UserData(
-                id           = user.row_id,
+                id           = contact_record.row_id,
                 name         = profile.name,
                 username     = profile.username,
                 lan_reg_data = (
-                    LanguageRegionData.from_phone_number(user.wa_id)
-                    if user.wa_id else None
+                    LanguageRegionData.from_phone_number(contact_record.wa_id)
+                    if contact_record.wa_id else None
                 ),
             )
             if profile else None
         )
-
-        self.case_id       : int | None          = None
-        self.case_manifest : CaseManifest | None = None
+        
+        self.machine       : Machine | None = None
+        self.state         : str     | None = None
+        
+        self.case_id       : int           | None = None
+        self.case_manifest : CaseManifest  | None = None
         self.case_context  : list[Message] | None = None
-        self.machine       : Machine | None       = None
-        self.state         : str | None           = None
-
-        self.storage       = SyncSupabaseStorage(database_url)
-        self.media_storage : Any | None = None
-
-        self._pending_outbound_msg_ids : dict[ int, list[int] ] = {}
-
+        self.media_storage : Any           | None = None
+        
         return
 
     # =====================================================================================
@@ -390,33 +382,34 @@ class CaseHandlerBase ( Machine, ABC) :
     # CONTEXT
 
     def _get_media_storage(self) -> Any :
+        
         if self.media_storage is None :
+            
             from .S3_bucket_storage import S3BucketStorage
-
             self.media_storage = S3BucketStorage()
-
+        
         return self.media_storage
 
     def _hydrate_media( self, message : Message) -> None :
+        
         if not (
             isinstance( message, HumanContentMsg) and
-            message.id and
-            message.media
+            message.id and message.media
         ) :
             return
-
+        
         media_rows = self.storage.get_case_handler_media(message.id)
         if not media_rows :
             return
-
-        media_row            = media_rows[0]
-        message.media.mime   = media_row["mime_type"]
-        message.media.size   = media_row["size"]
-        message.media.name   = media_row["filename"] or message.media.name
+        
+        media_row             = media_rows[0]
+        message.media.mime    = media_row["mime_type"]
+        message.media.size    = media_row["size"]
+        message.media.name    = media_row["filename"] or message.media.name
         message.media.content = self._get_media_storage().media_read(
             media_row["object_key"]
         )
-
+        
         return
 
     def context_build( self, truncate : bool = True) -> None :
@@ -435,8 +428,9 @@ class CaseHandlerBase ( Machine, ABC) :
                 self.MAX_CONTEXT_LEN,
             )
 
-        for message in self.case_context :
-            self._hydrate_media(message)
+        if self.hydrate_media :
+            for message in self.case_context :
+                self._hydrate_media(message)
 
         self._restore_machine_state(self.case_manifest)
         return
@@ -464,8 +458,6 @@ class CaseHandlerBase ( Machine, ABC) :
                 f"In {here()}: Unable to persist case-handler message"
             )
 
-        self._link_pending_outbound_messages( message, stored.id)
-
         self.case_manifest.machine_state = machine_state
         self.case_manifest.updated_at    = datetime.now(UTC)
         if stored.id not in self.case_manifest.message_ids :
@@ -474,6 +466,89 @@ class CaseHandlerBase ( Machine, ABC) :
         if self.case_context is not None :
             self.case_context.append(stored)
 
+        return stored
+
+    # =====================================================================================
+    # CHILD HANDLER INTERFACE
+
+    @abstractmethod
+    def process_message(
+        self,
+        message : Message,
+    ) -> bool :
+        """
+        Process one transport-neutral message. \
+        Returns:
+            `True` if additional response generation is required; otherwise `False`.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def generate_response(
+        self,
+        max_tokens : int | None = None,
+    ) -> bool :
+        """
+        Generate one assistant response pass. \
+        Args:
+            max_tokens : Optional response-token limit.
+        Returns:
+            `True` if another response pass is required; otherwise `False`.
+        """
+        raise NotImplementedError
+
+
+# =========================================================================================
+# SYNC WHATSAPP CASE HANDLER
+# =========================================================================================
+
+class WhatsAppCaseHandler (CaseHandlerBase) :
+    """
+    Synchronous WhatsApp transport adapter for `CaseHandlerBase`.
+    """
+
+    def __init__(
+        self,
+        business : int | WhatsAppDatabaseRecord_Business,
+        contact  : int | WhatsAppDatabaseRecord_Contact,
+        *,
+        api_inbound_msg_id : int | None        = None,
+        database_url       : str | None        = None,
+        debug              : bool              = False,
+        hydrate_media      : bool              = True,
+        owner_token        : UUID | str | None = None,
+    ) -> None :
+        """
+        Initialize a WhatsApp handler for one normalized contact. \
+        Args:
+            business : Row ID `wa_api_businesses.id` or DB record object.
+            contact  : Row ID `wa_api_contacts.id` or DB record object.
+            api_inbound_msg_id : Current `wa_api_inbound_messages.id`, if any.
+            database_url       : Optional PostgreSQL URL override.
+            debug              : Whether downstream components should emit debug output.
+            hydrate_media      : Whether to hydrate media during `context_build()`.
+            owner_token        : Token owning the contact lease.
+        """
+        super().__init__(
+            business      = business,
+            contact       = contact,
+            database_url  = database_url,
+            debug         = debug,
+            hydrate_media = hydrate_media,
+            owner_token   = owner_token,
+        )
+        
+        self.api_inbound_msg_id = api_inbound_msg_id
+        self._pending_outbound_msg_ids : dict[ int, list[int] ] = {}
+        
+        return
+
+    def context_update( self, message : Message) -> Message :
+        
+        stored = super().context_update(message)
+        
+        self._link_pending_outbound_messages( message, stored.id)
+        
         return stored
 
     # =====================================================================================
@@ -736,33 +811,16 @@ class CaseHandlerBase ( Machine, ABC) :
 
         return False
 
-    # =====================================================================================
-    # CHILD HANDLER INTERFACE
-
     @abstractmethod
     def process_message(
         self,
-        message       : WhatsAppMessage,
+        message       : WhatsAppMessage | WhatsAppMessageEcho,
         media_content : bytes | None = None,
     ) -> bool :
         """
         Process one inbound WhatsApp message. \
         Returns:
             `True` if additional response generation is required; otherwise `False`.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def generate_response(
-        self,
-        max_tokens : int | None = None,
-    ) -> bool :
-        """
-        Generate one assistant response pass. \
-        Args:
-            max_tokens : Optional response-token limit.
-        Returns:
-            `True` if another response pass is required; otherwise `False`.
         """
         raise NotImplementedError
 
@@ -806,7 +864,7 @@ class Async_CH_State (AsyncState) :
 
 class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     """
-    Asynchronous case, context, FSM, and persistence base class.
+    Transport-neutral asynchronous case, context, FSM, and persistence base class.
     """
 
     MAX_CONTEXT_LEN : int | None = 20
@@ -817,60 +875,69 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
     def __init__(
         self,
-        operator : WhatsAppDatabaseRecord_Business,
-        user     : WhatsAppDatabaseRecord_Contact,
+        business : int | WhatsAppDatabaseRecord_Business,
+        contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
-        api_inbound_msg_id : int | None   = None,
-        owner_token        : UUID | str | None = None,
-        debug              : bool              = False,
-        database_url       : str | None        = None,
+        database_url  : str | None        = None,
+        debug         : bool              = False,
+        hydrate_media : bool              = True,
+        owner_token   : UUID | str | None = None,
     ) -> None :
         """
-        Initialize an asynchronous handler for one normalized WhatsApp contact. \
+        Initialize a transport-neutral handler for one persisted contact. \
         Args:
-            operator          : WhatsApp business phone metadata.
-            user              : WhatsApp contact data.
-            api_inbound_msg_id: Current `wa_api_inbound_messages.id`, if any.
-            owner_token       : Token owning the contact lease.
-            debug             : Whether to send verbose WhatsApp copies.
-            database_url      : Optional PostgreSQL URL override.
+            business : Row ID `wa_api_businesses.id` or DB record object.
+            contact  : Row ID `wa_api_contacts.id` or DB record object.
+            database_url  : Optional PostgreSQL URL override.
+            debug         : Whether downstream components should emit debug output.
+            hydrate_media : Whether to hydrate media during `context_build()`.
+            owner_token   : Token owning the contact lease.
         """
-        self.business_id        = operator.row_id
-        self.contact_id         = user.row_id
-        self.api_inbound_msg_id = api_inbound_msg_id
-        self.owner_token        = owner_token or uuid4()
-
-        self.operator_num = operator.display_phone_number
-        self.operator_id  = operator.api_id
-        self.user_id      = user.api_id
-        self.user_name    = user.profile.name if user.profile else None
-        self.debug        = debug
-
-        profile = user.profile
+        self.storage = AsyncSupabaseStorage(database_url)
+        
+        business_record, contact_record = SyncSupabaseStorage(
+            self.storage.database_url
+        ).resolve_business_and_contact(
+            business,
+            contact,
+        )
+        
+        self.business_id = business_record.row_id
+        self.contact_id  = contact_record.row_id
+        
+        self.debug         = debug
+        self.hydrate_media = hydrate_media
+        self.owner_token   = owner_token or uuid4()
+        
+        self.operator_num = business_record.display_phone_number
+        self.operator_id  = business_record.api_id
+        self.user_id      = contact_record.api_id
+        self.user_name    = (
+            contact_record.profile.name if contact_record.profile else None
+        )
+        
+        profile = contact_record.profile
         self.user_data = (
             UserData(
-                id           = user.row_id,
+                id           = contact_record.row_id,
                 name         = profile.name,
                 username     = profile.username,
                 lan_reg_data = (
-                    LanguageRegionData.from_phone_number(user.wa_id)
-                    if user.wa_id else None
+                    LanguageRegionData.from_phone_number(contact_record.wa_id)
+                    if contact_record.wa_id else None
                 ),
             )
             if profile else None
         )
-
-        self.case_id       : int | None          = None
-        self.case_manifest : CaseManifest | None = None
-        self.case_context  : list[Message] | None = None
+        
         self.machine       : AsyncMachine | None  = None
-        self.state         : str | None            = None
-
-        self.storage       = AsyncSupabaseStorage(database_url)
-        self.media_storage : Any | None = None
-
-        self._pending_outbound_msg_ids : dict[ int, list[int] ] = {}
-
+        self.state         : str          | None  = None
+        
+        self.case_id       : int           | None = None
+        self.case_manifest : CaseManifest  | None = None
+        self.case_context  : list[Message] | None = None
+        self.media_storage : Any           | None = None
+        
         return
 
     # =====================================================================================
@@ -1050,13 +1117,14 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     # CONTEXT
 
     def _get_media_storage(self) -> Any :
+        
         if self.media_storage is None :
+            
             from .S3_bucket_storage import AsyncS3BucketStorage
-
             self.media_storage = AsyncS3BucketStorage()
-
+        
         return self.media_storage
-
+    
     async def _hydrate_media( self, message : Message) -> None :
         if not (
             isinstance( message, HumanContentMsg) and
@@ -1094,10 +1162,11 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
                 self.case_context,
                 self.MAX_CONTEXT_LEN,
             )
-
-        for message in self.case_context :
-            await self._hydrate_media(message)
-
+        
+        if self.hydrate_media :
+            for message in self.case_context :
+                await self._hydrate_media(message)
+        
         self._restore_machine_state(self.case_manifest)
         return
 
@@ -1124,8 +1193,6 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
                 f"In {here()}: Unable to persist case-handler message"
             )
 
-        await self._link_pending_outbound_messages( message, stored.id)
-
         self.case_manifest.machine_state = machine_state
         self.case_manifest.updated_at    = datetime.now(UTC)
         if stored.id not in self.case_manifest.message_ids :
@@ -1134,6 +1201,89 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         if self.case_context is not None :
             self.case_context.append(stored)
 
+        return stored
+
+    # =====================================================================================
+    # CHILD HANDLER INTERFACE
+
+    @abstractmethod
+    async def process_message(
+        self,
+        message : Message,
+    ) -> bool :
+        """
+        Process one transport-neutral message asynchronously. \
+        Returns:
+            `True` if additional response generation is required; otherwise `False`.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def generate_response(
+        self,
+        max_tokens : int | None = None,
+    ) -> bool :
+        """
+        Generate one assistant response pass asynchronously. \
+        Args:
+            max_tokens : Optional response-token limit.
+        Returns:
+            `True` if another response pass is required; otherwise `False`.
+        """
+        raise NotImplementedError
+
+
+# =========================================================================================
+# ASYNC WHATSAPP CASE HANDLER
+# =========================================================================================
+
+class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
+    """
+    Asynchronous WhatsApp transport adapter for `AsyncCaseHandlerBase`.
+    """
+
+    def __init__(
+        self,
+        business : int | WhatsAppDatabaseRecord_Business,
+        contact  : int | WhatsAppDatabaseRecord_Contact,
+        *,
+        api_inbound_msg_id : int | None        = None,
+        database_url       : str | None        = None,
+        debug              : bool              = False,
+        hydrate_media      : bool              = True,
+        owner_token        : UUID | str | None = None,
+    ) -> None :
+        """
+        Initialize an asynchronous WhatsApp handler for one normalized contact. \
+        Args:
+            business : Row ID `wa_api_businesses.id` or DB record object.
+            contact  : Row ID `wa_api_contacts.id` or DB record object.
+            api_inbound_msg_id : Current `wa_api_inbound_messages.id`, if any.
+            database_url       : Optional PostgreSQL URL override.
+            debug              : Whether downstream components should emit debug output.
+            hydrate_media      : Whether to hydrate media during `context_build()`.
+            owner_token        : Token owning the contact lease.
+        """
+        super().__init__(
+            business      = business,
+            contact       = contact,
+            database_url  = database_url,
+            debug         = debug,
+            hydrate_media = hydrate_media,
+            owner_token   = owner_token,
+        )
+        
+        self.api_inbound_msg_id = api_inbound_msg_id
+        self._pending_outbound_msg_ids : dict[ int, list[int] ] = {}
+        
+        return
+
+    async def context_update( self, message : Message) -> Message :
+        
+        stored = await super().context_update(message)
+        
+        await self._link_pending_outbound_messages( message, stored.id)
+        
         return stored
 
     # =====================================================================================
@@ -1412,19 +1562,6 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         """
         raise NotImplementedError
 
-    @abstractmethod
-    async def generate_response(
-        self,
-        max_tokens : int | None = None,
-    ) -> bool :
-        """
-        Generate one assistant response pass asynchronously. \
-        Args:
-            max_tokens : Optional response-token limit.
-        Returns:
-            `True` if another response pass is required; otherwise `False`.
-        """
-        raise NotImplementedError
 
 
 # =========================================================================================

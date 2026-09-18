@@ -44,6 +44,7 @@ from .whatsapp_functions import verify_app_secret
 
 
 if TYPE_CHECKING :
+    from .case_handler_base import AsyncWhatsAppCaseHandler
     from .queue_db import AsyncQueueDB
 
 
@@ -54,7 +55,7 @@ class WhatsAppAPIServer(FastAPI) :
     
     def __init__(
         self,
-        handler_cls  : Type[Any],
+        handler_cls  : Type["AsyncWhatsAppCaseHandler"],
         queue_db     : "AsyncQueueDB | None" = None,
         webhook_path : str                   = "/webhook",
         *,
