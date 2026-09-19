@@ -36,6 +36,10 @@ class StubHandler :
     pass
 
 
+class RegistryHandler :
+    HANDLER_KEY = "registry"
+
+
 def response_data(response) -> dict[str, Any] :
     return json.loads(response.body)
 
@@ -67,3 +71,12 @@ def test_webhook_handles_payload_validation_error_from_queue() -> None :
     assert queue.payload == data
     assert response.status_code == 200
     assert response_data(response)["status"] == "error"
+
+
+def test_server_accepts_handler_registry() -> None :
+    server = WhatsAppAPIServer(
+        queue_db        = StubQueue(),
+        handler_classes = { "registry" : RegistryHandler },
+    )
+
+    assert server.queue_worker.handler_keys == ( "registry", )

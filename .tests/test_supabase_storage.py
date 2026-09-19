@@ -224,6 +224,7 @@ def test_manifest_loads_ordered_message_ids( monkeypatch) -> None :
             "created_at"    : now,
             "updated_at"    : now,
             "is_open"       : True,
+            "handler_id"    : 7,
             "machine_state" : "confirm_model",
         },
     )
@@ -237,6 +238,7 @@ def test_manifest_loads_ordered_message_ids( monkeypatch) -> None :
 
     assert isinstance( manifest, CaseManifest)
     assert manifest.machine_state == "confirm_model"
+    assert manifest.handler_id == 7
     assert manifest.message_ids == [ 11, 12 ]
 
 

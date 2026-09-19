@@ -132,7 +132,36 @@ def test_queue_claim_acquires_contact_lease_atomically() -> None :
     assert "INSERT INTO public.wa_case_handler_contact_leases" in normalized
     assert "FOR UPDATE OF que SKIP LOCKED" in normalized
     assert "@owner_token" in claim
+    assert "COALESCE( rou.handler_key, @fallback_handler_key )" in claim
+    assert "= ANY( @handler_keys )" in claim
     assert "msg_status = 'processing'" in normalized
+
+
+def test_queue_route_is_resolved_and_persisted_at_enqueue() -> None :
+    enqueue = ( SQL_DIR / "enqueue_case_handler_message.sql").read_text(
+        encoding = "utf-8"
+    )
+
+    assert "wa_case_handler_routes" in DDL
+    assert "handler_key   T_NO_WS_STR" in DDL
+    assert "wa_case_handler_routes_business_fkey" in DDL
+    assert "FOREIGN KEY ( business, contact)" in DDL
+    assert "UNIQUE NULLS NOT DISTINCT ( business, contact)" in DDL
+    assert "handler_url   T_NO_WS_STR DEFAULT NULL" in DDL
+    assert "ON DELETE SET NULL" in DDL
+    assert "INSERT INTO public.wa_api_to_case_handler_queue ( msg_id, handler_id )" in (
+        _normalized_sql(enqueue)
+    )
+    assert "( rte.contact IS NOT NULL ) DESC" in enqueue
+
+
+def test_case_manifests_are_bound_to_handler_id() -> None :
+    insert_manifest = ( SQL_DIR / "insert_case_manifest.sql").read_text(
+        encoding = "utf-8"
+    )
+
+    assert "handler_id      BIGINT      DEFAULT NULL" in DDL
+    assert "@handler_id" in insert_manifest
 
 
 def test_case_handler_message_can_map_to_multiple_api_messages() -> None :

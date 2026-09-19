@@ -29,7 +29,10 @@ class _StorageStub :
 
 
 def test_queue_enqueues_persisted_message_id( monkeypatch) -> None :
-    queue = queue_db.QueueDB("postgresql://test")
+    queue = queue_db.QueueDB(
+        "postgresql://test",
+        fallback_handler_key = "fallback",
+    )
     calls = []
 
     def fake_fetch_one( sql, params) :
@@ -40,7 +43,10 @@ def test_queue_enqueues_persisted_message_id( monkeypatch) -> None :
 
     assert queue._enqueue_message("wamid.ABC123=") is True
     assert calls == [
-        ( queue_db.SQL_ENQUEUE, { "msg_id" : "wamid.ABC123=" } ),
+        (
+            queue_db.SQL_ENQUEUE,
+            { "msg_id" : "wamid.ABC123=" },
+        ),
     ]
 
 
@@ -56,6 +62,8 @@ def test_queue_claim_returns_message_and_lease_identity( monkeypatch) -> None :
             "msg_id"     : "wamid.ABC123=",
             "msg_status" : "processing",
             "contact"    : 31,
+            "handler_id" : 7,
+            "handler_key": "default",
         }
 
     monkeypatch.setattr( queue, "_fetch_one", fake_fetch_one)
@@ -64,9 +72,13 @@ def test_queue_claim_returns_message_and_lease_identity( monkeypatch) -> None :
     assert item["id"] == 21
     assert item["row_id"] == 1
     assert item["contact"] == 31
+    assert item["handler_id"] == 7
+    assert item["handler_key"] == "default"
     assert isinstance( item["owner_token"], UUID)
     assert calls[0][0] == queue_db.SQL_CLAIM_NEXT
     assert calls[0][1]["owner_token"] == item["owner_token"]
+    assert calls[0][1]["handler_keys"] == [ "default" ]
+    assert calls[0][1]["fallback_handler_key"] == "default"
 
 
 VALID_PAYLOAD = {

@@ -1,3 +1,5 @@
+import asyncio
+
 from datetime import (
     UTC,
     datetime,
@@ -32,6 +34,7 @@ class _StorageStub :
         self.manifest      = manifest
         self.messages      = []
         self.insert_states = []
+        self.inserted_handler_ids = []
 
     def get_open_case_manifest( self, _contact_id : int) -> CaseManifest :
         return self.manifest
@@ -48,6 +51,25 @@ class _StorageStub :
         self.insert_states.append(machine_state)
         return message.model_copy( update = { "id" : 51 })
 
+    def insert_case_manifest(
+        self,
+        handler_id    : int | None,
+        contact       : int,
+        machine_state : str | None,
+    ) -> CaseManifest :
+        self.inserted_handler_ids.append(handler_id)
+        self.manifest = CaseManifest(
+            id            = 12,
+            contact       = contact,
+            handler_id    = handler_id,
+            machine_state = machine_state,
+        )
+        return self.manifest
+
+    def update_case_manifest( self, manifest : CaseManifest) -> CaseManifest :
+        self.manifest = manifest
+        return manifest
+
 
 class _StateHandler (CaseHandlerBase) :
 
@@ -55,7 +77,11 @@ class _StateHandler (CaseHandlerBase) :
     def define_state_machine_config(cls) :
         return [ CH_State("start"), CH_State("ready") ], "start", []
 
-    def __init__( self, manifest : CaseManifest) -> None :
+    def __init__(
+        self,
+        manifest   : CaseManifest,
+        handler_id : int | None = None,
+    ) -> None :
         business = WhatsAppDatabaseRecord_Business(
             row_id               = 41,
             waba_id              = "123456789012345",
@@ -71,6 +97,7 @@ class _StateHandler (CaseHandlerBase) :
             business,
             contact,
             database_url = "postgresql://test",
+            handler_id   = handler_id,
         )
         self.ingested = []
         self.storage  = _StorageStub(manifest)
@@ -135,6 +162,38 @@ class _AsyncIDHandler(AsyncCaseHandlerBase) :
         return False
 
 
+class _AsyncRouteStorage :
+
+    def __init__( self, manifest : CaseManifest) -> None :
+        self.manifest          = manifest
+        self.inserted_handler_ids = []
+
+    async def get_open_case_manifest( self, _contact : int) -> CaseManifest :
+        return self.manifest
+
+    async def update_case_manifest(
+        self,
+        manifest : CaseManifest,
+    ) -> CaseManifest :
+        self.manifest = manifest
+        return manifest
+
+    async def insert_case_manifest(
+        self,
+        handler_id    : int | None,
+        contact       : int,
+        machine_state : str | None,
+    ) -> CaseManifest :
+        self.inserted_handler_ids.append(handler_id)
+        self.manifest = CaseManifest(
+            id            = 12,
+            contact       = contact,
+            handler_id    = handler_id,
+            machine_state = machine_state,
+        )
+        return self.manifest
+
+
 def _manifest( machine_state : str = "ready") -> CaseManifest :
     return CaseManifest(
         id            = 11,
@@ -170,6 +229,37 @@ def test_context_update_persists_resulting_fsm_state_atomically() -> None :
     assert handler.case_manifest.machine_state == "ready"
     assert handler.case_manifest.message_ids == [ 51 ]
     assert handler.case_context == [ stored ]
+
+
+def test_handler_change_closes_open_case_and_starts_clean() -> None :
+    manifest            = _manifest()
+    manifest.handler_id = 8
+    handler             = _StateHandler( manifest, handler_id = 7)
+
+    case_id, current = handler.case_decide()
+
+    assert case_id == 12
+    assert current.handler_id == 7
+    assert handler.storage.inserted_handler_ids == [ 7 ]
+
+
+def test_async_handler_change_starts_clean_case() -> None :
+    manifest             = _manifest()
+    manifest.handler_id  = 8
+    handler              = object.__new__(_AsyncIDHandler)
+    handler.storage      = _AsyncRouteStorage(manifest)
+    handler.contact_id   = 31
+    handler.handler_id   = 7
+    handler.case_id      = None
+    handler.case_manifest = None
+    handler.machine      = None
+    handler.state        = None
+
+    case_id, current = asyncio.run(handler.case_decide())
+
+    assert case_id == 12
+    assert current.handler_id == 7
+    assert handler.storage.inserted_handler_ids == [ 7 ]
 
 
 def test_whatsapp_methods_live_on_transport_adapters() -> None :
