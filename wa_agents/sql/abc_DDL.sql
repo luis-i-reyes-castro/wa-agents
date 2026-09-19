@@ -76,17 +76,20 @@ CREATE TABLE IF NOT EXISTS public.wa_api_contacts (
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
-  CONSTRAINT wa_api_contacts_either_wa_id_or_user_id
-    CHECK(
-      ( wa_id IS NOT NULL ) OR ( user_id IS NOT NULL )
-    ),
+  CONSTRAINT wa_api_contacts_business_id_unique
+    UNIQUE ( business, id),
   
   CONSTRAINT wa_api_contacts_business_wa_id_unique
     UNIQUE ( business, wa_id),
   
   CONSTRAINT wa_api_contacts_business_user_id_unique
-    UNIQUE ( business, user_id)
-
+    UNIQUE ( business, user_id),
+  
+  CONSTRAINT wa_api_contacts_wa_id_or_user_id
+    CHECK(
+      ( wa_id IS NOT NULL ) OR ( user_id IS NOT NULL )
+    )
+  
 );
 
 ALTER TABLE public.wa_api_contacts
@@ -267,7 +270,7 @@ CREATE TABLE IF NOT EXISTS public.wa_api_media (
   CONSTRAINT wa_api_media_outbound_msg_id_unique
     UNIQUE (outbound_msg_id),
   
-  CONSTRAINT wa_api_media_either_inbound_or_outbound
+  CONSTRAINT wa_api_media_inbound_xor_outbound
     CHECK (
       ( inbound_msg_id IS NOT NULL ) <> ( outbound_msg_id IS NOT NULL )
     ),
@@ -330,6 +333,47 @@ ALTER TABLE public.wa_api_statuses
 
 /*
   =========================================================================================
+  CASE HANDLER ROUTING
+  =========================================================================================
+*/
+
+CREATE TABLE IF NOT EXISTS public.wa_case_handler_routes (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  business      BIGINT      NOT NULL,
+  contact       BIGINT      DEFAULT NULL, -- For contact-specific handler
+  handler_key   T_NO_WS_STR NOT NULL,
+  handler_url   T_NO_WS_STR DEFAULT NULL, -- For remote handler URL
+  
+  CONSTRAINT wa_case_handler_routes_business_fkey
+    FOREIGN KEY (business)
+    REFERENCES public.wa_api_businesses(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_case_handler_routes_contact_fkey
+    FOREIGN KEY ( business, contact)
+    REFERENCES public.wa_api_contacts( business, id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_case_handler_routes_business_contact_unique
+    UNIQUE NULLS NOT DISTINCT ( business, contact)
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_case_handler_routes_handler_key_idx
+  ON public.wa_case_handler_routes (handler_key);
+
+ALTER TABLE public.wa_case_handler_routes
+  ENABLE ROW LEVEL SECURITY;
+
+
+/*
+  =========================================================================================
   INBOUND MESSAGES QUEUE
   =========================================================================================
 */
@@ -348,8 +392,23 @@ CREATE TABLE IF NOT EXISTS public.wa_api_to_case_handler_queue (
   updated_at    TIMESTAMPTZ               DEFAULT NULL,
   last_error_at TIMESTAMPTZ               DEFAULT NULL,
   
+  /*
+  DESIGN NOTES:
+  - We made column `handler_id` nullable for those who don't need handler routing
+  - In the FK constraint `handler_id` -> `wa_case_handler_routes.id` we changed
+    the usual `ON DELETE CASCADE` to `ON DELETE SET NULL` so that data is not lost
+    when removing case handler routes.
+  */
+  
+  handler_id    BIGINT                    DEFAULT NULL,
   msg_id        T_NO_WS_STR               NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
   msg_status    T_ENQUEUED_MESSAGE_STATUS NOT NULL DEFAULT 'pending',
+  
+  CONSTRAINT wa_api_to_case_handler_queue_handler_id_fkey
+    FOREIGN KEY (handler_id)
+    REFERENCES public.wa_case_handler_routes(id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL,
   
   CONSTRAINT wa_api_to_case_handler_queue_msg_id_fkey
     FOREIGN KEY (msg_id)
@@ -362,8 +421,9 @@ CREATE TABLE IF NOT EXISTS public.wa_api_to_case_handler_queue (
 
 );
 
-CREATE INDEX IF NOT EXISTS wa_api_to_case_handler_queue_status_idx
+CREATE INDEX IF NOT EXISTS wa_api_to_case_handler_queue_handler_status_idx
   ON public.wa_api_to_case_handler_queue (
+    handler_id,
     msg_status,
     created_at,
     id
@@ -414,11 +474,24 @@ ALTER TABLE public.wa_case_handler_contact_leases
 CREATE TABLE IF NOT EXISTS public.wa_case_handler_case_manifests (
   
   id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  contact         BIGINT      NOT NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ DEFAULT NULL,
+  
+  /*
+  DESIGN NOTES:
+  - Column `handler_id` has the same constraints as in `wa_api_to_case_handler_queue`
+  */
+  
+  handler_id      BIGINT      DEFAULT NULL,
+  contact         BIGINT      NOT NULL,
   is_open         BOOLEAN     NOT NULL DEFAULT TRUE,
   machine_state   T_NO_WS_STR DEFAULT NULL,
+  
+  CONSTRAINT wa_case_handler_case_manifests_handler_id_fkey
+    FOREIGN KEY (handler_id)
+    REFERENCES public.wa_case_handler_routes(id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL,
   
   CONSTRAINT wa_case_handler_case_manifests_contact_fkey
     FOREIGN KEY (contact)
@@ -515,7 +588,7 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_to_api (
   CONSTRAINT wa_case_handler_to_api_api_outbound_msg_id_unique
     UNIQUE (api_outbound_msg_id),
   
-  CONSTRAINT wa_case_handler_to_api_either_inbound_or_outbound
+  CONSTRAINT wa_case_handler_to_api_inbound_xor_outbound
     CHECK (
       ( api_inbound_msg_id IS NOT NULL ) <> ( api_outbound_msg_id IS NOT NULL )
     )

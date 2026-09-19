@@ -556,6 +556,7 @@ class CaseManifest (BaseModel) :
     """
     Manifest
         `id`            : wa_case_handler_case_manifests.id
+        `handler_id`    : wa_case_handler_routes.id | null
         `contact`       : wa_case_handler_case_manifests.contact
         `created_at`    : <timestamp>
         `updated_at`    : <timestamp> | null
@@ -563,6 +564,7 @@ class CaseManifest (BaseModel) :
         `machine_state` : "<optional string>" | null
     """
     id            : NonNegativeInt
+    handler_id    : NonNegativeInt | None = None
     contact       : NonNegativeInt
     created_at    : datetime = Field( default_factory = lambda : datetime.now(UTC))
     updated_at    : datetime | None = None

@@ -4,12 +4,16 @@ Supabase-backed queue for normalized inbound WhatsApp messages.
 
 import json
 
+from collections.abc import Collection
 from datetime import (
     UTC,
     datetime,
 )
 from pathlib import Path
-from pydantic import ValidationError
+from pydantic import (
+    TypeAdapter,
+    ValidationError,
+)
 from typing import (
     Any,
     TypedDict,
@@ -25,6 +29,7 @@ from sofia_utils.psycopg import (
     load_sql_script,
     sync_pooled_conection,
 )
+from sofia_utils.pydantic import NO_WS_str
 
 from .supabase import (
     AsyncSupabaseStorage,
@@ -110,10 +115,23 @@ class QueueDB :
     Sequential inbound-message queue.
     """
     
-    def __init__( self, database_url : str | None = None) -> None :
+    def __init__(
+        self,
+        database_url         : str | None = None,
+        fallback_handler_key : str        = "default",
+    ) -> None :
         
         self.database_url = database_url or get_database_url()
         self.storage      = SyncSupabaseStorage(self.database_url)
+        
+        try :
+            self.fallback_handler_key = (
+                TypeAdapter(NO_WS_str).validate_python(fallback_handler_key)
+            )
+        except ValidationError :
+            raise ValueError(
+                f"In {here()}: Invalid argument 'fallback_handler_key'"
+            )
         
         return
     
@@ -130,7 +148,12 @@ class QueueDB :
     
     def _enqueue_message( self, msg_id : str) -> bool :
         
-        return bool( self._fetch_one( SQL_ENQUEUE, { "msg_id" : msg_id }) )
+        return bool(
+            self._fetch_one(
+                SQL_ENQUEUE,
+                { "msg_id" : msg_id },
+            )
+        )
     
     def _persist_valid_payload(
         self,
@@ -276,14 +299,29 @@ class QueueDB :
             ),
         }
     
-    def claim_next(self) -> dict[str, Any] | None :
+    def claim_next(
+        self,
+        handler_keys : Collection[str] | None = None,
+    ) -> dict[ str, Any] | None :
         """
         Atomically claim one message and its contact lease.
         """
+        claimed_keys = sorted(
+            set(handler_keys)
+            if handler_keys is not None else
+            { self.fallback_handler_key }
+        )
+        if not claimed_keys :
+            return None
+        
         owner_token = uuid4()
         queue_row   = self._fetch_one(
             SQL_CLAIM_NEXT,
-            { "owner_token" : owner_token },
+            {
+                "owner_token"          : owner_token,
+                "handler_keys"         : claimed_keys,
+                "fallback_handler_key" : self.fallback_handler_key,
+            },
         )
         if not queue_row :
             return None
@@ -303,6 +341,8 @@ class QueueDB :
         return {
             **message_row,
             "row_id"      : queue_row["row_id"],
+            "handler_id"  : queue_row["handler_id"],
+            "handler_key" : queue_row["handler_key"],
             "msg_status"  : queue_row["msg_status"],
             "owner_token" : owner_token,
         }
@@ -335,10 +375,23 @@ class AsyncQueueDB :
     Asynchronous inbound-message queue.
     """
     
-    def __init__( self, database_url : str | None = None) -> None :
+    def __init__(
+        self,
+        database_url         : str | None = None,
+        fallback_handler_key : str        = "default",
+    ) -> None :
         
         self.database_url = database_url or get_database_url()
         self.storage      = AsyncSupabaseStorage(self.database_url)
+        
+        try :
+            self.fallback_handler_key = (
+                TypeAdapter(NO_WS_str).validate_python(fallback_handler_key)
+            )
+        except ValidationError :
+            raise ValueError(
+                f"In {here()}: Invalid argument 'fallback_handler_key'"
+            )
         
         return
     
@@ -356,7 +409,12 @@ class AsyncQueueDB :
     
     async def _enqueue_message( self, msg_id : str) -> bool :
         
-        return bool( await self._fetch_one( SQL_ENQUEUE, { "msg_id" : msg_id }) )
+        return bool(
+            await self._fetch_one(
+                SQL_ENQUEUE,
+                { "msg_id" : msg_id },
+            )
+        )
     
     async def _persist_valid_payload(
         self,
@@ -502,14 +560,29 @@ class AsyncQueueDB :
             ),
         }
     
-    async def claim_next(self) -> dict[str, Any] | None :
+    async def claim_next(
+        self,
+        handler_keys : Collection[str] | None = None,
+    ) -> dict[ str, Any] | None :
         """
         Atomically claim one message and its contact lease.
         """
+        claimed_keys = sorted(
+            set(handler_keys)
+            if handler_keys is not None else
+            { self.fallback_handler_key }
+        )
+        if not claimed_keys :
+            return None
+        
         owner_token = uuid4()
         queue_row   = await self._fetch_one(
             SQL_CLAIM_NEXT,
-            { "owner_token" : owner_token },
+            {
+                "owner_token"          : owner_token,
+                "handler_keys"         : claimed_keys,
+                "fallback_handler_key" : self.fallback_handler_key,
+            },
         )
         if not queue_row :
             return None
@@ -529,6 +602,8 @@ class AsyncQueueDB :
         return {
             **message_row,
             "row_id"      : queue_row["row_id"],
+            "handler_id"  : queue_row["handler_id"],
+            "handler_key" : queue_row["handler_key"],
             "msg_status"  : queue_row["msg_status"],
             "owner_token" : owner_token,
         }

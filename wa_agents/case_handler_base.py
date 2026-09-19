@@ -139,7 +139,10 @@ class CaseHandlerBase ( Machine, ABC) :
     Transport-neutral synchronous case, context, FSM, and persistence base class.
     """
 
-    MAX_CONTEXT_LEN : int | None = 20
+    HANDLER_KEY      : str = "default"
+    """ Stable key used to dispatch local queue jobs to this handler class. """
+
+    MAX_CONTEXT_LEN  : int | None = 20
     """ Maximum number of LLM-readable messages retained in context. """
 
     TIME_LIMIT_STALE : int | None = 48
@@ -152,6 +155,7 @@ class CaseHandlerBase ( Machine, ABC) :
         *,
         database_url  : str | None        = None,
         debug         : bool              = False,
+        handler_id    : int | None        = None,
         hydrate_media : bool              = True,
         owner_token   : UUID | str | None = None,
     ) -> None :
@@ -162,6 +166,7 @@ class CaseHandlerBase ( Machine, ABC) :
             contact  : Row ID `wa_api_contacts.id` or DB record object.
             database_url  : Optional PostgreSQL URL override.
             debug         : Whether downstream components should emit debug output.
+            handler_id    : Optional `wa_case_handler_routes.id`.
             hydrate_media : Whether to hydrate media during `context_build()`.
             owner_token   : Token owning the contact lease.
         """
@@ -175,6 +180,7 @@ class CaseHandlerBase ( Machine, ABC) :
         self.contact_id  = contact_record.row_id
         
         self.debug         = debug
+        self.handler_id    = handler_id
         self.hydrate_media = hydrate_media
         self.owner_token   = owner_token or uuid4()
         
@@ -319,6 +325,11 @@ class CaseHandlerBase ( Machine, ABC) :
         """
         manifest = self.storage.get_open_case_manifest(self.contact_id)
 
+        if manifest and ( manifest.handler_id != self.handler_id ) :
+            manifest.is_open = False
+            self.storage.update_case_manifest(manifest)
+            manifest = None
+
         if manifest and self.TIME_LIMIT_STALE :
             last = manifest.updated_at or manifest.created_at
             age  = datetime.now(UTC) - last
@@ -342,6 +353,7 @@ class CaseHandlerBase ( Machine, ABC) :
         Insert and return a new open case for this contact.
         """
         manifest = self.storage.insert_case_manifest(
+            self.handler_id,
             self.contact_id,
             self._machine_state(),
         )
@@ -515,6 +527,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         api_inbound_msg_id : int | None        = None,
         database_url       : str | None        = None,
         debug              : bool              = False,
+        handler_id         : int | None        = None,
         hydrate_media      : bool              = True,
         owner_token        : UUID | str | None = None,
     ) -> None :
@@ -526,6 +539,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             api_inbound_msg_id : Current `wa_api_inbound_messages.id`, if any.
             database_url       : Optional PostgreSQL URL override.
             debug              : Whether downstream components should emit debug output.
+            handler_id         : Optional `wa_case_handler_routes.id`.
             hydrate_media      : Whether to hydrate media during `context_build()`.
             owner_token        : Token owning the contact lease.
         """
@@ -534,6 +548,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             contact       = contact,
             database_url  = database_url,
             debug         = debug,
+            handler_id    = handler_id,
             hydrate_media = hydrate_media,
             owner_token   = owner_token,
         )
@@ -867,7 +882,10 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     Transport-neutral asynchronous case, context, FSM, and persistence base class.
     """
 
-    MAX_CONTEXT_LEN : int | None = 20
+    HANDLER_KEY      : str = "default"
+    """ Stable key used to dispatch local queue jobs to this handler class. """
+
+    MAX_CONTEXT_LEN  : int | None = 20
     """ Maximum number of LLM-readable messages retained in context. """
 
     TIME_LIMIT_STALE : int | None = 48
@@ -880,6 +898,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         *,
         database_url  : str | None        = None,
         debug         : bool              = False,
+        handler_id    : int | None        = None,
         hydrate_media : bool              = True,
         owner_token   : UUID | str | None = None,
     ) -> None :
@@ -890,6 +909,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
             contact  : Row ID `wa_api_contacts.id` or DB record object.
             database_url  : Optional PostgreSQL URL override.
             debug         : Whether downstream components should emit debug output.
+            handler_id    : Optional `wa_case_handler_routes.id`.
             hydrate_media : Whether to hydrate media during `context_build()`.
             owner_token   : Token owning the contact lease.
         """
@@ -906,6 +926,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         self.contact_id  = contact_record.row_id
         
         self.debug         = debug
+        self.handler_id    = handler_id
         self.hydrate_media = hydrate_media
         self.owner_token   = owner_token or uuid4()
         
@@ -1054,6 +1075,11 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         """
         manifest = await self.storage.get_open_case_manifest(self.contact_id)
 
+        if manifest and ( manifest.handler_id != self.handler_id ) :
+            manifest.is_open = False
+            await self.storage.update_case_manifest(manifest)
+            manifest = None
+
         if manifest and self.TIME_LIMIT_STALE :
             last = manifest.updated_at or manifest.created_at
             age  = datetime.now(UTC) - last
@@ -1077,6 +1103,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         Insert and return a new open case for this contact.
         """
         manifest = await self.storage.insert_case_manifest(
+            self.handler_id,
             self.contact_id,
             self._machine_state(),
         )
@@ -1250,6 +1277,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         api_inbound_msg_id : int | None        = None,
         database_url       : str | None        = None,
         debug              : bool              = False,
+        handler_id         : int | None        = None,
         hydrate_media      : bool              = True,
         owner_token        : UUID | str | None = None,
     ) -> None :
@@ -1261,6 +1289,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             api_inbound_msg_id : Current `wa_api_inbound_messages.id`, if any.
             database_url       : Optional PostgreSQL URL override.
             debug              : Whether downstream components should emit debug output.
+            handler_id         : Optional `wa_case_handler_routes.id`.
             hydrate_media      : Whether to hydrate media during `context_build()`.
             owner_token        : Token owning the contact lease.
         """
@@ -1269,6 +1298,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             contact       = contact,
             database_url  = database_url,
             debug         = debug,
+            handler_id    = handler_id,
             hydrate_media = hydrate_media,
             owner_token   = owner_token,
         )

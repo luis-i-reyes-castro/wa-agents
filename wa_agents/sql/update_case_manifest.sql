@@ -15,6 +15,7 @@ WHERE
   ( contact = @contact )
 RETURNING
   id,
+  handler_id,
   contact,
   created_at,
   updated_at,

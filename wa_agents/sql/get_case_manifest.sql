@@ -4,6 +4,7 @@
 
 SELECT
   cas.id,
+  cas.handler_id,
   cas.contact,
   cas.created_at,
   cas.updated_at,

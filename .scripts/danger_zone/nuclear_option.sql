@@ -8,6 +8,7 @@ DROP TABLE IF EXISTS
   public.wa_case_handler_case_manifests,
   public.wa_case_handler_contact_leases,
   public.wa_api_to_case_handler_queue,
+  public.wa_case_handler_routes,
   public.wa_api_statuses,
   public.wa_api_media,
   public.wa_api_outbound_messages,

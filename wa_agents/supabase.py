@@ -247,6 +247,7 @@ def _manifest_from_row(
     
     return CaseManifest(
         id            = row["id"],
+        handler_id    = row.get("handler_id"),
         contact       = row["contact"],
         created_at    = row["created_at"],
         updated_at    = row.get("updated_at"),
@@ -647,13 +648,18 @@ class SyncSupabaseStorage :
     
     def insert_case_manifest(
         self,
+        handler_id    : int | None,
         contact       : int,
         machine_state : str | None,
     ) -> CaseManifest | None :
         
         row = self._fetch_one(
             SQL_INSERT_CASE_MANIFEST,
-            { "contact" : contact, "machine_state" : machine_state },
+            {
+                "handler_id"    : handler_id,
+                "contact"       : contact,
+                "machine_state" : machine_state,
+            },
         )
         return _manifest_from_row(row)
     
@@ -1190,13 +1196,18 @@ class AsyncSupabaseStorage :
     
     async def insert_case_manifest(
         self,
+        handler_id    : int | None,
         contact       : int,
         machine_state : str | None,
     ) -> CaseManifest | None :
         
         row = await self._fetch_one(
             SQL_INSERT_CASE_MANIFEST,
-            { "contact" : contact, "machine_state" : machine_state },
+            {
+                "handler_id"    : handler_id,
+                "contact"       : contact,
+                "machine_state" : machine_state,
+            },
         )
         return _manifest_from_row(row)
     

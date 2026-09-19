@@ -45,7 +45,8 @@ pip install -r requirements.txt
 
 1. `WhatsAppAPIServer` receives webhook payload dictionaries and passes them to `QueueDB`.
 2. `QueueDB` audits and validates each payload, normalizes its messages in Supabase
-   Postgres, and enqueues newly persisted message IDs.
+   Postgres, resolves the normalized business/contact to a handler route, and enqueues
+   newly persisted message IDs.
 3. `AsyncQueueWorker` runs inside the FastAPI lifespan, drains queue items, and
    calls your `CaseHandler`.
 4. `CaseHandlerBase` resolves the persisted business/contact identity and handles
@@ -73,7 +74,7 @@ pip install -r requirements.txt
 | `SUPABASE_DB_CONNECTION_URL_IPv6` | Optional fallback Supabase connection URI for IPv6. |
 
 Supabase credentials are mandatory because webhook audit storage and `QueueDB`
-always use Postgres. Apply the schema in `wa_agents/sql/DDL.sql` before running.
+always use Postgres. Apply the schema in `wa_agents/sql/abc_DDL.sql` before running.
 
 ### S3-compatible bucket storage (required for media and legacy `s3` mode)
 
@@ -148,6 +149,89 @@ path; the async queue worker starts and stops with the FastAPI lifespan.
 
 An example container recipe is available at
 [`docs/Dockerfile.fastapi`](docs/Dockerfile.fastapi).
+
+## Case Handler Routing
+
+Each handler class has a stable `HANDLER_KEY`. A route maps a business—and optionally
+one of its contacts—to that key. Contact-specific routes take precedence over the
+business default. Queue rows store the selected route ID; rows without a route use
+the queue's configured fallback key.
+
+```python
+from wa_agents.queue_db import AsyncQueueDB
+from wa_agents.whatsapp_api_server import WhatsAppAPIServer
+
+from casehandlers import FallbackCaseHandler, RetailCaseHandler
+
+
+handlers = {
+    RetailCaseHandler.HANDLER_KEY   : RetailCaseHandler,
+    FallbackCaseHandler.HANDLER_KEY : FallbackCaseHandler,
+}
+
+app = WhatsAppAPIServer(
+    handler_classes = handlers,
+    queue_db        = AsyncQueueDB( fallback_handler_key = "fallback"),
+)
+```
+
+Manage routes directly in PostgreSQL for now:
+
+```sql
+INSERT INTO public.wa_case_handler_routes ( business, contact, handler_key )
+VALUES ( 41, NULL, 'retail' )
+ON CONFLICT ( business, contact)
+DO UPDATE
+SET
+  handler_key = EXCLUDED.handler_key,
+  updated_at  = now();
+```
+
+`handler_url` is reserved for future remote-handler dispatch. Changing a route affects
+its pending jobs; deleting it clears their nullable route reference and sends them
+through the configured fallback. A route whose key is not served by any worker stays
+pending. Before removing a handler deployment, inspect its pending or processing rows:
+
+```sql
+SELECT
+  rou.handler_key,
+  que.msg_status,
+  count(*),
+  min(que.created_at) AS oldest
+FROM
+  public.wa_api_to_case_handler_queue AS que
+LEFT JOIN
+  public.wa_case_handler_routes AS rou ON rou.id = que.handler_id
+WHERE
+  que.msg_status IN ( 'pending', 'processing' )
+GROUP BY
+  rou.handler_key,
+  que.msg_status
+ORDER BY
+  rou.handler_key,
+  que.msg_status;
+```
+
+Workers claim only the keys in their local registry. A monolith can register every
+handler; later, separate containers or droplets can register disjoint subsets while
+sharing the same PostgreSQL queue.
+
+### Edge Case Possibilities Not Yet Addressed
+
+Changing an existing route's `handler_key` intentionally propagates to its pending
+messages and open cases. Because the route keeps the same ID, the newly selected
+handler may continue an open case—including its persisted FSM state and context—that
+was previously handled by a different handler implementation. This is acceptable when
+the handlers use compatible case state, or when route changes happen only while no
+affected work is active. If incompatible handlers must be switched while cases are
+open, add a handler-key or route-revision snapshot to case manifests so the old case
+can be closed or migrated explicitly.
+
+Similarly, deleting a route sets nullable route references to `NULL`. If an open case
+and a later fallback-routed message both have a null route reference, the fallback
+handler may continue that existing case. Route changes and deletions are expected to
+be rare, and queue items normally remain pending only briefly, so these cases are not
+currently handled specially.
 
 ## `CaseHandler` Design Patterns
 

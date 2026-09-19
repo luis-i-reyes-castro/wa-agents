@@ -1,11 +1,15 @@
 -- PARAMS:
-  -- owner_token : UUID
+  -- owner_token          : UUID
+  -- handler_keys         : list[str]
+  -- fallback_handler_key : str
 
 WITH candidate AS MATERIALIZED (
   SELECT
     pay.contact,
     que.id,
-    que.msg_id
+    que.handler_id,
+    que.msg_id,
+    COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key
   FROM
     public.wa_api_businesses            AS bus
   JOIN
@@ -16,8 +20,13 @@ WITH candidate AS MATERIALIZED (
     public.wa_api_inbound_messages      AS msg ON pay.id = msg.payload
   JOIN
     public.wa_api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
+  LEFT JOIN
+    public.wa_case_handler_routes       AS rou ON rou.id = que.handler_id
   WHERE
     ( que.msg_status = 'pending' ) AND
+    (
+      COALESCE( rou.handler_key, @fallback_handler_key ) = ANY( @handler_keys )
+    ) AND
     NOT EXISTS (
       SELECT
         1
@@ -79,5 +88,7 @@ RETURNING
   can.contact     AS contact,
   lea.owner_token AS owner_token,
   que.id          AS row_id,
+  can.handler_id  AS handler_id,
+  can.handler_key AS handler_key,
   que.msg_id      AS msg_id,
   que.msg_status  AS msg_status;

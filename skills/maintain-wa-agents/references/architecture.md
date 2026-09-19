@@ -51,6 +51,9 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
   protect normalized inbound-message deduplication.
 - Contact profiles are upserted against their unique identity rather than appended
   for every inbound message.
+- Case-handler routes belong to a business and may optionally target one contact.
+  Contact routes override the business default; queue rows and case manifests retain
+  the nullable route ID, while an absent route uses the worker's fallback handler.
 - Inbound messages and statuses reference the combined payload row directly.
 - Status `msg_id` values may identify API outbound messages or inbound message
   echoes, so the status table indexes that external ID without an outbound-only

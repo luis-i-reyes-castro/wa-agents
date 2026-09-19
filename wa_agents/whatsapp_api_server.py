@@ -55,28 +55,37 @@ class WhatsAppAPIServer(FastAPI) :
     
     def __init__(
         self,
-        handler_cls  : Type["AsyncWhatsAppCaseHandler"],
+        handler_cls  : Type["AsyncWhatsAppCaseHandler"] | None = None,
         queue_db     : "AsyncQueueDB | None" = None,
         webhook_path : str                   = "/webhook",
         *,
+        handler_classes : dict[
+            str,
+            Type["AsyncWhatsAppCaseHandler"],
+        ] | None = None,
         verify_app_secret : bool = False,
         **kwargs     : Any,
     ) -> None :
         """
         Initialize the WhatsApp API server. \\
         Args:
-            handler_cls  : Case handler class invoked by the worker
-            queue_db     : Optional AsyncQueueDB instance
-            webhook_path : Webhook route path
+            handler_cls       : Case handler class invoked by the worker
+            handler_classes   : Case handler classes keyed by their `HANDLER_KEY`
+            queue_db          : Optional AsyncQueueDB instance
+            webhook_path      : Webhook route path
             verify_app_secret : Whether to verify the payload signature against the
                                 configured Meta App Secret
-            kwargs       : Forwarded to FastAPI
+            kwargs            : Forwarded to FastAPI
         """
         from .queue_db import AsyncQueueDB
         from .queue_worker import AsyncQueueWorker
         
         self.queue_db     = queue_db or AsyncQueueDB()
-        self.queue_worker = AsyncQueueWorker( self.queue_db, handler_cls)
+        self.queue_worker = AsyncQueueWorker(
+            queue_db        = self.queue_db,
+            handler_cls     = handler_cls,
+            handler_classes = handler_classes,
+        )
         self.webhook_path = webhook_path
         self.worker_task  : asyncio.Task[None] | None = None
         
@@ -95,7 +104,10 @@ class WhatsAppAPIServer(FastAPI) :
         """
         from .supabase import get_database_url
         
-        logging.info("WhatsApp API server lifespan starting")
+        logging.info(
+            "WhatsApp API server lifespan starting, handler keys = %s",
+            ", ".join(self.queue_worker.handler_keys),
+        )
         
         await open_async_database_connection_pool(get_database_url())
         
@@ -209,6 +221,7 @@ class WhatsAppAPIServer(FastAPI) :
                 "verify_token_set"         : bool(expected),
                 "verify_token_tail"        : masked,
                 "verify_meta_app_secret"   : self.verify_app_secret,
+                "worker_handler_keys"      : self.queue_worker.handler_keys,
                 "worker_task_created"      : bool(self.worker_task),
                 "worker_task_done"         : (
                     self.worker_task.done() if self.worker_task else None

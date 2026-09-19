@@ -12,12 +12,19 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from inspect import iscoroutinefunction
+from pydantic import (
+    TypeAdapter,
+    ValidationError,
+)
 from traceback import format_exc
 from typing import (
     Any,
     Type,
 )
 from uuid import UUID
+
+from sofia_utils.printing import get_qualname as here
+from sofia_utils.pydantic import NO_WS_str
 
 from .case_handler_base import (
     AsyncWhatsAppCaseHandler,
@@ -52,6 +59,8 @@ class HandlerJob :
     """
     Everything required to reconstruct a contact-bound handler.
     """
+    handler_id         : int | None
+    handler_key        : str
     operator           : WhatsAppDatabaseRecord_Business
     user               : WhatsAppDatabaseRecord_Contact
     api_inbound_msg_id : int
@@ -78,6 +87,48 @@ def _message_timestamp( value : datetime | str) -> str :
         return str(int(value.timestamp()))
     
     return str(value)
+
+
+def _build_handler_registry(
+    handler_cls     : Type[Any]             | None,
+    handler_classes : dict[ str, Type[Any]] | None,
+) -> dict[ str, Type[Any]] :
+    
+    if handler_cls and handler_classes :
+        raise ValueError(f"In {here()}: Pass handler_cls or handler_classes, not both")
+    
+    is_shorthand = handler_classes is None
+    if handler_classes is not None :
+        registry = dict(handler_classes)
+        if not registry :
+            raise ValueError(f"In {here()}: handler_classes must not be empty")
+    else :
+        if not handler_cls :
+            raise ValueError(
+                f"In {here()}: A case handler class or registry is required"
+            )
+        handler_key = getattr( handler_cls, "HANDLER_KEY", "default")
+        registry    = { handler_key : handler_cls }
+    
+    for handler_key, Handler in registry.items() :
+        try :
+            TypeAdapter(NO_WS_str).validate_python(handler_key)
+        except ValidationError :
+            raise ValueError(
+                f"In {here()}: Invalid handler registry key '{handler_key}'"
+            )
+        expected_handler_key = getattr(
+            Handler,
+            "HANDLER_KEY",
+            "default" if is_shorthand else None,
+        )
+        if expected_handler_key != handler_key :
+            raise ValueError(
+                f"In {here()}: Handler registry key '{handler_key}' does not match "
+                f"{Handler.__name__}.HANDLER_KEY"
+            )
+    
+    return registry
 
 
 def _job_and_message(
@@ -120,10 +171,12 @@ def _job_and_message(
     message = MsgBM.model_validate(msg_data)
     
     job = HandlerJob(
-        api_inbound_msg_id = item["id"],
-        owner_token        = item["owner_token"],
+        handler_id         = item.get("handler_id"),
+        handler_key        = item["handler_key"],
         operator           = operator,
         user               = user,
+        api_inbound_msg_id = item["id"],
+        owner_token        = item["owner_token"],
     )
     
     return job, message
@@ -139,23 +192,37 @@ class QueueWorker :
     
     def __init__(
         self,
-        queue_db    : QueueDB,
-        handler_cls : Type[WhatsAppCaseHandler],
+        queue_db        : QueueDB,
+        handler_cls     : Type[WhatsAppCaseHandler] | None = None,
+        *,
+        handler_classes : dict[ str, Type[WhatsAppCaseHandler]] | None = None,
     ) -> None :
         
-        self.queue       = queue_db
-        self.handler_cls = handler_cls
-        self._job_td     = JobTimeDict()
-        self._stop_flag  = False
+        self.queue           = queue_db
+        self.handler_classes = _build_handler_registry(
+            handler_cls,
+            handler_classes,
+        )
+        if handler_cls :
+            self.queue.fallback_handler_key = getattr(
+                handler_cls,
+                "HANDLER_KEY",
+                "default",
+            )
+        self.handler_keys    = tuple( sorted(self.handler_classes) )
+        self._job_td         = JobTimeDict()
+        self._stop_flag      = False
         
         return
     
     def _handler( self, job : HandlerJob) -> WhatsAppCaseHandler :
         
-        return self.handler_cls(
+        Handler = self.handler_classes[job.handler_key]
+        return Handler(
             job.operator,
             job.user,
             api_inbound_msg_id = job.api_inbound_msg_id,
+            handler_id         = job.handler_id,
             owner_token        = job.owner_token,
         )
     
@@ -188,7 +255,7 @@ class QueueWorker :
     
     def _process_message(self) -> bool :
         
-        item = self.queue.claim_next()
+        item = self.queue.claim_next(self.handler_keys)
         if not item :
             return False
         
@@ -218,7 +285,7 @@ class QueueWorker :
         
         except Exception as ex :
             logging.error(
-                f"Worker failed for queue row {row_id}: {str(ex)}\n"
+                f"In {here()}: Worker failed for queue row {row_id}: {str(ex)}\n"
                 f"Exception trace: {format_exc()}"
             )
             self.queue.mark_error(row_id)
@@ -255,13 +322,16 @@ class QueueWorker :
                 while respond :
                     respond = handler.generate_response()
                     if respond and not handler.renew_contact_lease() :
-                        raise RuntimeError("Contact lease expired during response")
+                        raise RuntimeError(
+                            f"In {here()}: Contact lease expired during response"
+                        )
                 
                 processed_jobs = True
             
             except Exception as ex :
                 logging.error(
-                    f"Response failed for contact {job.user.row_id}: {str(ex)}\n"
+                    f"In {here()}: Response failed for contact "
+                    f"{job.user.row_id}: {str(ex)}\n"
                     f"Exception trace: {format_exc()}"
                 )
             
@@ -282,23 +352,37 @@ class AsyncQueueWorker :
     
     def __init__(
         self,
-        queue_db    : AsyncQueueDB,
-        handler_cls : Type[AsyncWhatsAppCaseHandler],
+        queue_db        : AsyncQueueDB,
+        handler_cls     : Type[AsyncWhatsAppCaseHandler] | None = None,
+        *,
+        handler_classes : dict[ str, Type[AsyncWhatsAppCaseHandler]] | None = None,
     ) -> None :
         
-        self.queue       = queue_db
-        self.handler_cls = handler_cls
-        self._job_td     = JobTimeDict()
-        self._stop_flag  = False
+        self.queue           = queue_db
+        self.handler_classes = _build_handler_registry(
+            handler_cls,
+            handler_classes,
+        )
+        if handler_cls :
+            self.queue.fallback_handler_key = getattr(
+                handler_cls,
+                "HANDLER_KEY",
+                "default",
+            )
+        self.handler_keys    = tuple( sorted(self.handler_classes) )
+        self._job_td         = JobTimeDict()
+        self._stop_flag      = False
         
         return
     
     def _handler( self, job : HandlerJob) -> AsyncWhatsAppCaseHandler :
         
-        return self.handler_cls(
+        Handler = self.handler_classes[job.handler_key]
+        return Handler(
             job.operator,
             job.user,
             api_inbound_msg_id = job.api_inbound_msg_id,
+            handler_id         = job.handler_id,
             owner_token        = job.owner_token,
         )
     
@@ -322,7 +406,7 @@ class AsyncQueueWorker :
                 raise
             except Exception :
                 logging.error(
-                    "Async queue worker tick failed\n"
+                    f"In {here()}: Async queue worker tick failed\n"
                     f"Exception trace: {format_exc()}"
                 )
                 active = False
@@ -355,7 +439,7 @@ class AsyncQueueWorker :
     
     async def _process_message(self) -> bool :
         
-        item = await self.queue.claim_next()
+        item = await self.queue.claim_next(self.handler_keys)
         if not item :
             return False
         
@@ -389,7 +473,7 @@ class AsyncQueueWorker :
         
         except Exception as ex :
             logging.error(
-                f"Worker failed for queue row {row_id}: {str(ex)}\n"
+                f"In {here()}: Worker failed for queue row {row_id}: {str(ex)}\n"
                 f"Exception trace: {format_exc()}"
             )
             await self.queue.mark_error(row_id)
@@ -435,13 +519,16 @@ class AsyncQueueWorker :
                             handler.renew_contact_lease
                         )
                         if not renewed :
-                            raise RuntimeError("Contact lease expired during response")
+                            raise RuntimeError(
+                                f"In {here()}: Contact lease expired during response"
+                            )
                 
                 processed_jobs = True
             
             except Exception as ex :
                 logging.error(
-                    f"Response failed for contact {job.user.row_id}: {str(ex)}\n"
+                    f"In {here()}: Response failed for contact "
+                    f"{job.user.row_id}: {str(ex)}\n"
                     f"Exception trace: {format_exc()}"
                 )
             
