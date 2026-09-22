@@ -33,8 +33,11 @@ class _StorageStub :
     def __init__( self, manifest : CaseManifest) -> None :
         self.manifest      = manifest
         self.messages      = []
+        self.agent_contexts = {}
         self.insert_states = []
         self.inserted_handler_ids = []
+        self.inserted_agent_names = []
+        self.context_changes = []
 
     def get_open_case_manifest( self, _contact_id : int) -> CaseManifest :
         return self.manifest
@@ -42,13 +45,24 @@ class _StorageStub :
     def get_case_handler_messages( self, _case_id : int) -> list[Message] :
         return self.messages
 
+    def get_agent_contexts( self, _case_id : int) -> dict[str, list[int]] :
+        return self.agent_contexts
+
     def insert_case_handler_message(
         self,
         _case_id       : int,
         message        : Message,
         machine_state  : str | None,
+        agent_contexts_to_clear  : list[str] | None = None,
+        agent_contexts_to_append : list[str] | None = None,
     ) -> Message :
         self.insert_states.append(machine_state)
+        self.context_changes.append(
+            (
+                agent_contexts_to_clear or [],
+                agent_contexts_to_append or [],
+            )
+        )
         return message.model_copy( update = { "id" : 51 })
 
     def insert_case_manifest(
@@ -56,8 +70,10 @@ class _StorageStub :
         handler_id    : int | None,
         contact       : int,
         machine_state : str | None,
+        agent_names   : list[str] | None = None,
     ) -> CaseManifest :
         self.inserted_handler_ids.append(handler_id)
+        self.inserted_agent_names.append(agent_names or [])
         self.manifest = CaseManifest(
             id            = 12,
             contact       = contact,
@@ -112,6 +128,17 @@ class _StateHandler (CaseHandlerBase) :
 
     def generate_response( self, _max_tokens = None) -> bool :
         return False
+
+
+class _AgentContextHandler (_StateHandler) :
+
+    AGENT_NAMES = ( "image", "main" )
+
+    def ingest_message( self, message : Message) -> None :
+        self.agent_context_clear("image")
+        self.agent_context_append( "image", message)
+        self.agent_context_append( "main", message)
+        self.state = "ready"
 
 
 class _LookupStorage :
@@ -229,6 +256,49 @@ def test_context_update_persists_resulting_fsm_state_atomically() -> None :
     assert handler.case_manifest.machine_state == "ready"
     assert handler.case_manifest.message_ids == [ 51 ]
     assert handler.case_context == [ stored ]
+
+
+def test_context_update_persists_agent_context_changes_atomically() -> None :
+    handler               = _AgentContextHandler(_manifest("start"))
+    handler.case_id       = handler.storage.manifest.id
+    handler.case_manifest = handler.storage.manifest
+    handler.case_context  = []
+
+    stored = handler.context_update(ServerTextMsg(text = "new"))
+
+    assert handler.storage.context_changes == [
+        ( [ "image" ], [ "image", "main" ] )
+    ]
+    assert handler.agent_contexts["image"] == [ stored ]
+    assert handler.agent_contexts["main"] == [ stored ]
+
+
+def test_context_build_restores_current_agent_contexts_without_replay() -> None :
+    handler                  = _AgentContextHandler(_manifest())
+    image                    = ServerTextMsg( id = 50, text = "image")
+    main                     = ServerTextMsg( id = 51, text = "main")
+    handler.storage.messages = [ image, main ]
+    handler.storage.agent_contexts = {
+        "image" : [ 50 ],
+        "main"  : [ 51 ],
+    }
+    handler.ingested = []
+
+    handler.context_build( truncate = False)
+
+    assert handler.agent_contexts == {
+        "image" : [ image ],
+        "main"  : [ main ],
+    }
+    assert handler.ingested == []
+
+
+def test_case_registration_initializes_declared_agent_contexts() -> None :
+    handler = _AgentContextHandler(_manifest("start"))
+
+    handler.case_open_new()
+
+    assert handler.storage.inserted_agent_names == [ [ "image", "main" ] ]
 
 
 def test_handler_change_closes_open_case_and_starts_clean() -> None :

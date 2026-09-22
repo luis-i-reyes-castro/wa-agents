@@ -180,3 +180,20 @@ def test_case_message_insert_persists_machine_state_atomically() -> None :
     assert "INSERT INTO public.wa_case_handler_messages" in normalized
     assert "UPDATE public.wa_case_handler_case_manifests" in normalized
     assert "machine_state = @machine_state" in normalized
+
+
+def test_agent_contexts_are_append_only_generations() -> None :
+    get_contexts = ( SQL_DIR / "get_agent_contexts.sql").read_text(
+        encoding = "utf-8"
+    )
+    insert_message = ( SQL_DIR / "insert_case_handler_message.sql").read_text(
+        encoding = "utf-8"
+    )
+
+    assert "agent_context SMALLINT" in DDL
+    assert "case_message  BIGINT      DEFAULT NULL" in DDL
+    assert "UNIQUE NULLS NOT DISTINCT" in DDL
+    assert "max(ctx.agent_context)" in get_contexts
+    assert "cleared_agent_contexts" in insert_message
+    assert "extended_agent_contexts" in insert_message
+    assert "DELETE FROM public.wa_case_handler_agent_contexts" not in insert_message
