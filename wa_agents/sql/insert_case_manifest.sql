@@ -38,7 +38,7 @@ initialized AS (
     names.agent_name,
     0,
     manifest.id,
-    NULL
+    NULL::BIGINT
   FROM
     manifest
   CROSS JOIN

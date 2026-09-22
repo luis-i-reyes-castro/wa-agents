@@ -186,6 +186,9 @@ def test_agent_contexts_are_append_only_generations() -> None :
     get_contexts = ( SQL_DIR / "get_agent_contexts.sql").read_text(
         encoding = "utf-8"
     )
+    insert_manifest = ( SQL_DIR / "insert_case_manifest.sql").read_text(
+        encoding = "utf-8"
+    )
     insert_message = ( SQL_DIR / "insert_case_handler_message.sql").read_text(
         encoding = "utf-8"
     )
@@ -194,6 +197,8 @@ def test_agent_contexts_are_append_only_generations() -> None :
     assert "case_message  BIGINT      DEFAULT NULL" in DDL
     assert "UNIQUE NULLS NOT DISTINCT" in DDL
     assert "max(ctx.agent_context)" in get_contexts
+    assert "NULL::BIGINT" in insert_manifest
+    assert "NULL::BIGINT" in insert_message
     assert "cleared_agent_contexts" in insert_message
     assert "extended_agent_contexts" in insert_message
     assert "DELETE FROM public.wa_case_handler_agent_contexts" not in insert_message

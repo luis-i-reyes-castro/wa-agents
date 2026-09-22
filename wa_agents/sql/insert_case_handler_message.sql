@@ -65,7 +65,7 @@ cleared_agent_contexts AS (
     contexts.agent_name,
     contexts.agent_context + 1,
     @case_id,
-    NULL
+    NULL::BIGINT
   FROM
     current_agent_contexts AS contexts
   WHERE
