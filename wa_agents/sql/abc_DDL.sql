@@ -623,12 +623,12 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_agent_contexts (
   */
   
   agent_name    T_NO_WS_STR NOT NULL,
-  agent_context SMALLINT    NOT NULL,
+  context_index INT         NOT NULL,
   case_manifest BIGINT      NOT NULL,
   case_message  BIGINT      DEFAULT NULL,
   
-  CONSTRAINT wa_case_handler_agent_contexts_agent_context_nonnegative
-    CHECK ( agent_context >= 0 ),
+  CONSTRAINT wa_case_handler_agent_contexts_context_index_nonnegative
+    CHECK ( context_index >= 0 ),
 
   CONSTRAINT wa_case_handler_agent_contexts_case_manifest_fkey
     FOREIGN KEY (case_manifest)
@@ -645,7 +645,7 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_agent_contexts (
   CONSTRAINT wa_case_handler_agent_contexts_membership_unique
     UNIQUE NULLS NOT DISTINCT (
       agent_name,
-      agent_context,
+      context_index,
       case_manifest,
       case_message
     )
@@ -656,7 +656,7 @@ CREATE INDEX IF NOT EXISTS wa_case_handler_agent_contexts_current_idx
   ON public.wa_case_handler_agent_contexts (
     case_manifest,
     agent_name,
-    agent_context DESC,
+    context_index DESC,
     id
   );
 

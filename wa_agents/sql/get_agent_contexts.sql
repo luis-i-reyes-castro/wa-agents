@@ -4,7 +4,7 @@
 WITH current_contexts AS (
   SELECT
     ctx.agent_name,
-    max(ctx.agent_context) AS agent_context
+    max(ctx.context_index) AS context_index
   FROM
     public.wa_case_handler_agent_contexts AS ctx
   WHERE
@@ -20,9 +20,9 @@ FROM
 JOIN
   public.wa_case_handler_agent_contexts AS ctx
 ON
-  ( ctx.case_manifest = @case_manifest    ) AND
-  ( ctx.agent_name    = cur.agent_name    ) AND
-  ( ctx.agent_context = cur.agent_context )
+  ( ctx.case_manifest = @case_manifest     ) AND
+  ( ctx.agent_name    = cur.agent_name     ) AND
+  ( ctx.context_index = cur.context_index  )
 WHERE
   ( ctx.case_message IS NOT NULL )
 ORDER BY

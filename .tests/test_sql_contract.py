@@ -196,10 +196,14 @@ def test_agent_contexts_are_append_only_generations() -> None :
         encoding = "utf-8"
     )
 
-    assert "agent_context SMALLINT" in DDL
+    assert "context_index INT" in DDL
     assert "case_message  BIGINT      DEFAULT NULL" in DDL
     assert "UNIQUE NULLS NOT DISTINCT" in DDL
-    assert "max(ctx.agent_context)" in get_contexts
+    assert "max(ctx.context_index)" in get_contexts
+    assert not re.search(
+        r"\bagent_context\b",
+        DDL + get_contexts + insert_manifest + insert_message,
+    )
     assert "NULL::BIGINT" in insert_manifest
     assert "NULL::BIGINT" in insert_message
     assert "cleared_agent_contexts" in insert_message

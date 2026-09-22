@@ -30,7 +30,7 @@ WITH manifest AS (
 initialized AS (
   INSERT INTO public.wa_case_handler_agent_contexts (
     agent_name,
-    agent_context,
+    context_index,
     case_manifest,
     case_message
   )

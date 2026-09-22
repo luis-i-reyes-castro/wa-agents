@@ -43,7 +43,7 @@ changed_agent_names AS (
 current_agent_contexts AS (
   SELECT
     names.agent_name,
-    COALESCE( max(ctx.agent_context), 0 ) AS agent_context
+    COALESCE( max(ctx.context_index), 0 ) AS context_index
   FROM
     changed_agent_names AS names
   LEFT JOIN
@@ -57,13 +57,13 @@ current_agent_contexts AS (
 cleared_agent_contexts AS (
   INSERT INTO public.wa_case_handler_agent_contexts (
     agent_name,
-    agent_context,
+    context_index,
     case_manifest,
     case_message
   )
   SELECT
     contexts.agent_name,
-    contexts.agent_context + 1,
+    contexts.context_index + 1,
     @case_id,
     NULL::BIGINT
   FROM
@@ -77,13 +77,13 @@ cleared_agent_contexts AS (
 extended_agent_contexts AS (
   INSERT INTO public.wa_case_handler_agent_contexts (
     agent_name,
-    agent_context,
+    context_index,
     case_manifest,
     case_message
   )
   SELECT
     contexts.agent_name,
-    contexts.agent_context + CASE
+    contexts.context_index + CASE
       WHEN (
         contexts.agent_name = ANY( @agent_contexts_to_clear::TEXT[] )
       ) THEN 1
