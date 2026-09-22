@@ -3,6 +3,7 @@
 -- Run manually only when you intentionally want to drop all tables.
 
 DROP TABLE IF EXISTS
+  public.wa_case_handler_agent_contexts,
   public.wa_case_handler_to_api,
   public.wa_case_handler_messages,
   public.wa_case_handler_case_manifests,
