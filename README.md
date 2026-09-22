@@ -86,6 +86,7 @@ always use Postgres. Apply the schema in `wa_agents/sql/abc_DDL.sql` before runn
 | `BUCKET_KEY_SECRET` | Secret access key |
 | `BUCKET_ENDPOINT` | Optional endpoint URL.<br>Defaults to Digital Ocean Spaces for `BUCKET_REGION`.<br>Set this for other S3-compatible services. |
 | `BUCKET_ADDRESSING_STYLE` | Optional `path`, `virtual`, or `auto`.<br>Defaults to `virtual` for DigitalOcean Spaces endpoints and `path` for custom endpoints. |
+| `WA_AGENTS_MEDIA_CACHE_MB` | Optional process-wide media-cache MiB limit.<br>Defaults to `16` MiB; set to `0` to disable. The cache is cleared when the process restarts. |
 
 ### WhatsApp (required)
 
