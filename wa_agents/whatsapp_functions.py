@@ -148,18 +148,20 @@ async def async_fetch_media( media_data : WhatsAppMediaData) -> bytes :
     return result
 
 def verify_app_secret(
-    payload   : bytes | None,
-    signature : str   | None,
+    payload    : bytes | None,
+    signature  : str   | None,
+    app_secret : str   | None = None,
 ) -> bool :
     
     if not ( signature and signature.startswith("sha256=") ) :
         return False
     
-    if not ( WA_APP_SECRET := os.getenv("WA_APP_SECRET") ) :
+    app_secret = app_secret or os.getenv("WA_APP_SECRET")
+    if not app_secret :
         raise RuntimeError("Environment variable 'WA_APP_SECRET' was not found")
     
     expected = hmac.new(
-        key       = WA_APP_SECRET.encode("utf-8"),
+        key       = app_secret.encode("utf-8"),
         msg       = payload,
         digestmod = hashlib.sha256,
     ).hexdigest()

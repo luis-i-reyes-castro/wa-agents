@@ -48,6 +48,44 @@ if TYPE_CHECKING :
     from .queue_db import AsyncQueueDB
 
 
+def _load_app_secrets() -> tuple[ str, ...] :
+    """
+    Return configured Meta app secrets for webhook signature verification.
+    """
+    configured = os.getenv("WA_APPS")
+    if not configured :
+        secret = os.getenv("WA_APP_SECRET")
+        if secret :
+            return ( secret, )
+        raise RuntimeError(
+            "Environment variables 'WA_APPS' and 'WA_APP_SECRET' were not found"
+        )
+    
+    try :
+        apps = json.loads(configured)
+    except json.JSONDecodeError as ex :
+        raise RuntimeError("Environment variable 'WA_APPS' is invalid JSON") from ex
+    
+    if not (
+        isinstance( apps, list) and
+        apps                    and
+        all(
+            isinstance( app, dict)              and
+            isinstance( app.get("id"), str)     and
+            bool(app["id"])                     and
+            isinstance( app.get("secret"), str) and
+            bool(app["secret"])
+            for app in apps
+        )
+    ) :
+        raise RuntimeError(
+            "Environment variable 'WA_APPS' must be a non-empty JSON list of "
+            "objects with non-empty string 'id' and 'secret' fields"
+        )
+    
+    return tuple( dict.fromkeys( app["secret"] for app in apps) )
+
+
 class WhatsAppAPIServer(FastAPI) :
     """
     FastAPI app with webhook routes and an in-process async queue worker.
@@ -90,6 +128,9 @@ class WhatsAppAPIServer(FastAPI) :
         self.worker_task  : asyncio.Task[None] | None = None
         
         self.verify_app_secret = verify_app_secret
+        self._app_secrets = (
+            _load_app_secrets() if verify_app_secret else ()
+        )
         
         kwargs.setdefault( "lifespan", self.lifespan)
         super().__init__(**kwargs)
@@ -267,27 +308,16 @@ class WhatsAppAPIServer(FastAPI) :
         
         if self.verify_app_secret :
             signature = request.headers.get("x-hub-signature-256")
-            try :
-                if not verify_app_secret( payload_bytes, signature) :
-                    return JSONResponse(
-                        content = {
-                            "status" : "error",
-                            "error"  : "Invalid signature",
-                        },
-                        status_code = status.HTTP_401_UNAUTHORIZED,
-                    )
-            except RuntimeError as ex :
-                logging.error(
-                    f"In {here()}: Unable to verify payload signature: {str(ex)}"
-                )
+            if not any(
+                verify_app_secret( payload_bytes, signature, secret)
+                for secret in self._app_secrets
+            ) :
                 return JSONResponse(
                     content = {
                         "status" : "error",
-                        "error"  : (
-                            "Webhook signature verification is not configured"
-                        ),
+                        "error"  : "Invalid signature",
                     },
-                    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    status_code = status.HTTP_401_UNAUTHORIZED,
                 )
         
         try :

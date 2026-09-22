@@ -91,7 +91,8 @@ always use Postgres. Apply the schema in `wa_agents/sql/abc_DDL.sql` before runn
 
 | Variable | Description |
 | --- | --- |
-| `WA_APP_SECRET` | Meta app secret used to validate webhook payload signatures |
+| `WA_APPS` | Optional JSON list of Meta apps with `id` and `secret` fields. Webhook signatures are accepted when any configured secret matches. Takes precedence over `WA_APP_SECRET`. |
+| `WA_APP_SECRET` | Single Meta app secret used as the webhook-signature fallback when `WA_APPS` is unset. |
 | `WA_TOKEN` | Graph API access token |
 | `WA_VERIFY_TOKEN` | Token used by webhook verification endpoint |
 
