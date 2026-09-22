@@ -22,7 +22,7 @@ from uuid import UUID
 from pydantic import (
     BaseModel,
     ConfigDict,
-    NonNegativeInt,
+    PositiveInt,
     model_validator,
 )
 from sofia_utils.psycopg import (
@@ -59,7 +59,7 @@ class WhatsAppDatabaseRecord (BaseModel) :
     """
     model_config = ConfigDict( frozen = False)
     
-    row_id : NonNegativeInt
+    row_id : PositiveInt
     api_id : NE_str = "<PHONE_NUMBER_ID|WA_ID|USER_ID>"
 
 
@@ -251,7 +251,7 @@ def _manifest_from_row(
         id            = row["id"],
         handler_id    = row.get("handler_id"),
         contact       = row["contact"],
-        case_index    = row.get( "case_index", 0),
+        case_index    = row.get( "case_index", 1),
         created_at    = row["created_at"],
         updated_at    = row.get("updated_at"),
         is_open       = row["is_open"],

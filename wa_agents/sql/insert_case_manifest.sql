@@ -6,7 +6,7 @@
 
 WITH next_case AS (
   SELECT
-    COALESCE( max(cas.case_index) + 1, 0 ) AS case_index
+    COALESCE( max(cas.case_index) + 1, 1 ) AS case_index
   FROM
     public.wa_case_handler_case_manifests AS cas
   WHERE

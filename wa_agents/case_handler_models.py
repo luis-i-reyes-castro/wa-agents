@@ -16,6 +16,7 @@ from pydantic import (
     BaseModel,
     Field,
     NonNegativeInt,
+    PositiveInt,
     model_validator,
 )
 from typing import (
@@ -86,7 +87,7 @@ class UserData (BaseModel) :
         `username`     : "<WhatsApp username>" | null
         `lan_reg_data` : <LanguageRegionData>  | null
     """
-    id           : NonNegativeInt
+    id           : PositiveInt
     name         : str                | None = None
     username     : WhatsAppUsername   | None = None
     lan_reg_data : LanguageRegionData | None = None
@@ -109,15 +110,15 @@ class Message ( BaseModel, ABC) :
     """
     Message abstract base class.
         `id`            : wa_case_handler_messages.id | null
-        `message_index` : zero-based index within its case | null
+        `message_index` : one-based index within its case | null
         `ts`            : <timestamp>
         `basemodel`     : "<class name>"              | null
         `origin`        : "<optional string>"         | null
     NOTE:
         Must implement abstract property `role`.
     """
-    id            : NonNegativeInt | None = None
-    message_index : NonNegativeInt | None = None
+    id            : PositiveInt | None = None
+    message_index : PositiveInt | None = None
     ts            : Annotated[ datetime | UnixTS,
                                Field( default_factory = lambda : datetime.now(UTC) )]
     basemodel     : NE_str                = "<BASEMODEL>"
@@ -501,7 +502,7 @@ class AssistantMsg (BasicMsg) :
     tokens_total  : NonNegativeInt | None = None
     instructions  : str            | None = None
     tools         : list[Any]      | None = None
-    context       : list[NonNegativeInt] | None = None
+    context       : list[PositiveInt] | None = None
     
     def append_to_text( self, text_block : str | None) -> None :
         
@@ -560,22 +561,22 @@ class CaseManifest (BaseModel) :
         `id`            : wa_case_handler_case_manifests.id
         `handler_id`    : wa_case_handler_routes.id | null
         `contact`       : wa_case_handler_case_manifests.contact
-        `case_index`    : zero-based index for the contact
+        `case_index`    : one-based index for the contact
         `created_at`    : <timestamp>
         `updated_at`    : <timestamp> | null
         `is_open`       : bool
         `machine_state` : "<optional string>" | null
     """
-    id            : NonNegativeInt
-    handler_id    : NonNegativeInt | None = None
-    contact       : NonNegativeInt
-    case_index    : NonNegativeInt = 0
+    id            : PositiveInt
+    handler_id    : PositiveInt | None = None
+    contact       : PositiveInt
+    case_index    : PositiveInt = 1
     created_at    : datetime = Field( default_factory = lambda : datetime.now(UTC))
     updated_at    : datetime | None = None
     is_open       : bool            = True
     machine_state : NE_str   | None = None
     
-    message_ids   : Annotated[ list[NonNegativeInt], Field( default_factory = list)]
+    message_ids   : Annotated[ list[PositiveInt], Field( default_factory = list)]
 
 # =========================================================================================
 # UTILITY FUNCTIONS

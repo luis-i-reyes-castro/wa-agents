@@ -59,7 +59,7 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
   echoes, so the status table indexes that external ID without an outbound-only
   foreign key.
 - One contact may have at most one open case through a partial unique index.
-- Case and message indices are zero-based insertion ordinals, unique within their
+- Case and message indices are one-based insertion ordinals, unique within their
   contact and case respectively. Message allocation increments the manifest counter
   atomically with message persistence.
 - Case manifests persist `machine_state` so rebuilding a handler does not require

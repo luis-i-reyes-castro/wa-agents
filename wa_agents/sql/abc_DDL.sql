@@ -485,7 +485,7 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_case_manifests (
   handler_id         BIGINT       DEFAULT NULL,
   contact            BIGINT       NOT NULL,
   case_index         INT          NOT NULL,
-  next_message_index INT          NOT NULL DEFAULT 0,
+  next_message_index INT          NOT NULL DEFAULT 1,
   is_open            BOOLEAN      NOT NULL DEFAULT TRUE,
   machine_state      T_NO_WS_STR  DEFAULT NULL,
   
@@ -504,11 +504,11 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_case_manifests (
   CONSTRAINT wa_case_handler_case_manifests_contact_case_index_unique
     UNIQUE ( contact, case_index),
   
-  CONSTRAINT wa_case_handler_case_manifests_case_index_nonnegative
-    CHECK ( case_index >= 0 ),
+  CONSTRAINT wa_case_handler_case_manifests_case_index_positive
+    CHECK ( case_index >= 1 ),
   
-  CONSTRAINT wa_case_handler_case_manifests_next_message_index_nonnegative
-    CHECK ( next_message_index >= 0 )
+  CONSTRAINT wa_case_handler_case_manifests_next_message_index_positive
+    CHECK ( next_message_index >= 1 )
 
 );
 
@@ -543,8 +543,8 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_messages (
   CONSTRAINT wa_case_handler_messages_case_message_index_unique
     UNIQUE ( case_id, message_index),
   
-  CONSTRAINT wa_case_handler_messages_message_index_nonnegative
-    CHECK ( message_index >= 0 ),
+  CONSTRAINT wa_case_handler_messages_message_index_positive
+    CHECK ( message_index >= 1 ),
   
   CONSTRAINT wa_case_handler_messages_data_object
     CHECK ( jsonb_typeof(data) = 'object' )
