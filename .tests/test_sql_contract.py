@@ -112,6 +112,28 @@ def test_payload_metadata_updates_raw_payload() -> None :
     assert not re.search( r"\b(item_idx|change_idx)\b", DDL + metadata)
 
 
+def test_frequently_refreshed_rows_update_before_insert() -> None :
+    business = _normalized_sql(
+        ( SQL_DIR / "upsert_business.sql").read_text(encoding = "utf-8")
+    )
+    profile = _normalized_sql(
+        ( SQL_DIR / "upsert_contact_profile.sql").read_text(encoding = "utf-8")
+    )
+
+    assert business.index("WITH updated AS ( UPDATE") < business.index(
+        "inserted AS ( INSERT"
+    )
+    assert "WHERE NOT EXISTS ( SELECT 1 FROM updated )" in business
+    assert "ON CONFLICT (phone_number_id)" in business
+
+    assert profile.index("WITH updated AS ( UPDATE") < profile.index(
+        "inserted AS ( INSERT"
+    )
+    assert "IS NOT DISTINCT FROM @profile_username" in profile
+    assert "WHERE NOT EXISTS ( SELECT 1 FROM updated )" in profile
+    assert "ON CONFLICT ON CONSTRAINT wa_api_contact_profile_unique" in profile
+
+
 def test_contact_lease_defaults_to_ninety_seconds() -> None :
     acquire = ( SQL_DIR / "acquire_contact_lease.sql").read_text(
         encoding = "utf-8"

@@ -50,7 +50,8 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
 - `data_hash` makes raw payload ingestion idempotent. Message IDs independently
   protect normalized inbound-message deduplication.
 - Contact profiles are upserted against their unique identity rather than appended
-  for every inbound message.
+  for every inbound message. Business and contact-profile refreshes update first so
+  routine webhook processing does not consume identity sequence values.
 - Case-handler routes belong to a business and may optionally target one contact.
   Contact routes override the business default; queue rows and case manifests retain
   the nullable route ID, while an absent route uses the worker's fallback handler.
