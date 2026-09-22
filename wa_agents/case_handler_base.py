@@ -142,6 +142,9 @@ class CaseHandlerBase ( Machine, ABC) :
     HANDLER_KEY      : str = "default"
     """ Stable key used to dispatch local queue jobs to this handler class. """
 
+    AGENT_NAMES      : tuple[ str, ...] = ()
+    """ Names of all agents employing context persistence. """
+
     MAX_CONTEXT_LEN  : int | None = 20
     """ Maximum number of LLM-readable messages retained in context. """
 
@@ -212,6 +215,12 @@ class CaseHandlerBase ( Machine, ABC) :
         self.case_manifest : CaseManifest  | None = None
         self.case_context  : list[Message] | None = None
         self.media_storage : Any           | None = None
+        
+        self.agent_contexts : dict[ str, list[Message]] = {
+            name : [] for name in self.AGENT_NAMES
+        }
+        self._agent_contexts_to_append : set[str] = set()
+        self._agent_contexts_to_clear  : set[str] = set()
         
         return
 
@@ -352,11 +361,19 @@ class CaseHandlerBase ( Machine, ABC) :
         """
         Insert and return a new open case for this contact.
         """
-        manifest = self.storage.insert_case_manifest(
-            self.handler_id,
-            self.contact_id,
-            self._machine_state(),
-        )
+        if self.AGENT_NAMES :
+            manifest = self.storage.insert_case_manifest(
+                self.handler_id,
+                self.contact_id,
+                self._machine_state(),
+                list(self.AGENT_NAMES),
+            )
+        else :
+            manifest = self.storage.insert_case_manifest(
+                self.handler_id,
+                self.contact_id,
+                self._machine_state(),
+            )
 
         if not manifest :
             manifest = self.storage.get_open_case_manifest(self.contact_id)
@@ -388,10 +405,29 @@ class CaseHandlerBase ( Machine, ABC) :
             raise RuntimeError(f"In {here()}: Unable to close the active case")
 
         self.case_manifest = manifest
+
         return
 
     # =====================================================================================
     # CONTEXT
+
+    def agent_context_append( self, agent_name : str, message : Message) -> None :
+        """
+        Append a message to one named agent context.
+        """
+        self.agent_contexts[agent_name].append(message)
+        self._agent_contexts_to_append.add(agent_name)
+        
+        return
+
+    def agent_context_clear( self, agent_name : str) -> None :
+        """
+        Clear one named agent context and record a new context generation.
+        """
+        self.agent_contexts[agent_name].clear()
+        self._agent_contexts_to_clear.add(agent_name)
+        
+        return
 
     def _get_media_storage(self) -> Any :
         
@@ -426,14 +462,33 @@ class CaseHandlerBase ( Machine, ABC) :
 
     def context_build( self, truncate : bool = True) -> None :
         """
-        Load ordered case messages and restore the persisted FSM state. \
-        The machine state comes directly from the case manifest; prior messages are
-        not replayed through `ingest_message()`.
+        Load ordered case and agent contexts and restore the persisted FSM state. \
+        The machine state and agent-context generations come directly from storage;
+        prior messages are not replayed through `ingest_message()`.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = self.case_decide()
 
-        self.case_context = self.storage.get_case_handler_messages(self.case_id)
+        messages      = self.storage.get_case_handler_messages(self.case_id)
+        message_by_id = {
+            message.id : message for message in messages if message.id is not None
+        }
+        persisted_contexts = (
+            self.storage.get_agent_contexts(self.case_id)
+            if self.AGENT_NAMES else {}
+        )
+
+        for agent_name, context in self.agent_contexts.items() :
+            context.clear()
+            context.extend(
+                message_by_id[message_id]
+                for message_id in persisted_contexts.get( agent_name, [])
+                if message_id in message_by_id
+            )
+            if truncate :
+                context[:] = llm_context_truncate( context, self.MAX_CONTEXT_LEN)
+
+        self.case_context = messages
         if truncate :
             self.case_context = llm_context_truncate(
                 self.case_context,
@@ -441,30 +496,47 @@ class CaseHandlerBase ( Machine, ABC) :
             )
 
         if self.hydrate_media :
-            for message in self.case_context :
+            active_messages = {
+                id(message) : message
+                for context in [ self.case_context, *self.agent_contexts.values() ]
+                for message in context
+            }
+            for message in active_messages.values() :
                 self._hydrate_media(message)
 
         self._restore_machine_state(self.case_manifest)
+
         return
 
     def context_update( self, message : Message) -> Message :
         """
-        Persist one message, its resulting FSM state, and in-memory context. \
-        The message is ingested first so the state stored alongside it is the state
-        resulting from that message.
+        Persist one message, its resulting FSM state, and agent-context changes. \
+        The message is ingested first so all state stored alongside it results from
+        that message.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = self.case_decide()
 
+        self._agent_contexts_to_append.clear()
+        self._agent_contexts_to_clear.clear()
         if self.machine :
             self.ingest_message(message)
 
         machine_state = self._machine_state()
-        stored        = self.storage.insert_case_handler_message(
-            self.case_id,
-            message,
-            machine_state,
-        )
+        if self.AGENT_NAMES :
+            stored = self.storage.insert_case_handler_message(
+                self.case_id,
+                message,
+                machine_state,
+                sorted(self._agent_contexts_to_clear),
+                sorted(self._agent_contexts_to_append),
+            )
+        else :
+            stored = self.storage.insert_case_handler_message(
+                self.case_id,
+                message,
+                machine_state,
+            )
         if not stored or stored.id is None :
             raise RuntimeError(
                 f"In {here()}: Unable to persist case-handler message"
@@ -477,6 +549,12 @@ class CaseHandlerBase ( Machine, ABC) :
 
         if self.case_context is not None :
             self.case_context.append(stored)
+
+        for agent_name in self._agent_contexts_to_append :
+            context = self.agent_contexts[agent_name]
+            for index, context_message in enumerate(context) :
+                if context_message is message :
+                    context[index] = stored
 
         return stored
 
@@ -885,6 +963,9 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     HANDLER_KEY      : str = "default"
     """ Stable key used to dispatch local queue jobs to this handler class. """
 
+    AGENT_NAMES      : tuple[ str, ...] = ()
+    """ Named agent contexts persisted for each case. """
+
     MAX_CONTEXT_LEN  : int | None = 20
     """ Maximum number of LLM-readable messages retained in context. """
 
@@ -958,6 +1039,12 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         self.case_manifest : CaseManifest  | None = None
         self.case_context  : list[Message] | None = None
         self.media_storage : Any           | None = None
+
+        self.agent_contexts : dict[ str, list[Message]] = {
+            name : [] for name in self.AGENT_NAMES
+        }
+        self._agent_contexts_to_append : set[str] = set()
+        self._agent_contexts_to_clear  : set[str] = set()
         
         return
 
@@ -1035,12 +1122,21 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         return
 
     def _machine_state(self) -> str | None :
-        state = getattr( self, "state", None)
-        return state if isinstance( state, str) and state != "None" else None
+        
+        if (
+            ( state := getattr( self, "state", None) ) and
+            ( isinstance( state, str)                ) and
+            ( state != "None"                        )
+        ) :
+            return state
+        
+        return None
 
     def _restore_machine_state( self, manifest : CaseManifest) -> None :
+        
         if self.machine and manifest.machine_state :
             self.machine.set_state( manifest.machine_state, model = self)
+        
         return
 
     # =====================================================================================
@@ -1102,11 +1198,19 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         """
         Insert and return a new open case for this contact.
         """
-        manifest = await self.storage.insert_case_manifest(
-            self.handler_id,
-            self.contact_id,
-            self._machine_state(),
-        )
+        if self.AGENT_NAMES :
+            manifest = await self.storage.insert_case_manifest(
+                self.handler_id,
+                self.contact_id,
+                self._machine_state(),
+                list(self.AGENT_NAMES),
+            )
+        else :
+            manifest = await self.storage.insert_case_manifest(
+                self.handler_id,
+                self.contact_id,
+                self._machine_state(),
+            )
 
         if not manifest :
             manifest = await self.storage.get_open_case_manifest(self.contact_id)
@@ -1138,10 +1242,29 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
             raise RuntimeError(f"In {here()}: Unable to close the active case")
 
         self.case_manifest = manifest
+
         return
 
     # =====================================================================================
     # CONTEXT
+
+    def agent_context_append( self, agent_name : str, message : Message) -> None :
+        """
+        Append a message to one named agent context.
+        """
+        self.agent_contexts[agent_name].append(message)
+        self._agent_contexts_to_append.add(agent_name)
+
+        return
+
+    def agent_context_clear( self, agent_name : str) -> None :
+        """
+        Clear one named agent context and record a new context generation.
+        """
+        self.agent_contexts[agent_name].clear()
+        self._agent_contexts_to_clear.add(agent_name)
+
+        return
 
     def _get_media_storage(self) -> Any :
         
@@ -1176,14 +1299,33 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
     async def context_build( self, truncate : bool = True) -> None :
         """
-        Load ordered case messages and restore the persisted FSM state. \
-        The machine state comes directly from the case manifest; prior messages are
-        not replayed through `ingest_message()`.
+        Load ordered case and agent contexts and restore the persisted FSM state. \
+        The machine state and agent-context generations come directly from storage;
+        prior messages are not replayed through `ingest_message()`.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = await self.case_decide()
 
-        self.case_context = await self.storage.get_case_handler_messages(self.case_id)
+        messages      = await self.storage.get_case_handler_messages(self.case_id)
+        message_by_id = {
+            message.id : message for message in messages if message.id is not None
+        }
+        persisted_contexts = (
+            await self.storage.get_agent_contexts(self.case_id)
+            if self.AGENT_NAMES else {}
+        )
+
+        for agent_name, context in self.agent_contexts.items() :
+            context.clear()
+            context.extend(
+                message_by_id[message_id]
+                for message_id in persisted_contexts.get( agent_name, [])
+                if message_id in message_by_id
+            )
+            if truncate :
+                context[:] = llm_context_truncate( context, self.MAX_CONTEXT_LEN)
+
+        self.case_context = messages
         if truncate :
             self.case_context = llm_context_truncate(
                 self.case_context,
@@ -1191,7 +1333,12 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
             )
         
         if self.hydrate_media :
-            for message in self.case_context :
+            active_messages = {
+                id(message) : message
+                for context in [ self.case_context, *self.agent_contexts.values() ]
+                for message in context
+            }
+            for message in active_messages.values() :
                 await self._hydrate_media(message)
         
         self._restore_machine_state(self.case_manifest)
@@ -1199,22 +1346,33 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
     async def context_update( self, message : Message) -> Message :
         """
-        Persist one message, its resulting FSM state, and in-memory context. \
-        The message is ingested first so the state stored alongside it is the state
-        resulting from that message.
+        Persist one message, its resulting FSM state, and agent-context changes. \
+        The message is ingested first so all state stored alongside it results from
+        that message.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = await self.case_decide()
 
+        self._agent_contexts_to_append.clear()
+        self._agent_contexts_to_clear.clear()
         if self.machine :
             await self.ingest_message(message)
 
         machine_state = self._machine_state()
-        stored        = await self.storage.insert_case_handler_message(
-            self.case_id,
-            message,
-            machine_state,
-        )
+        if self.AGENT_NAMES :
+            stored = await self.storage.insert_case_handler_message(
+                self.case_id,
+                message,
+                machine_state,
+                sorted(self._agent_contexts_to_clear),
+                sorted(self._agent_contexts_to_append),
+            )
+        else :
+            stored = await self.storage.insert_case_handler_message(
+                self.case_id,
+                message,
+                machine_state,
+            )
         if not stored or stored.id is None :
             raise RuntimeError(
                 f"In {here()}: Unable to persist case-handler message"
@@ -1227,6 +1385,12 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
         if self.case_context is not None :
             self.case_context.append(stored)
+
+        for agent_name in self._agent_contexts_to_append :
+            context = self.agent_contexts[agent_name]
+            for index, context_message in enumerate(context) :
+                if context_message is message :
+                    context[index] = stored
 
         return stored
 

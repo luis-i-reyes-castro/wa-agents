@@ -540,6 +540,12 @@ CREATE INDEX IF NOT EXISTS wa_case_handler_messages_case_order_idx
     id
   );
 
+CREATE UNIQUE INDEX IF NOT EXISTS wa_case_handler_messages_case_id_id_idx
+  ON public.wa_case_handler_messages (
+    case_id,
+    id
+  );
+
 ALTER TABLE public.wa_case_handler_messages
   ENABLE ROW LEVEL SECURITY;
 
@@ -603,4 +609,63 @@ CREATE INDEX IF NOT EXISTS wa_case_handler_to_api_case_handler_msg_id_idx
   ON public.wa_case_handler_to_api (case_handler_msg_id);
 
 ALTER TABLE public.wa_case_handler_to_api
+  ENABLE ROW LEVEL SECURITY;
+
+-- AGENT CONTEXTS
+
+CREATE TABLE IF NOT EXISTS public.wa_case_handler_agent_contexts (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL   DEFAULT now(),
+  
+  /*
+  TODO: Document semantics here
+  */
+  
+  agent_name    T_NO_WS_STR NOT NULL,
+  agent_context SMALLINT    NOT NULL,
+  case_manifest BIGINT      NOT NULL,
+  case_message  BIGINT      DEFAULT NULL,
+  
+  CONSTRAINT wa_case_handler_agent_contexts_agent_context_nonnegative
+    CHECK ( agent_context >= 0 ),
+
+  CONSTRAINT wa_case_handler_agent_contexts_case_manifest_fkey
+    FOREIGN KEY (case_manifest)
+    REFERENCES public.wa_case_handler_case_manifests(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_case_handler_agent_contexts_case_message_fkey
+    FOREIGN KEY ( case_manifest, case_message)
+    REFERENCES public.wa_case_handler_messages( case_id, id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT wa_case_handler_agent_contexts_membership_unique
+    UNIQUE NULLS NOT DISTINCT (
+      agent_name,
+      agent_context,
+      case_manifest,
+      case_message
+    )
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_case_handler_agent_contexts_current_idx
+  ON public.wa_case_handler_agent_contexts (
+    case_manifest,
+    agent_name,
+    agent_context DESC,
+    id
+  );
+
+CREATE INDEX IF NOT EXISTS wa_case_handler_agent_contexts_message_idx
+  ON public.wa_case_handler_agent_contexts (
+    case_manifest,
+    case_message
+  )
+  WHERE ( case_message IS NOT NULL );
+
+ALTER TABLE public.wa_case_handler_agent_contexts
   ENABLE ROW LEVEL SECURITY;

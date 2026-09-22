@@ -133,6 +133,7 @@ def _load_sql( filename : str) -> str :
 
 SQL_ACQUIRE_CONTACT_LEASE           = _load_sql("acquire_contact_lease.sql")
 SQL_CASE_HANDLER_MESSAGE_EXISTS     = _load_sql("case_handler_message_exists.sql")
+SQL_GET_AGENT_CONTEXTS              = _load_sql("get_agent_contexts.sql")
 SQL_GET_BUSINESS                    = _load_sql("get_business.sql")
 SQL_GET_CASE_HANDLER_MEDIA          = _load_sql("get_case_handler_media.sql")
 SQL_GET_CASE_HANDLER_MESSAGE        = _load_sql("get_case_handler_message.sql")
@@ -638,6 +639,24 @@ class SyncSupabaseStorage :
     # -------------------------------------------------------------------------------------
     # CASE HANDLER DATA
     
+    def get_agent_contexts(
+        self,
+        case_manifest : int,
+    ) -> dict[str, list[int]] :
+        """
+        Return each current agent context as ordered case-message IDs.
+        """
+        rows = self._fetch_all(
+            SQL_GET_AGENT_CONTEXTS,
+            { "case_manifest" : case_manifest },
+        )
+        
+        contexts : dict[str, list[int]] = {}
+        for row in rows :
+            contexts.setdefault( row["agent_name"], []).append(row["case_message"])
+        
+        return contexts
+    
     def _message_ids( self, case_id : int) -> list[int] :
         
         rows = self._fetch_all(
@@ -651,6 +670,7 @@ class SyncSupabaseStorage :
         handler_id    : int | None,
         contact       : int,
         machine_state : str | None,
+        agent_names   : list[str] | None = None,
     ) -> CaseManifest | None :
         
         row = self._fetch_one(
@@ -659,6 +679,7 @@ class SyncSupabaseStorage :
                 "handler_id"    : handler_id,
                 "contact"       : contact,
                 "machine_state" : machine_state,
+                "agent_names"   : agent_names or [],
             },
         )
         return _manifest_from_row(row)
@@ -722,6 +743,8 @@ class SyncSupabaseStorage :
         case_id       : int,
         message       : Message,
         machine_state : str | None,
+        agent_contexts_to_clear  : list[str] | None = None,
+        agent_contexts_to_append : list[str] | None = None,
     ) -> Message | None :
         
         row = self._fetch_one(
@@ -733,6 +756,8 @@ class SyncSupabaseStorage :
                 "origin"        : message.origin,
                 "data"          : _message_data(message),
                 "machine_state" : machine_state,
+                "agent_contexts_to_clear"  : agent_contexts_to_clear or [],
+                "agent_contexts_to_append" : agent_contexts_to_append or [],
             },
         )
         return _message_from_row(row)
@@ -1183,6 +1208,24 @@ class AsyncSupabaseStorage :
     # -------------------------------------------------------------------------------------
     # CASE HANDLER DATA
     
+    async def get_agent_contexts(
+        self,
+        case_manifest : int,
+    ) -> dict[str, list[int]] :
+        """
+        Return each current agent context as ordered case-message IDs.
+        """
+        rows = await self._fetch_all(
+            SQL_GET_AGENT_CONTEXTS,
+            { "case_manifest" : case_manifest },
+        )
+        
+        contexts : dict[str, list[int]] = {}
+        for row in rows :
+            contexts.setdefault( row["agent_name"], []).append(row["case_message"])
+        
+        return contexts
+    
     async def _message_ids(
         self,
         case_id : int,
@@ -1199,6 +1242,7 @@ class AsyncSupabaseStorage :
         handler_id    : int | None,
         contact       : int,
         machine_state : str | None,
+        agent_names   : list[str] | None = None,
     ) -> CaseManifest | None :
         
         row = await self._fetch_one(
@@ -1207,6 +1251,7 @@ class AsyncSupabaseStorage :
                 "handler_id"    : handler_id,
                 "contact"       : contact,
                 "machine_state" : machine_state,
+                "agent_names"   : agent_names or [],
             },
         )
         return _manifest_from_row(row)
@@ -1270,6 +1315,8 @@ class AsyncSupabaseStorage :
         case_id       : int,
         message       : Message,
         machine_state : str | None,
+        agent_contexts_to_clear  : list[str] | None = None,
+        agent_contexts_to_append : list[str] | None = None,
     ) -> Message | None :
         
         row = await self._fetch_one(
@@ -1281,6 +1328,8 @@ class AsyncSupabaseStorage :
                 "origin"        : message.origin,
                 "data"          : _message_data(message),
                 "machine_state" : machine_state,
+                "agent_contexts_to_clear"  : agent_contexts_to_clear or [],
+                "agent_contexts_to_append" : agent_contexts_to_append or [],
             },
         )
         return _message_from_row(row)
