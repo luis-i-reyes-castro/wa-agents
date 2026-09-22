@@ -4,26 +4,38 @@
   -- machine_state : str | None
   -- agent_names   : list[str]
 
-WITH manifest AS (
+WITH next_case AS (
+  SELECT
+    COALESCE( max(cas.case_index) + 1, 0 ) AS case_index
+  FROM
+    public.wa_case_handler_case_manifests AS cas
+  WHERE
+    ( cas.contact = @contact )
+),
+manifest AS (
   INSERT INTO public.wa_case_handler_case_manifests (
     handler_id,
     contact,
+    case_index,
     machine_state
   )
-  VALUES (
+  SELECT
     @handler_id,
     @contact,
+    next_case.case_index,
     @machine_state
-  )
+  FROM
+    next_case
   ON CONFLICT (contact) WHERE is_open
   DO
     NOTHING
   RETURNING
     id,
-    handler_id,
-    contact,
     created_at,
     updated_at,
+    handler_id,
+    contact,
+    case_index,
     is_open,
     machine_state
 ),
@@ -48,10 +60,11 @@ initialized AS (
 )
 SELECT
   manifest.id,
-  manifest.handler_id,
-  manifest.contact,
   manifest.created_at,
   manifest.updated_at,
+  manifest.handler_id,
+  manifest.contact,
+  manifest.case_index,
   manifest.is_open,
   manifest.machine_state
 FROM

@@ -8,5 +8,4 @@ FROM
 WHERE
   ( msg.case_id = @case_id )
 ORDER BY
-  msg.ts ASC,
-  msg.id ASC;
+  msg.message_index ASC;

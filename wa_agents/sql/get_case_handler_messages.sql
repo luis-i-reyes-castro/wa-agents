@@ -5,6 +5,7 @@ SELECT
   msg.id,
   msg.ts,
   msg.case_id,
+  msg.message_index,
   msg.basemodel,
   msg.origin,
   msg.data
@@ -13,5 +14,4 @@ FROM
 WHERE
   ( msg.case_id = @case_id )
 ORDER BY
-  msg.ts ASC,
-  msg.id ASC;
+  msg.message_index ASC;

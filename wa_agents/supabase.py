@@ -201,7 +201,7 @@ def _message_data( message : Message) -> Jsonb :
     return Jsonb(
         message.model_dump(
             mode    = "json",
-            exclude = { "id", "ts", "basemodel", "origin" },
+            exclude = { "id", "message_index", "ts", "basemodel", "origin" },
         )
     )
 
@@ -228,10 +228,11 @@ def _message_from_row( row : dict[str, Any] | None) -> Message | None :
     payload = dict(row.get("data") or {})
     payload.update(
         {
-            "id"        : row["id"],
-            "ts"        : row["ts"],
-            "basemodel" : basemodel,
-            "origin"    : row.get("origin"),
+            "id"            : row["id"],
+            "message_index" : row.get("message_index"),
+            "ts"            : row["ts"],
+            "basemodel"     : basemodel,
+            "origin"        : row.get("origin"),
         }
     )
     
@@ -250,6 +251,7 @@ def _manifest_from_row(
         id            = row["id"],
         handler_id    = row.get("handler_id"),
         contact       = row["contact"],
+        case_index    = row.get( "case_index", 0),
         created_at    = row["created_at"],
         updated_at    = row.get("updated_at"),
         is_open       = row["is_open"],

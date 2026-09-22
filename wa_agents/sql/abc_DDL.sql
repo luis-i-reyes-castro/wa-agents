@@ -482,10 +482,12 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_case_manifests (
   - Column `handler_id` has the same constraints as in `wa_api_to_case_handler_queue`
   */
   
-  handler_id      BIGINT      DEFAULT NULL,
-  contact         BIGINT      NOT NULL,
-  is_open         BOOLEAN     NOT NULL DEFAULT TRUE,
-  machine_state   T_NO_WS_STR DEFAULT NULL,
+  handler_id         BIGINT       DEFAULT NULL,
+  contact            BIGINT       NOT NULL,
+  case_index         INT          NOT NULL,
+  next_message_index INT          NOT NULL DEFAULT 0,
+  is_open            BOOLEAN      NOT NULL DEFAULT TRUE,
+  machine_state      T_NO_WS_STR  DEFAULT NULL,
   
   CONSTRAINT wa_case_handler_case_manifests_handler_id_fkey
     FOREIGN KEY (handler_id)
@@ -497,7 +499,16 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_case_manifests (
     FOREIGN KEY (contact)
     REFERENCES public.wa_api_contacts(id)
     ON UPDATE CASCADE
-    ON DELETE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_case_handler_case_manifests_contact_case_index_unique
+    UNIQUE ( contact, case_index),
+  
+  CONSTRAINT wa_case_handler_case_manifests_case_index_nonnegative
+    CHECK ( case_index >= 0 ),
+  
+  CONSTRAINT wa_case_handler_case_manifests_next_message_index_nonnegative
+    CHECK ( next_message_index >= 0 )
 
 );
 
@@ -515,12 +526,13 @@ ALTER TABLE public.wa_case_handler_case_manifests
 
 CREATE TABLE IF NOT EXISTS public.wa_case_handler_messages (
   
-  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  ts          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  case_id     BIGINT      NOT NULL,
-  basemodel   T_NO_WS_STR NOT NULL,
-  origin      T_NO_WS_STR DEFAULT NULL,
-  data        JSONB       NOT NULL,
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ts            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  case_id       BIGINT      NOT NULL,
+  message_index INT         NOT NULL,
+  basemodel     T_NO_WS_STR NOT NULL,
+  origin        T_NO_WS_STR DEFAULT NULL,
+  data          JSONB       NOT NULL,
   
   CONSTRAINT wa_case_handler_messages_case_id_fkey
     FOREIGN KEY (case_id)
@@ -528,17 +540,16 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_messages (
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
+  CONSTRAINT wa_case_handler_messages_case_message_index_unique
+    UNIQUE ( case_id, message_index),
+  
+  CONSTRAINT wa_case_handler_messages_message_index_nonnegative
+    CHECK ( message_index >= 0 ),
+  
   CONSTRAINT wa_case_handler_messages_data_object
     CHECK ( jsonb_typeof(data) = 'object' )
 
 );
-
-CREATE INDEX IF NOT EXISTS wa_case_handler_messages_case_order_idx
-  ON public.wa_case_handler_messages (
-    case_id,
-    ts,
-    id
-  );
 
 CREATE UNIQUE INDEX IF NOT EXISTS wa_case_handler_messages_case_id_id_idx
   ON public.wa_case_handler_messages (

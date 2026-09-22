@@ -108,18 +108,20 @@ class UserData (BaseModel) :
 class Message ( BaseModel, ABC) :
     """
     Message abstract base class.
-        `id`        : wa_case_handler_messages.id | null
-        `ts`        : <timestamp>
-        `basemodel` : "<class name>"              | null
-        `origin`    : "<optional string>"         | null
+        `id`            : wa_case_handler_messages.id | null
+        `message_index` : zero-based index within its case | null
+        `ts`            : <timestamp>
+        `basemodel`     : "<class name>"              | null
+        `origin`        : "<optional string>"         | null
     NOTE:
         Must implement abstract property `role`.
     """
-    id        : NonNegativeInt | None = None
-    ts        : Annotated[ datetime | UnixTS,
-                           Field( default_factory = lambda : datetime.now(UTC) )]
-    basemodel : NE_str                = "<BASEMODEL>"
-    origin    : NE_str         | None = None
+    id            : NonNegativeInt | None = None
+    message_index : NonNegativeInt | None = None
+    ts            : Annotated[ datetime | UnixTS,
+                               Field( default_factory = lambda : datetime.now(UTC) )]
+    basemodel     : NE_str                = "<BASEMODEL>"
+    origin        : NE_str         | None = None
     
     def model_post_init( self, __context : Any) -> None :
         """
@@ -558,6 +560,7 @@ class CaseManifest (BaseModel) :
         `id`            : wa_case_handler_case_manifests.id
         `handler_id`    : wa_case_handler_routes.id | null
         `contact`       : wa_case_handler_case_manifests.contact
+        `case_index`    : zero-based index for the contact
         `created_at`    : <timestamp>
         `updated_at`    : <timestamp> | null
         `is_open`       : bool
@@ -566,6 +569,7 @@ class CaseManifest (BaseModel) :
     id            : NonNegativeInt
     handler_id    : NonNegativeInt | None = None
     contact       : NonNegativeInt
+    case_index    : NonNegativeInt = 0
     created_at    : datetime = Field( default_factory = lambda : datetime.now(UTC))
     updated_at    : datetime | None = None
     is_open       : bool            = True

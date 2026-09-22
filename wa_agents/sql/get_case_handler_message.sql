@@ -6,6 +6,7 @@ SELECT
   msg.id,
   msg.ts,
   msg.case_id,
+  msg.message_index,
   msg.basemodel,
   msg.origin,
   msg.data

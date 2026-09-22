@@ -8,25 +8,43 @@
   -- agent_contexts_to_clear  : list[str]
   -- agent_contexts_to_append : list[str]
 
-WITH inserted_message AS (
+WITH case_manifest AS (
+  UPDATE
+    public.wa_case_handler_case_manifests
+  SET
+    updated_at         = now(),
+    next_message_index = next_message_index + 1,
+    machine_state      = @machine_state
+  WHERE
+    ( id = @case_id )
+  RETURNING
+    id                      AS id,
+    next_message_index - 1  AS message_index,
+    machine_state           AS machine_state
+),
+inserted_message AS (
   INSERT INTO public.wa_case_handler_messages (
     case_id,
+    message_index,
     ts,
     basemodel,
     origin,
     data
   )
-  VALUES (
-    @case_id,
+  SELECT
+    manifest.id,
+    manifest.message_index,
     @ts,
     @basemodel,
     @origin,
     @data
-  )
+  FROM
+    case_manifest AS manifest
   RETURNING
     id,
     ts,
     case_id,
+    message_index,
     basemodel,
     origin,
     data
@@ -101,20 +119,16 @@ extended_agent_contexts AS (
   RETURNING
     agent_name
 )
-UPDATE
-  public.wa_case_handler_case_manifests AS cas
-SET
-  updated_at    = now(),
-  machine_state = @machine_state
-FROM
-  inserted_message AS msg
-WHERE
-  ( cas.id = msg.case_id )
-RETURNING
+SELECT
   msg.id,
   msg.ts,
   msg.case_id,
+  msg.message_index,
   msg.basemodel,
   msg.origin,
   msg.data,
-  cas.machine_state;
+  manifest.machine_state
+FROM
+  inserted_message AS msg
+JOIN
+  case_manifest AS manifest ON manifest.id = msg.case_id;

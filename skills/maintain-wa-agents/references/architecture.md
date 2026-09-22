@@ -59,6 +59,9 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
   echoes, so the status table indexes that external ID without an outbound-only
   foreign key.
 - One contact may have at most one open case through a partial unique index.
+- Case and message indices are zero-based insertion ordinals, unique within their
+  contact and case respectively. Message allocation increments the manifest counter
+  atomically with message persistence.
 - Case manifests persist `machine_state` so rebuilding a handler does not require
   replay merely to recover its current state.
 - A case-handler message may map to multiple outbound WhatsApp rows because text can

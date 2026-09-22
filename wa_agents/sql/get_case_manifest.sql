@@ -4,10 +4,11 @@
 
 SELECT
   cas.id,
-  cas.handler_id,
-  cas.contact,
   cas.created_at,
   cas.updated_at,
+  cas.handler_id,
+  cas.contact,
+  cas.case_index,
   cas.is_open,
   cas.machine_state
 FROM

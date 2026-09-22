@@ -163,8 +163,30 @@ def test_case_manifests_are_bound_to_handler_id() -> None :
         encoding = "utf-8"
     )
 
-    assert "handler_id      BIGINT      DEFAULT NULL" in DDL
+    assert re.search( r"handler_id\s+BIGINT\s+DEFAULT NULL", DDL)
     assert "@handler_id" in insert_manifest
+
+
+def test_case_and_message_indices_are_zero_based_and_scoped() -> None :
+    insert_manifest = ( SQL_DIR / "insert_case_manifest.sql").read_text(
+        encoding = "utf-8"
+    )
+    insert_message = ( SQL_DIR / "insert_case_handler_message.sql").read_text(
+        encoding = "utf-8"
+    )
+    get_messages = ( SQL_DIR / "get_case_handler_messages.sql").read_text(
+        encoding = "utf-8"
+    )
+
+    assert "case_index         INT          NOT NULL" in DDL
+    assert "next_message_index INT          NOT NULL DEFAULT 0" in DDL
+    assert "message_index INT         NOT NULL" in DDL
+    assert "UNIQUE ( contact, case_index)" in DDL
+    assert "UNIQUE ( case_id, message_index)" in DDL
+    assert "COALESCE( max(cas.case_index) + 1, 0 )" in insert_manifest
+    assert "next_message_index = next_message_index + 1" in insert_message
+    assert "next_message_index - 1 AS message_index" in insert_message
+    assert "msg.message_index ASC" in get_messages
 
 
 def test_case_handler_message_can_map_to_multiple_api_messages() -> None :

@@ -171,6 +171,7 @@ def test_case_handler_message_round_trip_and_state_update( monkeypatch) -> None 
             "id"            : 41,
             "ts"            : message.ts,
             "case_id"       : 9,
+            "message_index" : 0,
             "basemodel"     : message.basemodel,
             "origin"        : message.origin,
             "data"          : params["data"].obj,
@@ -186,6 +187,7 @@ def test_case_handler_message_round_trip_and_state_update( monkeypatch) -> None 
 
     assert isinstance( stored, ServerTextMsg)
     assert stored.id == 41
+    assert stored.message_index == 0
     assert stored.text == "hello"
     assert calls[0][0] == supabase.SQL_INSERT_CASE_HANDLER_MESSAGE
     assert calls[0][1]["machine_state"] == "awaiting_photo"
@@ -221,6 +223,7 @@ def test_manifest_loads_ordered_message_ids( monkeypatch) -> None :
         lambda _sql, _params : {
             "id"            : 5,
             "contact"       : 3,
+            "case_index"    : 2,
             "created_at"    : now,
             "updated_at"    : now,
             "is_open"       : True,
@@ -239,6 +242,7 @@ def test_manifest_loads_ordered_message_ids( monkeypatch) -> None :
     assert isinstance( manifest, CaseManifest)
     assert manifest.machine_state == "confirm_model"
     assert manifest.handler_id == 7
+    assert manifest.case_index == 2
     assert manifest.message_ids == [ 11, 12 ]
 
 
