@@ -74,12 +74,15 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
 Build media keys through `media_object_key()` and preserve this layout:
 
 ```text
-<business_id>/<contact_id>/<case_id>_<message_filename>
+<business_display_phone_number>/
+  <contact_user_id>/
+    <case_index>_<message_index>.<extension>
 ```
 
-For inbound media, the case handler currently supplies a filename containing the
-Meta media ID and extension. Persist the resulting object key and media metadata in
-PostgreSQL; do not infer paths later from mutable message fields.
+For inbound media, the case handler supplies the business display phone number,
+contact API user ID, and the persisted one-based case and message indices. Persist
+the resulting object key and media metadata in PostgreSQL; do not infer paths later
+from mutable message fields.
 
 ## Consumer Integration
 

@@ -746,7 +746,12 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
 
         msg.print()
         stored = self.context_update(msg)
-        if not isinstance( stored, HumanMsg) or stored.id is None :
+        if (
+            ( not isinstance( stored, HumanMsg) ) or
+            ( stored.id is None                 ) or
+            ( stored.message_index is None      ) or
+            ( self.case_manifest is None        )
+        ) :
             raise RuntimeError(
                 f"In {here()}: Stored inbound message has an invalid model"
             )
@@ -763,9 +768,10 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         if isinstance( stored, HumanContentMsg) and stored.media :
             stored.media.content = media_content
             object_key = self._get_media_storage().media_write(
-                self.business_id,
-                self.contact_id,
-                self.case_id,
+                self.operator_num,
+                self.user_id,
+                self.case_manifest.case_index,
+                stored.message_index,
                 stored.media,
             )
             self.storage.insert_media(
@@ -1582,7 +1588,12 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
 
         msg.print()
         stored = await self.context_update(msg)
-        if not isinstance( stored, HumanMsg) or stored.id is None :
+        if (
+            ( not isinstance( stored, HumanMsg) ) or
+            ( stored.id is None                  ) or
+            ( stored.message_index is None       ) or
+            ( self.case_manifest is None         )
+        ) :
             raise RuntimeError(
                 f"In {here()}: Stored inbound message has an invalid model"
             )
@@ -1599,9 +1610,10 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         if isinstance( stored, HumanContentMsg) and stored.media :
             stored.media.content = media_content
             object_key = await self._get_media_storage().media_write(
-                self.business_id,
-                self.contact_id,
-                self.case_id,
+                self.operator_num,
+                self.user_id,
+                self.case_manifest.case_index,
+                stored.message_index,
                 stored.media,
             )
             await self.storage.insert_media(

@@ -2,7 +2,9 @@
 S3 media storage.
 
 Object layout:
-    <business_id>/<contact_id>/<case_id>_<message_id>.<extension>
+    <business_display_phone_number>/
+        <contact_user_id>/
+            <case_index>_<message_index>.<extension>
 
 Only media bytes live in S3. All metadata, messages, manifests, deduplication data,
 and contact leases live in PostgreSQL.
@@ -96,20 +98,37 @@ def _media_cache_discard( object_key : str) -> None :
 
 
 def media_object_key(
-    business_id : int,
-    contact_id  : int,
-    case_id     : int,
-    filename    : str,
+    business_display_phone_number : str,
+    contact_user_id               : str,
+    case_index                    : int,
+    message_index                 : int,
+    extension                     : str,
 ) -> str :
     """
-    Build a media object key using the normalized S3 tree.
+    Build a media object key using contact and case-message ordinals.
     """
-    ids = (
-        ( "business_id", business_id),
-        ( "contact_id",  contact_id ),
-        ( "case_id",     case_id    ),
+    path_components = (
+        ( "business_display_phone_number", business_display_phone_number),
+        ( "contact_user_id",               contact_user_id              ),
     )
-    for label, value in ids :
+    for label, value in path_components :
+        if (
+            ( not isinstance( value, str) ) or
+            ( not value                   ) or
+            ( value != value.strip()      ) or
+            ( value in ( ".", "..")       ) or
+            ( "/"  in value               ) or
+            ( "\\" in value               )
+        ) :
+            raise ValueError(
+                f"In {here()}: Argument '{label}' must be a non-empty path component"
+            )
+
+    indices = (
+        ( "case_index",    case_index   ),
+        ( "message_index", message_index),
+    )
+    for label, value in indices :
         if (
             isinstance( value, bool) or
             ( ( not isinstance( value, int) ) or ( value <= 0 ) )
@@ -119,22 +138,23 @@ def media_object_key(
             )
     
     if (
-        ( not isinstance( filename, str) ) or
-        ( not filename                   ) or
-        ( filename != filename.strip()   ) or
-        ( filename in ( ".", "..")       ) or
-        ( "/"  in filename               ) or
-        ( "\\" in filename               )
+        ( not isinstance( extension, str) ) or
+        ( not extension                   ) or
+        ( extension != extension.strip()  ) or
+        extension.startswith(".")           or
+        ( "/"  in extension               ) or
+        ( "\\" in extension               )
     ) :
         raise ValueError(
-            f"In {here()}: Argument 'filename' must be a non-empty path component"
+            f"In {here()}: Argument 'extension' must be a non-empty file extension "
+            "without a leading dot"
         )
     
     return str(
         PurePosixPath(
-            str(business_id),
-            str(contact_id),
-            f"{case_id}_{filename}",
+            business_display_phone_number,
+            contact_user_id,
+            f"{case_index}_{message_index}.{extension}",
         )
     )
 
@@ -146,10 +166,11 @@ class S3BucketStorage :
     
     def media_write(
         self,
-        business_id : int,
-        contact_id  : int,
-        case_id     : int,
-        media       : MediaObject,
+        business_display_phone_number : str,
+        contact_user_id               : str,
+        case_index                    : int,
+        message_index                 : int,
+        media                         : MediaObject,
     ) -> str :
         """
         Store media bytes and return the object key to persist in PostgreSQL.
@@ -158,16 +179,12 @@ class S3BucketStorage :
             raise ValueError(
                 f"In {here()}: media.content is required for an S3 write"
             )
-        if not media.name :
-            raise ValueError(
-                f"In {here()}: media.name is required for an S3 write"
-            )
-        
         object_key = media_object_key(
-            business_id,
-            contact_id,
-            case_id,
-            media.name,
+            business_display_phone_number,
+            contact_user_id,
+            case_index,
+            message_index,
+            media.extension,
         )
         
         b3_put_media( object_key, media.content, media.mime)
@@ -208,10 +225,11 @@ class AsyncS3BucketStorage :
     
     async def media_write(
         self,
-        business_id : int,
-        contact_id  : int,
-        case_id     : int,
-        media       : MediaObject,
+        business_display_phone_number : str,
+        contact_user_id               : str,
+        case_index                    : int,
+        message_index                 : int,
+        media                         : MediaObject,
     ) -> str :
         """
         Store media bytes and return the object key to persist in PostgreSQL.
@@ -220,16 +238,12 @@ class AsyncS3BucketStorage :
             raise ValueError(
                 f"In {here()}: media.content is required for an S3 write"
             )
-        if not media.name :
-            raise ValueError(
-                f"In {here()}: media.name is required for an S3 write"
-            )
-        
         object_key = media_object_key(
-            business_id,
-            contact_id,
-            case_id,
-            media.name,
+            business_display_phone_number,
+            contact_user_id,
+            case_index,
+            message_index,
+            media.extension,
         )
         
         await async_b3_put_media( object_key, media.content, media.mime)

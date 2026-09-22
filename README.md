@@ -488,8 +488,12 @@ Supabase stores:
 S3-compatible bucket storage is only used for media bytes:
 
 ```txt
-<business_id>/<contact_id>/<case_id>_<message_id>.<extension>
+<business_display_phone_number>/
+  <contact_user_id>/
+    <case_index>_<message_index>.<extension>
 ```
+
+Case and message indices are one-based insertion ordinals.
 
 ## Reference Implementations
 

@@ -25,7 +25,10 @@ from wa_agents.supabase import (
     WhatsAppDatabaseRecord_Business,
     WhatsAppDatabaseRecord_Contact,
 )
-from wa_agents.whatsapp_models import WhatsAppProfile
+from wa_agents.whatsapp_models import (
+    WhatsAppMessage,
+    WhatsAppProfile,
+)
 
 
 class _StorageStub :
@@ -221,6 +224,116 @@ class _AsyncRouteStorage :
         return self.manifest
 
 
+class _InboundMediaStorage :
+
+    def __init__( self) -> None :
+        self.inserted_media = []
+
+    def case_handler_message_exists( self, _inbound_msg_id : int) -> bool :
+        return False
+
+    def link_case_handler_to_api(
+        self,
+        _case_handler_msg_id : int,
+        *,
+        api_inbound_msg_id : int,
+    ) -> bool :
+        return bool(api_inbound_msg_id)
+
+    def insert_media( self, **kwargs) -> None :
+        self.inserted_media.append(kwargs)
+
+
+class _MediaWriteStorage :
+
+    def __init__( self) -> None :
+        self.calls = []
+
+    def media_write( self, *args) -> str :
+        self.calls.append(args)
+        return "15551234567/593995341161/2_3.pdf"
+
+
+class _InboundMediaHandler (WhatsAppCaseHandler) :
+
+    def case_decide(self) -> tuple[ int, CaseManifest] :
+        manifest = CaseManifest(
+            id         = 71,
+            contact    = 31,
+            case_index = 2,
+        )
+        return manifest.id, manifest
+
+    def context_update( self, message : Message) -> Message :
+        return message.model_copy(
+            update = {
+                "id"            : 51,
+                "message_index" : 3,
+            }
+        )
+
+    def process_message( self, _message : Message) -> bool :
+        return False
+
+    def generate_response( self, _max_tokens : int | None = None) -> bool :
+        return False
+
+
+class _AsyncInboundMediaStorage :
+
+    def __init__( self) -> None :
+        self.inserted_media = []
+
+    async def case_handler_message_exists( self, _inbound_msg_id : int) -> bool :
+        return False
+
+    async def link_case_handler_to_api(
+        self,
+        _case_handler_msg_id : int,
+        *,
+        api_inbound_msg_id : int,
+    ) -> bool :
+        return bool(api_inbound_msg_id)
+
+    async def insert_media( self, **kwargs) -> None :
+        self.inserted_media.append(kwargs)
+
+
+class _AsyncMediaWriteStorage :
+
+    def __init__( self) -> None :
+        self.calls = []
+
+    async def media_write( self, *args) -> str :
+        self.calls.append(args)
+        return "15551234567/593995341161/2_3.pdf"
+
+
+class _AsyncInboundMediaHandler (AsyncWhatsAppCaseHandler) :
+
+    async def case_decide(self) -> tuple[ int, CaseManifest] :
+        manifest = CaseManifest(
+            id         = 71,
+            contact    = 31,
+            case_index = 2,
+        )
+        return manifest.id, manifest
+
+    async def context_update( self, message : Message) -> Message :
+        return message.model_copy(
+            update = {
+                "id"            : 51,
+                "message_index" : 3,
+            }
+        )
+
+    async def process_message( self, _message : Message) -> bool :
+        return False
+
+    async def generate_response( self, _max_tokens : int | None = None) -> bool :
+        return False
+
+
 def _manifest( machine_state : str = "ready") -> CaseManifest :
     return CaseManifest(
         id            = 11,
@@ -229,6 +342,21 @@ def _manifest( machine_state : str = "ready") -> CaseManifest :
         is_open       = True,
         machine_state = machine_state,
     )
+
+
+def _media_message() -> WhatsAppMessage :
+    return WhatsAppMessage.model_validate({
+        "from"      : "593995341161",
+        "id"        : "wamid.document",
+        "timestamp" : "1788724265",
+        "type"      : "document",
+        "document"  : {
+            "id"        : "123456789",
+            "mime_type" : "application/pdf",
+            "sha256"    : "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+            "filename"  : "invoice.pdf",
+        },
+    })
 
 
 def test_context_build_restores_fsm_without_replay() -> None :
@@ -345,6 +473,64 @@ def test_whatsapp_methods_live_on_transport_adapters() -> None :
     assert not hasattr( AsyncCaseHandlerBase, "send_text")
     assert hasattr( WhatsAppCaseHandler, "send_text")
     assert hasattr( AsyncWhatsAppCaseHandler, "send_text")
+
+
+def test_whatsapp_media_write_uses_contact_and_message_ordinals() -> None :
+    handler               = object.__new__(_InboundMediaHandler)
+    handler.storage       = _InboundMediaStorage()
+    handler.media_storage = _MediaWriteStorage()
+    handler.operator_num  = "15551234567"
+    handler.user_id       = "593995341161"
+
+    stored = handler.dedup_and_ingest_message(
+        _media_message(),
+        media_content      = b"document bytes",
+        api_inbound_msg_id = 81,
+    )
+
+    assert stored
+    assert stored.message_index == 3
+    business_phone, contact_user, case_index, message_index, media = (
+        handler.media_storage.calls[0]
+    )
+    assert business_phone == "15551234567"
+    assert contact_user == "593995341161"
+    assert case_index == 2
+    assert message_index == 3
+    assert media.extension == "pdf"
+    assert handler.storage.inserted_media[0]["object_key"] == (
+        "15551234567/593995341161/2_3.pdf"
+    )
+
+
+def test_async_whatsapp_media_write_uses_contact_and_message_ordinals() -> None :
+    handler               = object.__new__(_AsyncInboundMediaHandler)
+    handler.storage       = _AsyncInboundMediaStorage()
+    handler.media_storage = _AsyncMediaWriteStorage()
+    handler.operator_num  = "15551234567"
+    handler.user_id       = "593995341161"
+
+    stored = asyncio.run(
+        handler.dedup_and_ingest_message(
+            _media_message(),
+            media_content      = b"document bytes",
+            api_inbound_msg_id = 81,
+        )
+    )
+
+    assert stored
+    assert stored.message_index == 3
+    business_phone, contact_user, case_index, message_index, media = (
+        handler.media_storage.calls[0]
+    )
+    assert business_phone == "15551234567"
+    assert contact_user == "593995341161"
+    assert case_index == 2
+    assert message_index == 3
+    assert media.extension == "pdf"
+    assert handler.storage.inserted_media[0]["object_key"] == (
+        "15551234567/593995341161/2_3.pdf"
+    )
 
 
 def test_handler_resolves_business_and_contact_ids( monkeypatch) -> None :

@@ -186,7 +186,7 @@ def test_case_handler_message_round_trip_and_state_update( monkeypatch) -> None 
             "id"            : 41,
             "ts"            : message.ts,
             "case_id"       : 9,
-            "message_index" : 0,
+            "message_index" : 1,
             "basemodel"     : message.basemodel,
             "origin"        : message.origin,
             "data"          : params["data"].obj,
@@ -202,7 +202,7 @@ def test_case_handler_message_round_trip_and_state_update( monkeypatch) -> None 
 
     assert isinstance( stored, ServerTextMsg)
     assert stored.id == 41
-    assert stored.message_index == 0
+    assert stored.message_index == 1
     assert stored.text == "hello"
     assert calls[0][0] == supabase.SQL_INSERT_CASE_HANDLER_MESSAGE
     assert calls[0][1]["machine_state"] == "awaiting_photo"
@@ -298,28 +298,56 @@ def test_async_payload_insert_uses_same_contract( monkeypatch) -> None :
     assert calls[0][1]["data_raw"].obj == { "hello" : "async" }
 
 
-def test_media_object_key_uses_business_contact_case_and_filename() -> None :
-    assert media_object_key( 11, 17, 29, "31.jpeg") == "11/17/29_31.jpeg"
+def test_media_object_key_uses_phone_user_and_ordinals() -> None :
+    assert media_object_key(
+        "15551234567",
+        "EC.Abc123",
+        1,
+        1,
+        "jpeg",
+    ) == "15551234567/EC.Abc123/1_1.jpeg"
 
 
 @pytest.mark.parametrize(
-    "business_id, contact_id, case_id, filename",
+    "business_phone, contact_user_id, case_index, message_index, extension",
     [
-        ( 0, 1, 2, "file.jpeg"),
-        ( 1, 0, 2, "file.jpeg"),
-        ( 1, 1, -1, "file.jpeg"),
-        ( 1, 1, 2, "nested/file.jpeg"),
-        ( 1, 1, 2, ".."),
+        ( "",      "123", 1,  1, "jpeg"       ),
+        ( "123/4", "123", 1,  1, "jpeg"       ),
+        ( "123",   "",    1,  1, "jpeg"       ),
+        ( "123",   "..",  1,  1, "jpeg"       ),
+        ( "123",   "456", 0,  1, "jpeg"       ),
+        ( "123",   "456", 1,  0, "jpeg"       ),
+        ( "123",   "456", -1, 1, "jpeg"       ),
+        ( "123",   "456", 1, -1, "jpeg"       ),
+        ( "123",   "456", 1,  1, ".jpeg"      ),
+        ( "123",   "456", 1,  1, "nested/png" ),
     ],
 )
 def test_media_object_key_rejects_invalid_components(
-    business_id : int,
-    contact_id : int,
-    case_id    : int,
-    filename   : str,
+    business_phone  : str,
+    contact_user_id : str,
+    case_index      : int,
+    message_index   : int,
+    extension       : str,
 ) -> None :
     with pytest.raises(ValueError) :
-        media_object_key( business_id, contact_id, case_id, filename)
+        media_object_key(
+            business_phone,
+            contact_user_id,
+            case_index,
+            message_index,
+            extension,
+        )
+
+
+def test_case_and_message_models_reject_zero_based_indices() -> None :
+    assert CaseManifest( id = 1, contact = 1).case_index == 1
+
+    with pytest.raises(ValueError) :
+        CaseManifest( id = 1, contact = 1, case_index = 0)
+
+    with pytest.raises(ValueError) :
+        ServerTextMsg( text = "message", message_index = 0)
 
 
 def test_media_cache_configuration( monkeypatch) -> None :
@@ -399,10 +427,22 @@ def test_s3_media_write_returns_database_object_key( monkeypatch) -> None :
         lambda *args : calls.append(args),
     )
 
-    object_key = S3BucketStorage().media_write( 11, 17, 29, media)
+    object_key = S3BucketStorage().media_write(
+        "15551234567",
+        "EC.Abc123",
+        2,
+        3,
+        media,
+    )
 
-    assert object_key == "11/17/29_31.jpeg"
-    assert calls == [ ( "11/17/29_31.jpeg", b"image bytes", "image/jpeg") ]
+    assert object_key == "15551234567/EC.Abc123/2_3.jpeg"
+    assert calls == [
+        (
+            "15551234567/EC.Abc123/2_3.jpeg",
+            b"image bytes",
+            "image/jpeg",
+        ),
+    ]
     assert S3_bucket_storage._media_cache_get(object_key) == b"image bytes"
 
 
@@ -420,9 +460,13 @@ def test_s3_media_write_failure_does_not_populate_cache( monkeypatch) -> None :
     monkeypatch.setattr( S3_bucket_storage, "b3_put_media", fail_write)
     
     with pytest.raises( RuntimeError, match = "write failed") :
-        S3BucketStorage().media_write( 11, 17, 29, media)
+        S3BucketStorage().media_write( "15551234567", "EC.Abc123", 2, 3, media)
     
-    assert S3_bucket_storage._media_cache_get("11/17/29_31.jpeg") is None
+    assert (
+        S3_bucket_storage._media_cache_get(
+            "15551234567/EC.Abc123/2_3.jpeg"
+        ) is None
+    )
 
 
 def test_s3_media_read_uses_read_through_cache( monkeypatch) -> None :
@@ -436,9 +480,13 @@ def test_s3_media_read_uses_read_through_cache( monkeypatch) -> None :
     monkeypatch.setattr( S3_bucket_storage, "b3_get_file", read_media)
     storage = S3BucketStorage()
     
-    assert storage.media_read("11/17/29_31.jpeg") == b"image bytes"
-    assert storage.media_read("11/17/29_31.jpeg") == b"image bytes"
-    assert calls == [ "11/17/29_31.jpeg" ]
+    assert (
+        storage.media_read("15551234567/EC.Abc123/2_3.jpeg") == b"image bytes"
+    )
+    assert (
+        storage.media_read("15551234567/EC.Abc123/2_3.jpeg") == b"image bytes"
+    )
+    assert calls == [ "15551234567/EC.Abc123/2_3.jpeg" ]
 
 
 def test_s3_media_read_failure_does_not_populate_cache( monkeypatch) -> None :
@@ -450,14 +498,19 @@ def test_s3_media_read_failure_does_not_populate_cache( monkeypatch) -> None :
     monkeypatch.setattr( S3_bucket_storage, "b3_get_file", fail_read)
     
     with pytest.raises( RuntimeError, match = "read failed") :
-        S3BucketStorage().media_read("11/17/29_31.jpeg")
+        S3BucketStorage().media_read("15551234567/EC.Abc123/2_3.jpeg")
     
-    assert S3_bucket_storage._media_cache_get("11/17/29_31.jpeg") is None
+    assert (
+        S3_bucket_storage._media_cache_get(
+            "15551234567/EC.Abc123/2_3.jpeg"
+        ) is None
+    )
 
 
 def test_s3_media_delete_invalidates_cache_after_success( monkeypatch) -> None :
     _use_media_cache( monkeypatch, 100)
-    S3_bucket_storage._media_cache_set( "11/17/29_31.jpeg", b"image bytes")
+    object_key = "15551234567/EC.Abc123/2_3.jpeg"
+    S3_bucket_storage._media_cache_set( object_key, b"image bytes")
     calls = []
     
     monkeypatch.setattr(
@@ -465,15 +518,16 @@ def test_s3_media_delete_invalidates_cache_after_success( monkeypatch) -> None :
         "b3_delete",
         lambda object_key : calls.append(object_key),
     )
-    S3BucketStorage().media_delete("11/17/29_31.jpeg")
+    S3BucketStorage().media_delete(object_key)
     
-    assert calls == [ "11/17/29_31.jpeg" ]
-    assert S3_bucket_storage._media_cache_get("11/17/29_31.jpeg") is None
+    assert calls == [ object_key ]
+    assert S3_bucket_storage._media_cache_get(object_key) is None
 
 
 def test_s3_media_delete_failure_keeps_cached_content( monkeypatch) -> None :
     _use_media_cache( monkeypatch, 100)
-    S3_bucket_storage._media_cache_set( "11/17/29_31.jpeg", b"image bytes")
+    object_key = "15551234567/EC.Abc123/2_3.jpeg"
+    S3_bucket_storage._media_cache_set( object_key, b"image bytes")
     
     def fail_delete( _object_key : str) -> None :
         raise RuntimeError("delete failed")
@@ -481,11 +535,9 @@ def test_s3_media_delete_failure_keeps_cached_content( monkeypatch) -> None :
     monkeypatch.setattr( S3_bucket_storage, "b3_delete", fail_delete)
     
     with pytest.raises( RuntimeError, match = "delete failed") :
-        S3BucketStorage().media_delete("11/17/29_31.jpeg")
+        S3BucketStorage().media_delete(object_key)
     
-    assert (
-        S3_bucket_storage._media_cache_get("11/17/29_31.jpeg") == b"image bytes"
-    )
+    assert S3_bucket_storage._media_cache_get(object_key) == b"image bytes"
 
 
 def test_async_s3_media_write_returns_database_object_key( monkeypatch) -> None :
@@ -501,10 +553,24 @@ def test_async_s3_media_write_returns_database_object_key( monkeypatch) -> None 
         calls.append(args)
 
     monkeypatch.setattr( S3_bucket_storage, "async_b3_put_media", fake_put_media)
-    object_key = asyncio.run(AsyncS3BucketStorage().media_write( 11, 17, 29, media))
+    object_key = asyncio.run(
+        AsyncS3BucketStorage().media_write(
+            "15551234567",
+            "EC.Abc123",
+            2,
+            3,
+            media,
+        )
+    )
 
-    assert object_key == "11/17/29_31.jpeg"
-    assert calls == [ ( "11/17/29_31.jpeg", b"image bytes", "image/jpeg") ]
+    assert object_key == "15551234567/EC.Abc123/2_3.jpeg"
+    assert calls == [
+        (
+            "15551234567/EC.Abc123/2_3.jpeg",
+            b"image bytes",
+            "image/jpeg",
+        ),
+    ]
     assert S3_bucket_storage._media_cache_get(object_key) == b"image bytes"
 
 
@@ -526,15 +592,17 @@ def test_async_s3_media_read_and_delete_use_cache( monkeypatch) -> None :
     storage = AsyncS3BucketStorage()
     
     async def exercise() -> None :
-        assert await storage.media_read("11/17/29_31.jpeg") == b"image bytes"
-        assert await storage.media_read("11/17/29_31.jpeg") == b"image bytes"
-        await storage.media_delete("11/17/29_31.jpeg")
+        object_key = "15551234567/EC.Abc123/2_3.jpeg"
+        assert await storage.media_read(object_key) == b"image bytes"
+        assert await storage.media_read(object_key) == b"image bytes"
+        await storage.media_delete(object_key)
     
     asyncio.run(exercise())
     
-    assert read_calls == [ "11/17/29_31.jpeg" ]
-    assert delete_calls == [ "11/17/29_31.jpeg" ]
-    assert S3_bucket_storage._media_cache_get("11/17/29_31.jpeg") is None
+    object_key = "15551234567/EC.Abc123/2_3.jpeg"
+    assert read_calls == [ object_key ]
+    assert delete_calls == [ object_key ]
+    assert S3_bucket_storage._media_cache_get(object_key) is None
 
 
 def test_sync_and_async_s3_storage_share_media_cache( monkeypatch) -> None :
@@ -546,7 +614,13 @@ def test_sync_and_async_s3_storage_share_media_cache( monkeypatch) -> None :
     )
     
     monkeypatch.setattr( S3_bucket_storage, "b3_put_media", lambda *_args : None)
-    object_key = S3BucketStorage().media_write( 11, 17, 29, media)
+    object_key = S3BucketStorage().media_write(
+        "15551234567",
+        "EC.Abc123",
+        2,
+        3,
+        media,
+    )
     
     async def fail_read( _object_key : str) -> bytes :
         raise AssertionError("cached media should not be read from S3")

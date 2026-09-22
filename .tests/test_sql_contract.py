@@ -167,7 +167,7 @@ def test_case_manifests_are_bound_to_handler_id() -> None :
     assert "@handler_id" in insert_manifest
 
 
-def test_case_and_message_indices_are_zero_based_and_scoped() -> None :
+def test_case_and_message_indices_are_one_based_and_scoped() -> None :
     insert_manifest = ( SQL_DIR / "insert_case_manifest.sql").read_text(
         encoding = "utf-8"
     )
@@ -179,13 +179,16 @@ def test_case_and_message_indices_are_zero_based_and_scoped() -> None :
     )
 
     assert "case_index         INT          NOT NULL" in DDL
-    assert "next_message_index INT          NOT NULL DEFAULT 0" in DDL
+    assert "next_message_index INT          NOT NULL DEFAULT 1" in DDL
     assert "message_index INT         NOT NULL" in DDL
     assert "UNIQUE ( contact, case_index)" in DDL
     assert "UNIQUE ( case_id, message_index)" in DDL
-    assert "COALESCE( max(cas.case_index) + 1, 0 )" in insert_manifest
+    assert "CHECK ( case_index >= 1 )" in DDL
+    assert "CHECK ( next_message_index >= 1 )" in DDL
+    assert "CHECK ( message_index >= 1 )" in DDL
+    assert "COALESCE( max(cas.case_index) + 1, 1 )" in insert_manifest
     assert "next_message_index = next_message_index + 1" in insert_message
-    assert "next_message_index - 1 AS message_index" in insert_message
+    assert "next_message_index - 1  AS message_index" in insert_message
     assert "msg.message_index ASC" in get_messages
 
 
