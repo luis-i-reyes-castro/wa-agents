@@ -140,9 +140,9 @@ CREATE TABLE IF NOT EXISTS public.wa_api_inbound_payloads (
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  item_idx      SMALLINT    NOT NULL DEFAULT 0,
+  item_index    SMALLINT    NOT NULL DEFAULT 0,
   item_ts       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  change_idx    SMALLINT    NOT NULL DEFAULT 0,
+  change_index  SMALLINT    NOT NULL DEFAULT 0,
   contact       BIGINT      DEFAULT NULL,
   
   data_raw      JSONB       NOT NULL,

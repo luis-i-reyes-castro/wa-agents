@@ -483,21 +483,21 @@ class SyncSupabaseStorage :
     
     def update_inbound_payload_metadata(
         self,
-        payload_id : int,
-        contact    : int,
-        item_idx   : int | None      = None,
-        item_ts    : datetime | None = None,
-        change_idx : int | None      = None,
+        payload_id   : int,
+        contact      : int,
+        item_index   : int | None      = None,
+        item_ts      : datetime | None = None,
+        change_index : int | None      = None,
     ) -> dict[str, Any] | None :
         
         return self._fetch_one(
             SQL_UPDATE_INBOUND_PAYLOAD_METADATA,
             {
-                "item_idx"   : item_idx,
-                "item_ts"    : item_ts,
-                "change_idx" : change_idx,
-                "payload_id" : payload_id,
-                "contact"    : contact,
+                "item_index"   : item_index,
+                "item_ts"      : item_ts,
+                "change_index" : change_index,
+                "payload_id"   : payload_id,
+                "contact"      : contact,
             },
         )
     
@@ -1052,21 +1052,21 @@ class AsyncSupabaseStorage :
     
     async def update_inbound_payload_metadata(
         self,
-        payload_id : int,
-        contact    : int,
-        item_idx   : int | None      = None,
-        item_ts    : datetime | None = None,
-        change_idx : int | None      = None,
+        payload_id   : int,
+        contact      : int,
+        item_index   : int | None      = None,
+        item_ts      : datetime | None = None,
+        change_index : int | None      = None,
     ) -> dict[str, Any] | None :
         
         return await self._fetch_one(
             SQL_UPDATE_INBOUND_PAYLOAD_METADATA,
             {
-                "item_idx"   : item_idx,
-                "item_ts"    : item_ts,
-                "change_idx" : change_idx,
-                "payload_id" : payload_id,
-                "contact"    : contact,
+                "item_index"   : item_index,
+                "item_ts"      : item_ts,
+                "change_index" : change_index,
+                "payload_id"   : payload_id,
+                "contact"      : contact,
             },
         )
     

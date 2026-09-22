@@ -4,9 +4,9 @@
 SELECT
   id,
   received_at,
-  item_idx,
+  item_index,
   item_ts,
-  change_idx,
+  change_index,
   contact,
   data_raw,
   data_hash,

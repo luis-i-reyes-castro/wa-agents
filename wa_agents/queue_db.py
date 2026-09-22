@@ -165,11 +165,11 @@ class QueueDB :
         """
         enqueued = False
         
-        for item_idx, item in enumerate(payload.entry) :
+        for item_index, item in enumerate(payload.entry) :
             
             item_ts = _timestamp(item.time) if item.time is not None else None
             
-            for change_idx, change in enumerate(item.changes) :
+            for change_index, change in enumerate(item.changes) :
                 
                 value = change.value
                 if not isinstance( value, WhatsAppValue) :
@@ -204,11 +204,11 @@ class QueueDB :
                         )
                 
                 payload_row = self.storage.update_inbound_payload_metadata(
-                    payload_id = payload_id,
-                    contact    = contact["id"],
-                    item_idx   = item_idx,
-                    item_ts    = item_ts,
-                    change_idx = change_idx,
+                    payload_id   = payload_id,
+                    contact      = contact["id"],
+                    item_index   = item_index,
+                    item_ts      = item_ts,
+                    change_index = change_index,
                 )
                 if not payload_row :
                     raise RuntimeError(
@@ -426,11 +426,11 @@ class AsyncQueueDB :
         """
         enqueued = False
         
-        for item_idx, item in enumerate(payload.entry) :
+        for item_index, item in enumerate(payload.entry) :
             
             item_ts = _timestamp(item.time) if item.time is not None else None
             
-            for change_idx, change in enumerate(item.changes) :
+            for change_index, change in enumerate(item.changes) :
                 
                 value = change.value
                 if not isinstance( value, WhatsAppValue) :
@@ -465,11 +465,11 @@ class AsyncQueueDB :
                         )
                 
                 payload_row = await self.storage.update_inbound_payload_metadata(
-                    payload_id = payload_id,
-                    contact    = contact["id"],
-                    item_idx   = item_idx,
-                    item_ts    = item_ts,
-                    change_idx = change_idx,
+                    payload_id   = payload_id,
+                    contact      = contact["id"],
+                    item_index   = item_index,
+                    item_ts      = item_ts,
+                    change_index = change_index,
                 )
                 if not payload_row :
                     raise RuntimeError(

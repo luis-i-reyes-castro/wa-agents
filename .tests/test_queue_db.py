@@ -144,6 +144,7 @@ class _AsyncPayloadStorageStub :
         self.events   = events
         self.inserted = inserted
         self.message_data : dict[str, Any] | None = None
+        self.metadata     : dict[str, Any] | None = None
 
     async def insert_inbound_payload(self, _data : Any) -> dict[str, Any] :
         self.events.append("insert_raw")
@@ -167,9 +168,10 @@ class _AsyncPayloadStorageStub :
 
     async def update_inbound_payload_metadata(
         self,
-        **_kwargs : Any,
+        **kwargs : Any,
     ) -> dict[str, Any] :
         self.events.append("update_metadata")
+        self.metadata = kwargs
         return { "id" : 19 }
 
     async def insert_inbound_message(self, **kwargs : Any) -> dict[str, Any] :
@@ -230,6 +232,8 @@ def test_async_queue_validates_normalizes_and_enqueues_payload(
         "insert_message",
         "enqueue_message",
     ]
+    assert storage.metadata and storage.metadata["item_index"] == 0
+    assert storage.metadata["change_index"] == 0
     assert storage.message_data == { "text" : { "body" : "Hello" } }
     assert result == { "stored" : True, "enqueued" : True }
 

@@ -107,6 +107,9 @@ def test_payload_metadata_updates_raw_payload() -> None :
     assert "payload_id" in metadata
     assert "payload_hash" not in metadata
     assert "public.wa_api_inbound_payloads" in metadata
+    assert "item_index" in metadata
+    assert "change_index" in metadata
+    assert not re.search( r"\b(item_idx|change_idx)\b", DDL + metadata)
 
 
 def test_contact_lease_defaults_to_ninety_seconds() -> None :
