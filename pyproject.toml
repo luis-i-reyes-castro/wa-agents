@@ -19,7 +19,6 @@ dependencies = [
   "botocore>=1.40.46,<1.40.62",
   "cachetools>=7.2.0,<8.0.0",
   "fastapi>=0.115.0",
-  "Flask>=3.1.2",
   "httpx>=0.28.1",
   "openai>=2.9.0",
   "phonenumbers>=9.0.13",

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 
+# NOTE:
+# This script is old; the new stack uses FastAPI instead of Flask.
+# Since Flask is not longer included in `requirements.txt`,
+# install it via `pip install -U flask`.
+
 import os
 from dotenv import load_dotenv
 from flask import (
@@ -12,31 +17,17 @@ from sofia_utils.printing import (
     print_recursively,
     print_sep,
 )
-from wa_agents.whatsapp_models import (
-    WhatsAppContactPayload,
-    WhatsAppContactPayload_Name,
-    WhatsAppContactPayload_Phone,
-    WhatsAppLocation,
-    WhatsAppPayload,
-)
-from wa_agents.whatsapp_functions import (
-    send_whatsapp_content,
-    send_whatsapp_text,
-)
+from wa_agents.whatsapp_models import WhatsAppPayload
 
 
-# -----------------------------------------------------------------------------------------
-# Load WhatsApp Verify Token
 load_dotenv()
 VERIFY_TOKEN = os.getenv("WA_VERIFY_TOKEN")
 print(f"WA_VERIFY TOKEN: {VERIFY_TOKEN}")
 
 
-# -----------------------------------------------------------------------------------------
-# Declare Flask App
 app = Flask(__name__)
 
-# Webhook verification (GET)
+
 @app.route( "/webhook", methods = ["GET"])
 def verify() :
     
@@ -48,45 +39,16 @@ def verify() :
     
     return "Verification failed", 403
 
-# Webhook implementation (POST): Handle incoming messages
+
 @app.route( "/webhook", methods = ["POST"])
 def webhook() :
     
     data = request.get_json()
     try :
-        wapl = WhatsAppPayload.model_validate(data)
+        payload = WhatsAppPayload.model_validate(data)
         print_sep()
         print("WHATSAPP PAYLOAD STRUCTURE:")
-        print( wapl.model_dump_json( indent = 2) )
-        
-        operator_id = wapl.entry[0].changes[0].value.metadata.phone_number_id
-        user_id     = wapl.entry[0].changes[0].value.contacts[0].wa_id
-        
-        send_whatsapp_text( operator_id, user_id, "Hola mundo!")
-        
-        contact_card = WhatsAppContactPayload(
-            name = WhatsAppContactPayload_Name(
-                formatted_name = "Luis Reyes",
-                first_name     = "Luis",
-                last_name      = "Reyes",
-            ),
-            phones = (
-                WhatsAppContactPayload_Phone(
-                    phone = "+593995341161",
-                    type  = "CELL",
-                    wa_id = "593995341161",
-                ),
-            )
-        )
-        send_whatsapp_content( operator_id, user_id, contact_card)
-        
-        location_card = WhatsAppLocation(
-            latitude  = -2.1859526634216,
-            longitude = -79.988868713379,
-            name      = "Reyes Castro Drones - Taller Principal",
-            address   = "Urb. Laguna Club, Mz. 13 Sl. 83, Kilometro 12.5 Via a la Costa, Guayaquil - Ecuador",
-        )
-        send_whatsapp_content( operator_id, user_id, location_card)
+        print(payload.model_dump_json( indent = 2))
     
     except ValidationError :
         print_sep()
@@ -98,9 +60,6 @@ def webhook() :
     
     return "ok", 200
 
-
-# -----------------------------------------------------------------------------------------
-# Run on port 8080 in debug mode
 
 if __name__ == "__main__":
     app.run( port = 8080, debug = True)
