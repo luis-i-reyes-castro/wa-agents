@@ -447,14 +447,12 @@ if resp and resp.st_output:
 ```python
 from wa_agents.case_handler_models import HumanUserContentMsg, load_media
 
-md, mc     = load_media("tests/photo.jpg")
-context    = [ HumanUserContentMsg( text = "Describe this issue.", media = md) ]
-imgs_cache = { md.name: mc.content }
+media   = load_media("tests/photo.jpg")
+context = [ HumanUserContentMsg( text = "Describe this issue.", media = media) ]
 
 resp = await agent.get_response(
-  context    = context,
-  load_imgs  = True,
-  imgs_cache = imgs_cache,
+  context   = context,
+  load_imgs = True,
 )
 ```
 

@@ -207,18 +207,31 @@ class AgentBase (ABC) :
 
     def validate_get_response_args(
         self,
-        load_imgs  : bool,
-        imgs_cache : dict[ str, bytes],
+        context   : list[Message],
+        load_imgs : bool,
     ) -> None :
         """
         Validate get_response arguments \\
         Args:
-            load_imgs  : Whether images should be loaded into the request
-            imgs_cache : Cache mapping image names to bytes
+            context   : Message history to serialize
+            load_imgs : Whether images should be loaded into the request
         """
-        if load_imgs and not imgs_cache :
-            msg = "Requested image loading but passed no images cache."
-            raise ValueError(f"In Agent get_response: {msg}")
+        has_image_content = any(
+            (
+                isinstance( message, HumanContentMsg)     and
+                message.media                             and
+                message.media.mime.startswith("image")    and
+                isinstance( message.media.content, bytes) and
+                bool(message.media.content)
+            )
+            for message in context
+        )
+        
+        if load_imgs and not has_image_content :
+            raise ValueError(
+                f"In {here()}: Requested image loading but "
+                f"no image content was provided."
+            )
         
         return
     
@@ -248,16 +261,14 @@ class AgentBase (ABC) :
     
     def build_messages(
         self,
-        context    : list[Message],
-        load_imgs  : bool,
-        imgs_cache : dict[ str, bytes],
+        context   : list[Message],
+        load_imgs : bool,
     ) -> list[dict] :
         """
         Serialize message context into OpenRouter chat messages \\
         Args:
             context    : Message history to serialize
             load_imgs  : Whether to include user-provided images
-            imgs_cache : Cache used when `load_imgs` is enabled
         Returns:
             List of chat completion messages
         """
@@ -273,52 +284,67 @@ class AgentBase (ABC) :
             # -----------------------------------------------------------------------------
             # CASE 1: BASIC MESSAGE SUBCLASS (I.E., MESSAGE WITH TEXT AND/OR MEDIA)
             if isinstance( message, BasicMsg) :
-                
-                # Prepare message header
-                msg = { "role" : message.role, "content" : [] }
-                
+                msg = {
+                    "role"    : message.role,
+                    "content" : [],
+                }
                 # PROCESS TEXT
-                # Case of Basic Message
                 if isinstance( message, BasicMsg) and message.text :
-                    text_cb = { "type" : "text", "text" : message.text }
-                    msg["content"].append(text_cb)
-                # Case of Structured Data Message
+                    msg["content"].append(
+                        {
+                            "type" : "text",
+                            "text" : message.text,
+                        }
+                    )
                 elif isinstance( message, StructuredDataMsg) :
-                    text_cb = { "type" : "text", "text" : message.as_text() }
-                    msg["content"].append(text_cb)
-                # Case of Assistant Message with structured output
+                    msg["content"].append(
+                        {
+                            "type" : "text",
+                            "text" : message.as_text(),
+                        }
+                    )
                 elif isinstance( message, AssistantMsg) and message.st_output :
-                    text_cb = { "type" : "text",
-                                "text" : write_to_json_string( message.st_output,
-                                                               indent = None) }
-                    msg["content"].append(text_cb)
+                    msg["content"].append(
+                        {
+                            "type" : "text",
+                            "text" : write_to_json_string(
+                                message.st_output,
+                                indent = None,
+                            ),
+                        }
+                    )
                 
                 # PROCESS IMAGES
                 if isinstance( message, HumanContentMsg) and message.media :
-                    # Prepare placeholder text message
-                    media   = message.media
-                    text_cb = { "type" : "text",
-                                "text" : f"[SYSTEM] Message includes media ({media.mime})" }
-                    # If allowed to load images
-                    if load_imgs and media.mime.startswith("image") :
-                        # Attempt to retrieve image from cache
-                        image_bin = imgs_cache.get(media.name)
-                        # If retrieval successful then encode and insert
-                        if image_bin and isinstance( image_bin, bytes) :
-                            image_b64 = b64encode(image_bin).decode("utf-8")
-                            image_url = {
-                                "url" : f"data:{media.mime};base64,{image_b64}"
+                    media = message.media
+                    if (
+                        load_imgs                      and
+                        media.mime.startswith("image") and
+                        ( image_bin := media.content ) and
+                        isinstance( image_bin, bytes)
+                    ) :
+                        image_b64 = b64encode(image_bin).decode("utf-8")
+                        msg["content"].append(
+                            {
+                                "type"      : "image_url",
+                                "image_url" : {
+                                    "url" : f"data:{media.mime};base64,{image_b64}"
+                                },
                             }
-                            msg["content"].append( { "type"      : "image_url",
-                                                     "image_url" : image_url } )
-                        else :
-                            msg["content"].append(text_cb)
+                        )
                     else :
-                        msg["content"].append(text_cb)
+                        msg["content"].append(
+                            {
+                                "type" : "text",
+                                "text" : f"[SYSTEM] Message includes media ({media.mime})",
+                            }
+                        )
                 
                 # If message is only text then simplify structure
-                if len(msg["content"]) == 1 \
-                and msg["content"][0]["type"] == "text" :
+                if (
+                    ( len(msg["content"])       == 1      ) and
+                    ( msg["content"][0]["type"] == "text" )
+                ) :
                     msg["content"] = msg["content"][0]["text"]
                 
                 # INSERT MESSAGE WITH TEXT AND/OR IMAGE
@@ -326,43 +352,55 @@ class AgentBase (ABC) :
                 
                 # PROCESS ASSISTANT MESSAGE TOOL CALLS
                 if isinstance( message, AssistantMsg) and message.tool_calls :
-                    
-                    msg = { "role" : "assistant", "content" : "", "tool_calls" : [] }
+                    msg = {
+                        "role"       : "assistant",
+                        "content"    : "",
+                        "tool_calls" : [],
+                    }
                     
                     for tc in message.tool_calls :
-                        # Convert tool call arguments to JSON string if needed
+                        
                         if not isinstance( tc.input, str) :
                             tc.input = write_to_json_string( tc.input, indent = None)
-                        # Add tool call to the list
-                        tc_cb = { "id"       : tc.id,
-                                  "type"     : "function",
-                                  "function" : { "name"      : tc.name,
-                                                 "arguments" : tc.input } }
-                        msg["tool_calls"].append(tc_cb)
+                        
+                        msg["tool_calls"].append(
+                        {
+                            "id"       : tc.id,
+                            "type"     : "function",
+                            "function" : {
+                                "name"      : tc.name,
+                                "arguments" : tc.input,
+                            },
+                        })
                     
-                    # Add single assistant message with all tool calls
                     messages.append(msg)
             
             # -----------------------------------------------------------------------------
             # CASE 2: TOOL RESULTS MESSAGE
-            elif isinstance( message, ToolResultsMsg) and message.tool_results :
+            elif(
+                isinstance( message, ToolResultsMsg) and
+                message.tool_results
+            ):
                 for tr in message.tool_results :
-                    # Convert tool result content to JSON string if needed
+                    
                     if not isinstance( tr.content, str) :
                         tr.content = write_to_json_string( tr.content, indent = None)
-                    # Add tool result as tool message
-                    messages.append( { "role"         : "tool",
-                                       "content"      : tr.content,
-                                       "tool_call_id" : tr.id } )
+                    
+                    messages.append(
+                        {
+                            "role"         : "tool",
+                            "content"      : tr.content,
+                            "tool_call_id" : tr.id,
+                        }
+                    )
         
         return messages
-        
+    
     def build_request_params(
         self,
         context : list[Message],
         *,
         load_imgs  : bool = False,
-        imgs_cache : dict[ str, bytes] = {},
         output_st  : str | type[BaseModel] | None = None,
         max_tokens : int | None = None,
     ) -> tuple[ dict, bool] :
@@ -371,7 +409,6 @@ class AgentBase (ABC) :
         Args:
             context    : Message history to serialize
             load_imgs  : Whether to include user-provided images
-            imgs_cache : Cache used when `load_imgs` is enabled
             output_st  : Structured output schema (json or BaseModel subclass)
             max_tokens : Optional completion cap passed to the API
         Returns:
@@ -380,7 +417,7 @@ class AgentBase (ABC) :
         resp_req_parms = {
             "model"    : self.model,
             "tools"    : self.tools,
-            "messages" : self.build_messages( context, load_imgs, imgs_cache),
+            "messages" : self.build_messages( context, load_imgs),
         }
         
         if max_tokens and isinstance( max_tokens, int) and max_tokens > 0 :
@@ -533,7 +570,6 @@ class Agent (AgentBase) :
         *,
         origin     : str | None = None,
         load_imgs  : bool = False,
-        imgs_cache : dict[ str, bytes] = {},
         output_st  : str | type[BaseModel] | None = None,
         max_tokens : int | None = None,
         debug      : bool = False,
@@ -542,13 +578,12 @@ class Agent (AgentBase) :
         Request a response from OpenRouter and post-process outputs
         """
         
-        self.validate_get_response_args( load_imgs, imgs_cache)
+        self.validate_get_response_args( context, load_imgs)
         self.merge_prompts()
         
         resp_req_parms, parse_mode = self.build_request_params(
             context    = context,
             load_imgs  = load_imgs,
-            imgs_cache = imgs_cache,
             output_st  = output_st,
             max_tokens = max_tokens,
         )
@@ -603,7 +638,6 @@ class AsyncAgent (AgentBase) :
         *,
         origin     : str | None = None,
         load_imgs  : bool = False,
-        imgs_cache : dict[ str, bytes] = {},
         output_st  : str | type[BaseModel] | None = None,
         max_tokens : int | None = None,
         debug      : bool = False,
@@ -612,13 +646,12 @@ class AsyncAgent (AgentBase) :
         Request a response from OpenRouter and post-process outputs asynchronously
         """
         
-        self.validate_get_response_args( load_imgs, imgs_cache)
+        self.validate_get_response_args( context, load_imgs)
         self.merge_prompts()
         
         resp_req_parms, parse_mode = self.build_request_params(
             context    = context,
             load_imgs  = load_imgs,
-            imgs_cache = imgs_cache,
             output_st  = output_st,
             max_tokens = max_tokens,
         )
