@@ -510,7 +510,7 @@ class CaseHandlerBase ( Machine, ABC) :
 
     def context_update( self, message : Message) -> Message :
         """
-        Persist one message, its resulting FSM state, and agent-context changes. \
+        Persist one message, its resulting FSM state, and agent-context changes. \\
         The message is ingested first so all state stored alongside it results from
         that message.
         """
@@ -632,17 +632,8 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         )
         
         self.api_inbound_msg_id = api_inbound_msg_id
-        self._pending_outbound_msg_ids : dict[ int, list[int] ] = {}
         
         return
-
-    def context_update( self, message : Message) -> Message :
-        
-        stored = super().context_update(message)
-        
-        self._link_pending_outbound_messages( message, stored.id)
-        
-        return stored
 
     # =====================================================================================
     # MESSAGE DEDUPLICATION AND INGESTION
@@ -787,41 +778,11 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
 
     # =====================================================================================
     # MESSAGE SENDING
-
-    def _link_outbound_messages(
-        self,
-        case_handler_msg_id : int,
-        api_outbound_ids    : list[int],
-    ) -> None :
-        
-        for api_outbound_id in api_outbound_ids :
-            
-            link = self.storage.link_case_handler_to_api(
-                case_handler_msg_id,
-                api_outbound_msg_id = api_outbound_id,
-            )
-            if not link :
-                raise RuntimeError(
-                    f"In {here()}: Unable to link case-handler and outbound messages"
-                )
-        
-        return
-    
-    def _link_pending_outbound_messages(
-        self,
-        message             : Message,
-        case_handler_msg_id : int,
-    ) -> None :
-        
-        pending = self._pending_outbound_msg_ids.pop( id(message), [])
-        self._link_outbound_messages( case_handler_msg_id, pending)
-        
-        return
     
     def _persist_outbound_messages(
         self,
-        message : Message,
-        results : list[WhatsAppSendResult],
+        case_handler_msg_id : int,
+        results             : list[WhatsAppSendResult],
     ) -> None :
         
         outbound_ids : list[int] = []
@@ -839,26 +800,36 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                 )
             outbound_ids.append(row["id"])
         
-        if message.id is not None :
-            self._link_outbound_messages( message.id, outbound_ids)
-        elif outbound_ids :
-            self._pending_outbound_msg_ids.setdefault( id(message), [] ).extend(
-                outbound_ids
+        for outbound_id_ in outbound_ids :
+            
+            link = self.storage.link_case_handler_to_api(
+                case_handler_msg_id,
+                api_outbound_msg_id = outbound_id_,
             )
+            if not link :
+                raise RuntimeError(
+                    f"In {here()}: Unable to link case-handler and outbound messages"
+                )
         
         return
     
     def send_template( self, message : ServerTemplateMsg) -> bool :
         """
-        Send one WhatsApp template message.
+        Send one persisted WhatsApp template message.
         """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
         try :
             results = send_whatsapp_template(
                 self.operator_id,
                 self.user_id,
                 message,
             )
-            self._persist_outbound_messages( message, results)
+            self._persist_outbound_messages( case_handler_msg_id, results)
             return True
         except Exception as ex :
             print(f"In {here()}: {str(ex)}")
@@ -869,8 +840,14 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         message : ServerTextMsg | AssistantMsg | ToolResultsMsg,
     ) -> bool :
         """
-        Send normal text or verbose debugging artifacts through WhatsApp.
+        Send persisted normal text message through WhatsApp.
         """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
         try :
             results : list[WhatsAppSendResult] = []
             if (
@@ -884,7 +861,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                         message.text,
                     )
                 )
-            self._persist_outbound_messages( message, results)
+            self._persist_outbound_messages( case_handler_msg_id, results)
             return True
 
         except Exception as ex :
@@ -894,15 +871,21 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
 
     def send_interactive( self, message : ServerInteractiveOptsMsg) -> bool :
         """
-        Send one WhatsApp interactive message or its debugging variant.
+        Send one persisted WhatsApp interactive message or its debugging variant.
         """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
         try :
             results = send_whatsapp_interactive(
                 self.operator_id,
                 self.user_id,
                 message,
             )
-            self._persist_outbound_messages( message, results)
+            self._persist_outbound_messages( case_handler_msg_id, results)
             return True
 
         except Exception as ex :
@@ -1352,7 +1335,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
     async def context_update( self, message : Message) -> Message :
         """
-        Persist one message, its resulting FSM state, and agent-context changes. \
+        Persist one message, its resulting FSM state, and agent-context changes. \\
         The message is ingested first so all state stored alongside it results from
         that message.
         """
@@ -1474,17 +1457,8 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         )
         
         self.api_inbound_msg_id = api_inbound_msg_id
-        self._pending_outbound_msg_ids : dict[ int, list[int] ] = {}
         
         return
-
-    async def context_update( self, message : Message) -> Message :
-        
-        stored = await super().context_update(message)
-        
-        await self._link_pending_outbound_messages( message, stored.id)
-        
-        return stored
 
     # =====================================================================================
     # MESSAGE DEDUPLICATION AND INGESTION
@@ -1629,41 +1603,11 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
 
     # =====================================================================================
     # MESSAGE SENDING
-
-    async def _link_outbound_messages(
-        self,
-        case_handler_msg_id : int,
-        api_outbound_ids    : list[int],
-    ) -> None :
-        
-        for api_outbound_id in api_outbound_ids :
-            
-            link = await self.storage.link_case_handler_to_api(
-                case_handler_msg_id,
-                api_outbound_msg_id = api_outbound_id,
-            )
-            if not link :
-                raise RuntimeError(
-                    f"In {here()}: Unable to link case-handler and outbound messages"
-                )
-        
-        return
-    
-    async def _link_pending_outbound_messages(
-        self,
-        message             : Message,
-        case_handler_msg_id : int,
-    ) -> None :
-        
-        pending = self._pending_outbound_msg_ids.pop( id(message), [])
-        await self._link_outbound_messages( case_handler_msg_id, pending)
-        
-        return
     
     async def _persist_outbound_messages(
         self,
-        message : Message,
-        results : list[WhatsAppSendResult],
+        case_handler_msg_id : int,
+        results             : list[WhatsAppSendResult],
     ) -> None :
         
         outbound_ids : list[int] = []
@@ -1681,26 +1625,36 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                 )
             outbound_ids.append(row["id"])
         
-        if message.id is not None :
-            await self._link_outbound_messages( message.id, outbound_ids)
-        elif outbound_ids :
-            self._pending_outbound_msg_ids.setdefault( id(message), [] ).extend(
-                outbound_ids
+        for outbound_id_ in outbound_ids :
+            
+            link = await self.storage.link_case_handler_to_api(
+                case_handler_msg_id,
+                api_outbound_msg_id = outbound_id_,
             )
+            if not link :
+                raise RuntimeError(
+                    f"In {here()}: Unable to link case-handler and outbound messages"
+                )
         
         return
     
     async def send_template( self, message : ServerTemplateMsg) -> bool :
         """
-        Send one WhatsApp template message asynchronously.
+        Send one persisted WhatsApp template message asynchronously.
         """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
         try :
             results = await async_send_whatsapp_template(
                 self.operator_id,
                 self.user_id,
                 message,
             )
-            await self._persist_outbound_messages( message, results)
+            await self._persist_outbound_messages( case_handler_msg_id, results)
             return True
         except Exception as ex :
             print(f"In {here()}: {str(ex)}")
@@ -1711,8 +1665,14 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         message : ServerTextMsg | AssistantMsg | ToolResultsMsg,
     ) -> bool :
         """
-        Send normal text or verbose debugging artifacts asynchronously.
+        Send persisted normal text message asynchronously.
         """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
         try :
             results : list[WhatsAppSendResult] = []
             if (
@@ -1726,7 +1686,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                         message.text,
                     )
                 )
-            await self._persist_outbound_messages( message, results)
+            await self._persist_outbound_messages( case_handler_msg_id, results)
             return True
 
         except Exception as ex :
@@ -1736,15 +1696,21 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
 
     async def send_interactive( self, message : ServerInteractiveOptsMsg) -> bool :
         """
-        Send one WhatsApp interactive message asynchronously.
+        Send one persisted WhatsApp interactive message asynchronously.
         """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
         try :
             results = await async_send_whatsapp_interactive(
                 self.operator_id,
                 self.user_id,
                 message,
             )
-            await self._persist_outbound_messages( message, results)
+            await self._persist_outbound_messages( case_handler_msg_id, results)
             return True
 
         except Exception as ex :

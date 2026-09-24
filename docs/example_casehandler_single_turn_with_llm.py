@@ -94,7 +94,7 @@ class CaseHandler (AsyncWhatsAppCaseHandler) :
             return False
 
         message.print()
+        message = await self.context_update(message)
         await self.send_text(message)
-        await self.context_update(message)
 
         return False

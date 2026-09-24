@@ -301,11 +301,16 @@ Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/d
 Loop shape:
 
 1. Call agent.
-2. Save/send assistant text.
+2. Persist the assistant message with `context_update()` and send the returned message.
 3. If there are no `tool_calls`, stop.
 4. Execute tool calls in your tool server.
 5. Store a `ToolResultsMsg` in context.
 6. Return `True` so `generate_response()` runs again with updated context.
+
+WhatsApp `send_text()`, `send_interactive()`, and `send_template()` require the
+persisted message returned by `context_update()`. Persisting first leaves a durable
+case-handler message without a `wa_case_handler_to_api` mapping when outbound sending
+does not complete.
 
 ## Non-WhatsApp Case Handlers
 

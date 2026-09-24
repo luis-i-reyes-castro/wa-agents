@@ -69,7 +69,7 @@ class CaseHandler(WhatsAppCaseHandler) :
             text   = reply,
         )
         msg_reply.print()
+        msg_reply = self.context_update(msg_reply)
         self.send_text(msg_reply)
-        self.context_update(msg_reply)
 
         return False
