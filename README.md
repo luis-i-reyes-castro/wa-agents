@@ -56,7 +56,7 @@ pip install -r requirements.txt
    media-metadata persistence, API-message linking, and sending helpers.
 6. Your `CaseHandler` implements business logic in:
    - `process_message(...)` for ingestion-time decisions,
-   - `generate_response(...)` for response generation (single or multi-turn).
+   - `run_while_in_action(...)` for LLM response generation (single or multi-turn).
 
 ## Required Environment Variables
 
@@ -109,7 +109,7 @@ always use Postgres. Apply the schema in `wa_agents/sql/abc_DDL.sql` before runn
 | --- | --- | --- |
 | `QUEUE_POLL_INTERVAL_BUSY` | `0.2` | worker sleep when active |
 | `QUEUE_POLL_INTERVAL_IDLE` | `1.0` | worker sleep when idle |
-| `QUEUE_RESPONSE_DELAY` | `1.0` | delay before running `generate_response` |
+| `QUEUE_RESPONSE_DELAY` | `1.0` | delay before running `run_while_in_action` |
 
 ## Minimal App Skeleton
 
@@ -240,7 +240,7 @@ currently handled specially.
 The WhatsApp patterns below extend `WhatsAppCaseHandler` or
 `AsyncWhatsAppCaseHandler` and implement:
 - `process_message(...) -> bool`
-- `generate_response(...) -> bool`
+- `run_while_in_action(...) -> bool`
 
 Return semantics:
 - `False` means no more immediate response work.
@@ -252,7 +252,7 @@ Template:
 - [`docs/example_casehandler_single_turn_no_llm.py`](docs/example_casehandler_single_turn_no_llm.py)
 
 - `process_message`: dedup + ingest, then `return True`.
-- `generate_response`: run DB/business logic, send a text, `return False`.
+- `run_while_in_action`: run DB/business logic, send a text, `return False`.
 
 Good for deterministic bots: lookups, status reports, alerts.
 
@@ -262,7 +262,7 @@ Template:
 - [`docs/example_casehandler_single_turn_with_llm.py`](docs/example_casehandler_single_turn_with_llm.py)
 
 - `process_message`: gate by whitelist/regex (for example, patient ID).
-- `generate_response`: gather external data, optionally call `Agent`, send one answer,
+- `run_while_in_action`: gather external data, optionally call `Agent`, send one answer,
   then `return False`.
 
 ### 3) Multi-turn, with state machine
@@ -276,8 +276,9 @@ Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/d
   Async handlers that fire triggers from `async` methods must use
   `await self.trigger(...)`.
 - [`context_build()`](wa_agents/case_handler_base.py) replays stored case messages into the handler state machine.
-- [`context_update()`](wa_agents/case_handler_base.py) incrementally feeds new messages into the handler state machine.
-- [`generate_response()`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) checks the current state's `while_in` actions and routes to step handlers.
+- [`apply_and_persist_message()`](wa_agents/case_handler_base.py) applies a message
+  to handler state before persisting the message and resulting state changes.
+- [`run_while_in_action()`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) checks the current state's `while_in` actions and routes to step handlers.
 - Each step can decide whether to continue (`True`) or wait for user (`False`).
 
 Use `on_enter` and `on_exit` only for true FSM callbacks that should run when a
@@ -287,7 +288,7 @@ is ingested but the machine remains in the same state.
 
 This distinction matters because `CaseHandlerBase.init_machine(...)` sets
 `auto_transitions = False`. With that setting, the machine can ingest a message,
-stay in the same state, and therefore skip `on_enter`. `generate_response()`
+stay in the same state, and therefore skip `on_enter`. `run_while_in_action()`
 must then manually dispatch the current state's `while_in` actions. If you
 instead enabled `auto_transitions = True` to force same-state transitions, you
 would also need to handle that same state's `on_exit` + `on_enter` firing on
@@ -301,16 +302,17 @@ Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/d
 Loop shape:
 
 1. Call agent.
-2. Persist the assistant message with `context_update()` and send the returned message.
+2. Persist the assistant message with `apply_and_persist_message()` and send the
+   returned message.
 3. If there are no `tool_calls`, stop.
 4. Execute tool calls in your tool server.
 5. Store a `ToolResultsMsg` in context.
-6. Return `True` so `generate_response()` runs again with updated context.
+6. Return `True` so `run_while_in_action()` runs again with updated context.
 
 WhatsApp `send_text()`, `send_interactive()`, and `send_template()` require the
-persisted message returned by `context_update()`. Persisting first leaves a durable
-case-handler message without a `wa_case_handler_to_api` mapping when outbound sending
-does not complete.
+persisted message returned by `apply_and_persist_message()`. Persisting first leaves
+a durable case-handler message without a `wa_case_handler_to_api` mapping when
+outbound sending does not complete.
 
 ## Non-WhatsApp Case Handlers
 
@@ -329,7 +331,7 @@ subclasses for the actual API input and output.
 In this mode:
 
 - Implement `process_message()` as a no-op to satisfy the abstract interface.
-- Persist messages with `context_update()` and load them with `context_build()`.
+- Persist messages with `apply_and_persist_message()` and load them with `context_build()`.
 - Do not call `dedup_and_ingest_message()` or the WhatsApp `send_*()` methods.
 - No row is written to `wa_case_handler_to_api`; that mapping is populated only by
   the WhatsApp ingestion and sending paths.

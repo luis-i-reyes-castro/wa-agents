@@ -318,10 +318,10 @@ class QueueWorker :
                     )
                     continue
                 
-                respond = True
-                while respond :
-                    respond = handler.generate_response()
-                    if respond and not handler.renew_contact_lease() :
+                run_again = True
+                while run_again :
+                    run_again = handler.run_while_in_action()
+                    if run_again and ( not handler.renew_contact_lease() ) :
                         raise RuntimeError(
                             f"In {here()}: Contact lease expired during response"
                         )
@@ -509,12 +509,12 @@ class AsyncQueueWorker :
                     )
                     continue
                 
-                respond = True
-                while respond :
-                    respond = bool(
-                        await self._call_handler_method(handler.generate_response)
+                run_again = True
+                while run_again :
+                    run_again = bool(
+                        await self._call_handler_method(handler.run_while_in_action)
                     )
-                    if respond :
+                    if run_again :
                         renewed = await self._call_handler_method(
                             handler.renew_contact_lease
                         )

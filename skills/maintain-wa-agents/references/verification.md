@@ -78,7 +78,7 @@ After changing handler construction or public models:
 
 1. Compile affected consumer modules.
 2. Search every `from wa_agents` import and constructor call.
-3. Test the consumer's `process_message()` and `generate_response()` boundary with
+3. Test the consumer's `process_message()` and `run_while_in_action()` boundary with
    the same sync/async semantics used in production.
 4. For SOFIA runtime diagnosis, use `inspect-sofia-runtime` and keep queries bounded
    and read-only.

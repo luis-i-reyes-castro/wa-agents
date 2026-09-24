@@ -99,7 +99,7 @@ class CH_State (State) :
     `transitions.Machine` with `auto_transitions = False`. In that setup, a user
     message may be ingested without firing any transition, so the machine stays in
     the same state and `on_enter` is not called again. `while_in` actions are
-    therefore dispatched manually from `generate_response()`.
+    therefore dispatched manually from `run_while_in_action()`.
 
     If we instead used `auto_transitions = True` to force a same-state transition,
     we would also need to account for `on_exit` + `on_enter` firing for that same
@@ -285,9 +285,9 @@ class CaseHandlerBase ( Machine, ABC) :
             class_name  = cls.__name__,
         )
 
-    def ingest_message( self, message : Message) -> None :
+    def apply_message_to_state_machine( self, message : Message) -> None :
         """
-        Overload to ingest one message and fire state-machine triggers.
+        Apply one message to handler state and fire state-machine triggers.
         """
         return
 
@@ -464,7 +464,7 @@ class CaseHandlerBase ( Machine, ABC) :
         """
         Load ordered case and agent contexts and restore the persisted FSM state. \
         The machine state and agent-context generations come directly from storage;
-        prior messages are not replayed through `ingest_message()`.
+        prior messages are not replayed through `apply_message_to_state_machine()`.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = self.case_decide()
@@ -508,11 +508,10 @@ class CaseHandlerBase ( Machine, ABC) :
 
         return
 
-    def context_update( self, message : Message) -> Message :
+    def apply_and_persist_message( self, message : Message) -> Message :
         """
-        Persist one message, its resulting FSM state, and agent-context changes. \\
-        The message is ingested first so all state stored alongside it results from
-        that message.
+        Apply one message to handler state, then persist the message, resulting FSM
+        state, and agent-context changes.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = self.case_decide()
@@ -520,7 +519,7 @@ class CaseHandlerBase ( Machine, ABC) :
         self._agent_contexts_to_append.clear()
         self._agent_contexts_to_clear.clear()
         if self.machine :
-            self.ingest_message(message)
+            self.apply_message_to_state_machine(message)
 
         machine_state = self._machine_state()
         if self.AGENT_NAMES :
@@ -574,16 +573,16 @@ class CaseHandlerBase ( Machine, ABC) :
         raise NotImplementedError
 
     @abstractmethod
-    def generate_response(
+    def run_while_in_action(
         self,
         max_tokens : int | None = None,
     ) -> bool :
         """
-        Generate one assistant response pass. \
+        Run one action configured on the current state's `while_in` list. \
         Args:
             max_tokens : Optional response-token limit.
         Returns:
-            `True` if another response pass is required; otherwise `False`.
+            `True` if another action should run immediately; otherwise `False`.
         """
         raise NotImplementedError
 
@@ -736,7 +735,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             return None
 
         msg.print()
-        stored = self.context_update(msg)
+        stored = self.apply_and_persist_message(msg)
         if (
             ( not isinstance( stored, HumanMsg) ) or
             ( stored.id is None                 ) or
@@ -1098,9 +1097,9 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
             class_name  = cls.__name__,
         )
 
-    async def ingest_message( self, message : Message) -> None :
+    async def apply_message_to_state_machine( self, message : Message) -> None :
         """
-        Overload to ingest one message and fire state-machine triggers.
+        Apply one message to handler state and fire state-machine triggers.
         """
         return
 
@@ -1290,7 +1289,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         """
         Load ordered case and agent contexts and restore the persisted FSM state. \
         The machine state and agent-context generations come directly from storage;
-        prior messages are not replayed through `ingest_message()`.
+        prior messages are not replayed through `apply_message_to_state_machine()`.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = await self.case_decide()
@@ -1333,11 +1332,10 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         self._restore_machine_state(self.case_manifest)
         return
 
-    async def context_update( self, message : Message) -> Message :
+    async def apply_and_persist_message( self, message : Message) -> Message :
         """
-        Persist one message, its resulting FSM state, and agent-context changes. \\
-        The message is ingested first so all state stored alongside it results from
-        that message.
+        Apply one message to handler state, then persist the message, resulting FSM
+        state, and agent-context changes.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = await self.case_decide()
@@ -1345,7 +1343,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         self._agent_contexts_to_append.clear()
         self._agent_contexts_to_clear.clear()
         if self.machine :
-            await self.ingest_message(message)
+            await self.apply_message_to_state_machine(message)
 
         machine_state = self._machine_state()
         if self.AGENT_NAMES :
@@ -1399,16 +1397,16 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         raise NotImplementedError
 
     @abstractmethod
-    async def generate_response(
+    async def run_while_in_action(
         self,
         max_tokens : int | None = None,
     ) -> bool :
         """
-        Generate one assistant response pass asynchronously. \
+        Run one action configured on the current state's `while_in` list. \
         Args:
             max_tokens : Optional response-token limit.
         Returns:
-            `True` if another response pass is required; otherwise `False`.
+            `True` if another action should run immediately; otherwise `False`.
         """
         raise NotImplementedError
 
@@ -1561,7 +1559,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             return None
 
         msg.print()
-        stored = await self.context_update(msg)
+        stored = await self.apply_and_persist_message(msg)
         if (
             ( not isinstance( stored, HumanMsg) ) or
             ( stored.id is None                  ) or
@@ -1747,7 +1745,7 @@ def attach_state_callbacks(
     """
     Ensure every real `on_enter` / `on_exit` callback exists on `machine`. \
     `while_in` actions are intentionally excluded because they are dispatched
-    manually from `generate_response()` and are not FSM callbacks.
+    manually from `run_while_in_action()` and are not FSM callbacks.
     """
     if all( isinstance( state, CH_State) for state in states ) :
         def dummy_callback() -> None :

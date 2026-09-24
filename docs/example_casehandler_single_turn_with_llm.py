@@ -70,7 +70,7 @@ class CaseHandler (AsyncWhatsAppCaseHandler) :
 
         return True
 
-    async def generate_response(
+    async def run_while_in_action(
         self,
         max_tokens : int | None = None,
     ) -> bool :
@@ -94,7 +94,7 @@ class CaseHandler (AsyncWhatsAppCaseHandler) :
             return False
 
         message.print()
-        message = await self.context_update(message)
+        message = await self.apply_and_persist_message(message)
         await self.send_text(message)
 
         return False

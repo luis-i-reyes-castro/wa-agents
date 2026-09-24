@@ -38,8 +38,10 @@ class CaseHandler(WhatsAppCaseHandler) :
 
         return True
 
-    def generate_response( self,
-                           max_tokens : int | None = None ) -> bool :
+    def run_while_in_action(
+        self,
+        max_tokens : int | None = None,
+    ) -> bool :
         """
         Generate one deterministic reply and stop.
         """
@@ -69,7 +71,7 @@ class CaseHandler(WhatsAppCaseHandler) :
             text   = reply,
         )
         msg_reply.print()
-        msg_reply = self.context_update(msg_reply)
+        msg_reply = self.apply_and_persist_message(msg_reply)
         self.send_text(msg_reply)
 
         return False
