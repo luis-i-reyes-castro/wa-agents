@@ -146,7 +146,7 @@ class _DelayedReplyHandler :
     def process_message( self, _message, _media_content = None) -> bool :
         return True
 
-    def generate_response(self) -> bool :
+    def run_while_in_action(self) -> bool :
         return False
 
     def renew_contact_lease(self) -> bool :

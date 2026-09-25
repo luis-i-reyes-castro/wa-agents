@@ -12,19 +12,12 @@ from datetime import (
     datetime,
     timedelta,
 )
+from inspect import isawaitable
 from pydantic import TypeAdapter
-from types import SimpleNamespace
 from typing import (
     Any,
+    Callable,
     TypedDict,
-)
-from transitions import (
-    Machine,
-    State,
-)
-from transitions.extensions.asyncio import (
-    AsyncMachine,
-    AsyncState,
 )
 from uuid import (
     UUID,
@@ -77,64 +70,223 @@ class TransitionDict (TypedDict) :
     """
     State-machine transition definition.
     """
-
     source  : str
     trigger : str
     dest    : str
+
+
+def _wrap_callback_list( callbacks : str | list[str] | None) -> list[str] :
+    
+    if callbacks is None :
+        return []
+    
+    if isinstance( callbacks, str) :
+        return [ callbacks ]
+    
+    return list(callbacks)
+
+
+# =========================================================================================
+# STATE MACHINE
+# =========================================================================================
+
+class CaseHandlerState :
+    """
+    State with manually dispatched `while_in` actions.
+    * Use `on_enter` / `on_exit` for true FSM callbacks that should run
+    only when a transition changes the active state. 
+    * Use `while_in` for response-generation actions that must still run
+    when the handler ingests a message and remains in the same state.
+    * State callbacks are queued when a transition changes state. The case handler
+    drains them only after the triggering message and resulting state are durable.
+    * `while_in` actions are not transition callbacks and remain
+    manually dispatched from `run_while_in_action()`.
+    """
+    def __init__(
+        self,
+        name : str,
+        *,
+        on_enter : str | list[str] | None = None,
+        while_in : str | list[str] | None = None,
+        on_exit  : str | list[str] | None = None,
+    ) -> None :
+        
+        self.name     = name
+        self.on_enter = _wrap_callback_list(on_enter)
+        self.while_in = _wrap_callback_list(while_in)
+        self.on_exit  = _wrap_callback_list(on_exit)
+        
+        return
+
+
+class CH_StateMachineBase :
+    """
+    Small state machine with callbacks delayed until explicitly drained.
+    """
+    def __init__(
+        self,
+        states      : list[CaseHandlerState],
+        initial     : str,
+        transitions : list[TransitionDict],
+        callbacks   : dict[ str, Callable[..., Any]],
+    ) -> None :
+        
+        self.states       = { state.name : state for state in states }
+        self.state        = initial
+        self._transitions : dict[ tuple[str, str], str] = {}
+        
+        self._callbacks   = callbacks
+        self._pending_callbacks : list[
+            tuple[ str, tuple[ Any, ...], dict[ str, Any]]
+        ] = []
+        self._running_callbacks = False
+        
+        if len(self.states) != len(states) :
+            raise ValueError(f"In {here()}: State names must be unique")
+        
+        if initial not in self.states :
+            raise ValueError(f"In {here()}: Invalid initial state '{initial}'")
+        
+        for state in states :
+            for callback_name in [ *(state.on_exit), *(state.on_enter) ] :
+                if not callable(callbacks.get(callback_name)) :
+                    raise ValueError(
+                        f"In {here()}: "
+                        f"State callback '{callback_name}' does not exist"
+                    )
+        
+        for transition in transitions :
+            
+            source  = transition["source"]
+            trigger = transition["trigger"]
+            dest    = transition["dest"]
+            key     = ( source, trigger)
+            
+            if source not in self.states :
+                raise ValueError(
+                    f"In {here()}: Invalid transition source '{source}'"
+                )
+            if dest not in self.states :
+                raise ValueError(
+                    f"In {here()}: Invalid transition destination '{dest}'"
+                )
+            if key in self._transitions :
+                raise ValueError(
+                    f"In {here()}: Duplicate trigger '{trigger}' from state "
+                    f"'{source}'"
+                )
+            
+            self._transitions[key] = dest
+        
+        return
+    
+    def get_state( self, state : str) -> CaseHandlerState :
+        try :
+            return self.states[state]
+        except KeyError as ex :
+            raise ValueError(f"In {here()}: Invalid FSM state '{state}'") from ex
+    
+    def set_state( self, state : str) -> None :
+        
+        self.get_state(state)
+        self.state = state
+        
+        return
+
+    def _queue_transition(
+        self,
+        trigger : str,
+        args    : tuple[Any, ...],
+        kwargs  : dict[str, Any],
+    ) -> bool :
+        
+        source    = self.get_state(self.state)
+        dest_name = self._transitions.get( ( source.name, trigger) )
+        
+        if dest_name is None :
+            return False
+        
+        dest = self.get_state(dest_name)
+        self.set_state(dest.name)
+        self._pending_callbacks.extend(
+            ( callback_name, args, kwargs)
+            for callback_name in [ *(source.on_exit), *(dest.on_enter) ]
+        )
+        return True
+
+
+class CH_StateMachine (CH_StateMachineBase) :
+    """
+    Synchronous implementation of the case handler state machine.
+    """
+    
+    def trigger(
+        self,
+        trigger : str,
+        *args,
+        **kwargs,
+    ) -> bool :
+        
+        return self._queue_transition( trigger, args, kwargs)
+    
+    def run_pending_state_callbacks(self) -> None :
+        
+        if self._running_callbacks :
+            return
+        
+        self._running_callbacks = True
+        try :
+            while self._pending_callbacks :
+                callback_name, args, kwargs = self._pending_callbacks.pop(0)
+                result = self._callbacks[callback_name]( *args, **kwargs)
+                if isawaitable(result) :
+                    raise TypeError(
+                        f"In {here()}: Synchronous state callback '{callback_name}' "
+                        f"returned an awaitable"
+                    )
+        finally :
+            self._running_callbacks = False
+        
+        return
+
+
+class Async_CH_StateMachine (CH_StateMachineBase) :
+    """
+    Asynchronous implementation of the case handler state machine.
+    """
+    
+    async def trigger(
+        self,
+        trigger : str,
+        *args,
+        **kwargs,
+    ) -> bool :
+        
+        return self._queue_transition( trigger, args, kwargs)
+    
+    async def run_pending_state_callbacks(self) -> None :
+        
+        if self._running_callbacks :
+            return
+        
+        self._running_callbacks = True
+        try :
+            while self._pending_callbacks :
+                callback_name, args, kwargs = self._pending_callbacks.pop(0)
+                result = self._callbacks[callback_name]( *args, **kwargs)
+                if isawaitable(result) :
+                    await result
+        finally :
+            self._running_callbacks = False
+        
+        return
 
 
 # =========================================================================================
 # SYNC CASE HANDLER BASE CLASS
 # =========================================================================================
 
-class CH_State (State) :
-    """
-    State with manually dispatched `while_in` actions. \
-    Use `on_enter` / `on_exit` for true FSM callbacks that should run only when a
-    transition changes the active state. Use `while_in` for response-generation
-    actions that must still run when the handler ingests a message and remains in
-    the same state.
-
-    This distinction matters because `CaseHandlerBase` initializes
-    `transitions.Machine` with `auto_transitions = False`. In that setup, a user
-    message may be ingested without firing any transition, so the machine stays in
-    the same state and `on_enter` is not called again. `while_in` actions are
-    therefore dispatched manually from `run_while_in_action()`.
-
-    If we instead used `auto_transitions = True` to force a same-state transition,
-    we would also need to account for `on_exit` + `on_enter` firing for that same
-    state. Keeping `while_in` separate avoids that coupling.
-    """
-
-    def __init__(
-        self,
-        name : str,
-        *,
-        on_enter                : str | list[str] | None = None,
-        while_in                : str | list[str] | None = None,
-        on_exit                 : str | list[str] | None = None,
-        ignore_invalid_triggers : bool | None            = None,
-        final                   : bool                   = False,
-    ) -> None :
-        super().__init__(
-            name,
-            on_enter                = on_enter,
-            on_exit                 = on_exit,
-            ignore_invalid_triggers = ignore_invalid_triggers,
-            final                   = final,
-        )
-        
-        if while_in is None :
-            self.while_in = []
-        elif isinstance( while_in, str) :
-            self.while_in = [ while_in ]
-        else :
-            self.while_in = list(while_in)
-        
-        return
-
-
-class CaseHandlerBase ( Machine, ABC) :
+class CaseHandlerBase (ABC) :
     """
     Transport-neutral synchronous case, context, FSM, and persistence base class.
     """
@@ -163,7 +315,7 @@ class CaseHandlerBase ( Machine, ABC) :
         owner_token   : UUID | str | None = None,
     ) -> None :
         """
-        Initialize a transport-neutral handler for one persisted contact. \
+        Initialize a transport-neutral handler for one persisted contact. \\
         Args:
             business : Row ID `wa_api_businesses.id` or DB record object.
             contact  : Row ID `wa_api_contacts.id` or DB record object.
@@ -208,8 +360,7 @@ class CaseHandlerBase ( Machine, ABC) :
             if profile else None
         )
         
-        self.machine       : Machine | None = None
-        self.state         : str     | None = None
+        self.machine : CH_StateMachine | None = None
         
         self.case_id       : int           | None = None
         self.case_manifest : CaseManifest  | None = None
@@ -227,43 +378,75 @@ class CaseHandlerBase ( Machine, ABC) :
     # =====================================================================================
     # STATE MACHINE
 
+    @property
+    def state(self) -> str | None :
+        
+        machine = getattr( self, "machine", None)
+        
+        return machine.state if machine else None
+
+    @state.setter
+    def state(
+        self,
+        state : str | None,
+    ) -> None :
+        
+        machine = getattr( self, "machine", None)
+        
+        if state is None :
+            if machine :
+                raise ValueError(
+                    f"In {here()}: Initialized FSM state cannot be None"
+                )
+            return
+        
+        elif not machine :
+            raise RuntimeError(f"In {here()}: State machine is not initialized")
+        
+        machine.set_state(state)
+        
+        return
+
     @classmethod
     def define_state_machine_config(cls) -> tuple[
-        list[CH_State],
+        list[CaseHandlerState],
         str,
         list[TransitionDict],
     ] :
         """
-        Overload this method to define state-machine states and transitions. \
-        Returns:
-            * List of states. Each state must have `name`; `on_enter`, `while_in`,
-              and `on_exit` are optional.
+        Overload this method to define state-machine states and transitions. \\
+        Must return:
+            * List of states. For each state:
+                * Required field: `name`
+                * Optional fields: `on_enter`, `while_in`, `on_exit`.
             * Initial state name.
-            * List of transitions with keys `source`, `trigger`, and `dest`.
+            * List of transitions as dicts with keys:
+                * `source`
+                * `trigger`
+                * `dest`
+        
+        NOTE: For more information on the `on_enter`/`while_in`/`on_exit` action
+        behaviors see the docstring in `CaseHandlerState`.
         """
         return [], str(None), []
 
-    def init_machine( self, **machine_kwargs) -> None :
+    def init_machine(self) -> None :
         """
-        Initialize this handler as a `transitions.Machine` model. \
-        Args:
-            machine_kwargs : Extra keyword arguments forwarded to `Machine`.
+        Initialize this case handler's state machine.
         """
         states, initial, transitions = self.define_state_machine_config()
-        states                       = ensure_homogeneous_states(states)
-        attach_state_callbacks( self, states)
-
-        Machine.__init__(
-            self,
-            model                   = self,
+        callbacks = {
+            callback_name : getattr( self, callback_name, None)
+            for state in states
+            for callback_name in [ *state.on_exit, *state.on_enter ]
+        }
+        
+        self.machine = CH_StateMachine(
             states                  = states,
             initial                 = initial,
             transitions             = transitions,
-            auto_transitions        = False,
-            ignore_invalid_triggers = True,
-            **machine_kwargs,
+            callbacks               = callbacks,
         )
-        self.machine = self
 
         if self.case_manifest :
             self._restore_machine_state(self.case_manifest)
@@ -275,15 +458,23 @@ class CaseHandlerBase ( Machine, ABC) :
         cls,
         filename : str | None = "state_machine.png",
     ) -> None :
+        
         states, initial, transitions = cls.define_state_machine_config()
-
+        
         return draw_state_machine_graph(
-            states      = ensure_homogeneous_states(states),
+            states      = states,
             transitions = transitions,
             initial     = initial,
             filename    = filename,
             class_name  = cls.__name__,
         )
+
+    def trigger( self, trigger : str, *args, **kwargs) -> bool :
+        
+        if not self.machine :
+            raise RuntimeError(f"In {here()}: State machine is not initialized")
+        
+        return self.machine.trigger( trigger, *args, **kwargs)
 
     def apply_message_to_state_machine( self, message : Message) -> None :
         """
@@ -298,12 +489,16 @@ class CaseHandlerBase ( Machine, ABC) :
         return
 
     def _machine_state(self) -> str | None :
+        
         state = getattr( self, "state", None)
-        return state if isinstance( state, str) and state != "None" else None
+        
+        return state if ( isinstance( state, str) and state != "None" ) else None
 
     def _restore_machine_state( self, manifest : CaseManifest) -> None :
+        
         if self.machine and manifest.machine_state :
-            self.machine.set_state( manifest.machine_state, model = self)
+            self.machine.set_state(manifest.machine_state)
+        
         return
 
     # =====================================================================================
@@ -311,12 +506,18 @@ class CaseHandlerBase ( Machine, ABC) :
 
     def acquire_contact_lease(self) -> bool :
         return bool(
-            self.storage.acquire_contact_lease( self.contact_id, self.owner_token)
+            self.storage.acquire_contact_lease(
+                self.contact_id,
+                self.owner_token,
+            )
         )
 
     def renew_contact_lease(self) -> bool :
         return bool(
-            self.storage.renew_contact_lease( self.contact_id, self.owner_token)
+            self.storage.renew_contact_lease(
+                self.contact_id,
+                self.owner_token,
+            )
         )
 
     def release_contact_lease(self) -> bool :
@@ -462,7 +663,7 @@ class CaseHandlerBase ( Machine, ABC) :
 
     def context_build( self, truncate : bool = True) -> None :
         """
-        Load ordered case and agent contexts and restore the persisted FSM state. \
+        Load ordered case and agent contexts and restore the persisted FSM state.
         The machine state and agent-context generations come directly from storage;
         prior messages are not replayed through `apply_message_to_state_machine()`.
         """
@@ -510,25 +711,36 @@ class CaseHandlerBase ( Machine, ABC) :
 
     def apply_and_persist_message( self, message : Message) -> Message :
         """
-        Apply one message to handler state, then persist the message, resulting FSM
-        state, and agent-context changes.
+        Apply and persist one message in a deterministic order. \\
+        Workflow:
+            1. Open or restore the active case when necessary.
+            2. Apply the message to the FSM. A transition changes state immediately
+               and queues its `on_exit` / `on_enter` callbacks.
+            3. Persist the message, resulting FSM state, and tracked agent-context
+               changes in one storage operation.
+            4. Replace transient message references with the persisted message and
+               update the in-memory case manifest and context.
+            5. Run queued callbacks only after the triggering message is durable.
+               Messages produced by callbacks therefore cannot overtake it.
+        Returns:
+            Persisted copy of `message`, including its database identifiers.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = self.case_decide()
 
-        self._agent_contexts_to_append.clear()
-        self._agent_contexts_to_clear.clear()
         if self.machine :
             self.apply_message_to_state_machine(message)
 
-        machine_state = self._machine_state()
+        machine_state            = self._machine_state()
+        agent_contexts_to_clear  = sorted(self._agent_contexts_to_clear)
+        agent_contexts_to_append = sorted(self._agent_contexts_to_append)
         if self.AGENT_NAMES :
             stored = self.storage.insert_case_handler_message(
                 self.case_id,
                 message,
                 machine_state,
-                sorted(self._agent_contexts_to_clear),
-                sorted(self._agent_contexts_to_append),
+                agent_contexts_to_clear,
+                agent_contexts_to_append,
             )
         else :
             stored = self.storage.insert_case_handler_message(
@@ -549,11 +761,16 @@ class CaseHandlerBase ( Machine, ABC) :
         if self.case_context is not None :
             self.case_context.append(stored)
 
-        for agent_name in self._agent_contexts_to_append :
+        for agent_name in agent_contexts_to_append :
             context = self.agent_contexts[agent_name]
             for index, context_message in enumerate(context) :
                 if context_message is message :
                     context[index] = stored
+
+        self._agent_contexts_to_append.clear()
+        self._agent_contexts_to_clear.clear()
+        if self.machine :
+            self.machine.run_pending_state_callbacks()
 
         return stored
 
@@ -566,7 +783,7 @@ class CaseHandlerBase ( Machine, ABC) :
         message : Message,
     ) -> bool :
         """
-        Process one transport-neutral message. \
+        Process one transport-neutral message. \\
         Returns:
             `True` if additional response generation is required; otherwise `False`.
         """
@@ -578,7 +795,7 @@ class CaseHandlerBase ( Machine, ABC) :
         max_tokens : int | None = None,
     ) -> bool :
         """
-        Run one action configured on the current state's `while_in` list. \
+        Run one action configured on the current state's `while_in` list. \\
         Args:
             max_tokens : Optional response-token limit.
         Returns:
@@ -609,7 +826,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         owner_token        : UUID | str | None = None,
     ) -> None :
         """
-        Initialize a WhatsApp handler for one normalized contact. \
+        Initialize a WhatsApp handler for one normalized contact. \\
         Args:
             business : Row ID `wa_api_businesses.id` or DB record object.
             contact  : Row ID `wa_api_contacts.id` or DB record object.
@@ -644,7 +861,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         api_inbound_msg_id : int | None   = None,
     ) -> HumanMsg | None :
         """
-        Convert and persist one inbound API message unless already linked. \
+        Convert and persist one inbound API message unless already linked. \\
         Args:
             message            : Validated WhatsApp webhook message.
             media_content      : Fetched media bytes, when applicable.
@@ -899,7 +1116,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         media_content : bytes | None = None,
     ) -> bool :
         """
-        Process one inbound WhatsApp message. \
+        Process one inbound WhatsApp message. \\
         Returns:
             `True` if additional response generation is required; otherwise `False`.
         """
@@ -910,40 +1127,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
 # ASYNC CASE HANDLER BASE CLASS
 # =========================================================================================
 
-class Async_CH_State (AsyncState) :
-    """
-    Async counterpart to `CH_State`; it uses the same `while_in` semantics.
-    """
-    
-    def __init__(
-        self,
-        name : str,
-        *,
-        on_enter                : str | list[str] | None = None,
-        while_in                : str | list[str] | None = None,
-        on_exit                 : str | list[str] | None = None,
-        ignore_invalid_triggers : bool | None            = None,
-        final                   : bool                   = False,
-    ) -> None :
-        super().__init__(
-            name,
-            on_enter                = on_enter,
-            on_exit                 = on_exit,
-            ignore_invalid_triggers = ignore_invalid_triggers,
-            final                   = final,
-        )
-        
-        if while_in is None :
-            self.while_in = []
-        elif isinstance( while_in, str) :
-            self.while_in = [ while_in ]
-        else :
-            self.while_in = list(while_in)
-        
-        return
-
-
-class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
+class AsyncCaseHandlerBase (ABC) :
     """
     Transport-neutral asynchronous case, context, FSM, and persistence base class.
     """
@@ -972,7 +1156,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         owner_token   : UUID | str | None = None,
     ) -> None :
         """
-        Initialize a transport-neutral handler for one persisted contact. \
+        Initialize a transport-neutral handler for one persisted contact. \\
         Args:
             business : Row ID `wa_api_businesses.id` or DB record object.
             contact  : Row ID `wa_api_contacts.id` or DB record object.
@@ -1020,8 +1204,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
             if profile else None
         )
         
-        self.machine       : AsyncMachine | None  = None
-        self.state         : str          | None  = None
+        self.machine : Async_CH_StateMachine | None = None
         
         self.case_id       : int           | None = None
         self.case_manifest : CaseManifest  | None = None
@@ -1039,43 +1222,72 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     # =====================================================================================
     # STATE MACHINE
 
+    @property
+    def state(self) -> str | None :
+        
+        machine = getattr( self, "machine", None)
+        
+        return machine.state if machine else None
+
+    @state.setter
+    def state( self, state : str | None) -> None :
+        
+        machine = getattr( self, "machine", None)
+        
+        if state is None :
+            if machine :
+                raise ValueError(
+                    f"In {here()}: Initialized FSM state cannot be None"
+                )
+            return
+        
+        if not machine :
+            raise RuntimeError(f"In {here()}: State machine is not initialized")
+        
+        machine.set_state(state)
+        
+        return
+
     @classmethod
     def define_state_machine_config(cls) -> tuple[
-        list[ CH_State | Async_CH_State ],
+        list[CaseHandlerState],
         str,
         list[TransitionDict],
     ] :
         """
-        Overload this method to define state-machine states and transitions. \
-        Returns:
-            * List of synchronous or asynchronous states. Each state must have
-              `name`; `on_enter`, `while_in`, and `on_exit` are optional.
+        Overload this method to define state-machine states and transitions. \\
+        Must return:
+            * List of states. For each state:
+                * Required field: `name`
+                * Optional fields: `on_enter`, `while_in`, `on_exit`.
             * Initial state name.
-            * List of transitions with keys `source`, `trigger`, and `dest`.
+            * List of transitions as dicts with keys:
+                * `source`
+                * `trigger`
+                * `dest`
+        
+        NOTE: For more information on the `on_enter`/`while_in`/`on_exit` action
+        behaviors see the docstring in `CaseHandlerState`.
         """
         return [], str(None), []
 
-    def init_machine( self, **machine_kwargs) -> None :
+    def init_machine(self) -> None :
         """
-        Initialize this handler as a `transitions.AsyncMachine` model. \
-        Args:
-            machine_kwargs : Extra keyword arguments forwarded to `AsyncMachine`.
+        Initialize this case handler's asynchronous state machine.
         """
         states, initial, transitions = self.define_state_machine_config()
-        async_states                 = to_async_states(states)
-        attach_state_callbacks( self, async_states)
+        callbacks = {
+            callback_name : getattr( self, callback_name, None)
+            for state in states
+            for callback_name in [ *(state.on_exit), *(state.on_enter) ]
+        }
 
-        AsyncMachine.__init__(
-            self,
-            model                   = self,
-            states                  = async_states,
+        self.machine = Async_CH_StateMachine(
+            states                  = states,
             initial                 = initial,
             transitions             = transitions,
-            auto_transitions        = False,
-            ignore_invalid_triggers = True,
-            **machine_kwargs,
+            callbacks               = callbacks,
         )
-        self.machine = self
 
         if self.case_manifest :
             self._restore_machine_state(self.case_manifest)
@@ -1090,12 +1302,19 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         states, initial, transitions = cls.define_state_machine_config()
 
         return draw_state_machine_graph(
-            states      = to_async_states(states),
+            states      = states,
             transitions = transitions,
             initial     = initial,
             filename    = filename,
             class_name  = cls.__name__,
         )
+
+    async def trigger( self, trigger : str, *args, **kwargs) -> bool :
+        
+        if not self.machine :
+            raise RuntimeError(f"In {here()}: State machine is not initialized")
+        
+        return await self.machine.trigger( trigger, *args, **kwargs)
 
     async def apply_message_to_state_machine( self, message : Message) -> None :
         """
@@ -1123,7 +1342,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
     def _restore_machine_state( self, manifest : CaseManifest) -> None :
         
         if self.machine and manifest.machine_state :
-            self.machine.set_state( manifest.machine_state, model = self)
+            self.machine.set_state(manifest.machine_state)
         
         return
 
@@ -1287,7 +1506,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
     async def context_build( self, truncate : bool = True) -> None :
         """
-        Load ordered case and agent contexts and restore the persisted FSM state. \
+        Load ordered case and agent contexts and restore the persisted FSM state.
         The machine state and agent-context generations come directly from storage;
         prior messages are not replayed through `apply_message_to_state_machine()`.
         """
@@ -1334,25 +1553,36 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
 
     async def apply_and_persist_message( self, message : Message) -> Message :
         """
-        Apply one message to handler state, then persist the message, resulting FSM
-        state, and agent-context changes.
+        Apply and persist one message in a deterministic order. \\
+        Workflow:
+            1. Open or restore the active case when necessary.
+            2. Apply the message to the FSM. A transition changes state immediately
+               and queues its `on_exit` / `on_enter` callbacks.
+            3. Persist the message, resulting FSM state, and tracked agent-context
+               changes in one storage operation.
+            4. Replace transient message references with the persisted message and
+               update the in-memory case manifest and context.
+            5. Run queued callbacks only after the triggering message is durable.
+               Messages produced by callbacks therefore cannot overtake it.
+        Returns:
+            Persisted copy of `message`, including its database identifiers.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = await self.case_decide()
 
-        self._agent_contexts_to_append.clear()
-        self._agent_contexts_to_clear.clear()
         if self.machine :
             await self.apply_message_to_state_machine(message)
 
-        machine_state = self._machine_state()
+        machine_state            = self._machine_state()
+        agent_contexts_to_clear  = sorted(self._agent_contexts_to_clear)
+        agent_contexts_to_append = sorted(self._agent_contexts_to_append)
         if self.AGENT_NAMES :
             stored = await self.storage.insert_case_handler_message(
                 self.case_id,
                 message,
                 machine_state,
-                sorted(self._agent_contexts_to_clear),
-                sorted(self._agent_contexts_to_append),
+                agent_contexts_to_clear,
+                agent_contexts_to_append,
             )
         else :
             stored = await self.storage.insert_case_handler_message(
@@ -1373,11 +1603,16 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         if self.case_context is not None :
             self.case_context.append(stored)
 
-        for agent_name in self._agent_contexts_to_append :
+        for agent_name in agent_contexts_to_append :
             context = self.agent_contexts[agent_name]
             for index, context_message in enumerate(context) :
                 if context_message is message :
                     context[index] = stored
+
+        self._agent_contexts_to_append.clear()
+        self._agent_contexts_to_clear.clear()
+        if self.machine :
+            await self.machine.run_pending_state_callbacks()
 
         return stored
 
@@ -1390,7 +1625,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         message : Message,
     ) -> bool :
         """
-        Process one transport-neutral message asynchronously. \
+        Process one transport-neutral message asynchronously. \\
         Returns:
             `True` if additional response generation is required; otherwise `False`.
         """
@@ -1402,7 +1637,7 @@ class AsyncCaseHandlerBase ( AsyncMachine, ABC) :
         max_tokens : int | None = None,
     ) -> bool :
         """
-        Run one action configured on the current state's `while_in` list. \
+        Run one action configured on the current state's `while_in` list. \\
         Args:
             max_tokens : Optional response-token limit.
         Returns:
@@ -1433,7 +1668,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         owner_token        : UUID | str | None = None,
     ) -> None :
         """
-        Initialize an asynchronous WhatsApp handler for one normalized contact. \
+        Initialize an asynchronous WhatsApp handler for one normalized contact. \\
         Args:
             business : Row ID `wa_api_businesses.id` or DB record object.
             contact  : Row ID `wa_api_contacts.id` or DB record object.
@@ -1468,7 +1703,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         api_inbound_msg_id : int | None   = None,
     ) -> HumanMsg | None :
         """
-        Convert and persist one inbound API message unless already linked. \
+        Convert and persist one inbound API message unless already linked. \\
         Args:
             message            : Validated WhatsApp webhook message.
             media_content      : Fetched media bytes, when applicable.
@@ -1726,77 +1961,62 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         media_content : bytes | None = None,
     ) -> bool :
         """
-        Process one inbound WhatsApp message asynchronously. \
+        Process one inbound WhatsApp message asynchronously. \\
         Returns:
             `True` if additional response generation is required; otherwise `False`.
         """
         raise NotImplementedError
 
 
-
 # =========================================================================================
-# STATE MACHINE HELPERS
+# STATE MACHINE GRAPH HELPER
 # =========================================================================================
-
-def attach_state_callbacks(
-    machine : object,
-    states  : list[State] | list[AsyncState],
-) -> object :
-    """
-    Ensure every real `on_enter` / `on_exit` callback exists on `machine`. \
-    `while_in` actions are intentionally excluded because they are dispatched
-    manually from `run_while_in_action()` and are not FSM callbacks.
-    """
-    if all( isinstance( state, CH_State) for state in states ) :
-        def dummy_callback() -> None :
-            return
-    else :
-        async def dummy_callback() -> None :
-            return
-
-    for state in states :
-        for callback_name in state.on_enter :
-            if not hasattr( machine, callback_name) :
-                setattr( machine, callback_name, dummy_callback)
-
-        for callback_name in state.on_exit :
-            if not hasattr( machine, callback_name) :
-                setattr( machine, callback_name, dummy_callback)
-
-    return machine
 
 
 def draw_state_machine_graph(
     *,
-    states      : list[State] | list[AsyncState],
-    initial     : str | None,
+    states      : list[CaseHandlerState],
+    initial     : str,
     transitions : list[TransitionDict],
     filename    : str        = "state_machine.png",
     class_name  : str | None = None,
 ) -> None :
     """
     Draw the state-machine graph.
-    * States are rounded rectangles with black borders.
-    * State labels distinguish `on_enter`, `while_in`, and `on_exit` callbacks.
-    * States containing "agent" in their name are orange.
-    * Transition arrows are red and their labels are blue.
-
-    `GraphMachine` requires a graphing engine. It is deliberately not included in
-    `pyproject.toml` because it is not needed in production. Install Graphviz with
-    `sudo apt install graphviz`, or install PyGraphviz with
-    `pip install pygraphviz` before calling this helper.
+        * States are rounded rectangles with black borders.
+        * State labels distinguish `on_enter`, `while_in`, and `on_exit` callbacks.
+        * States containing "agent" in their name are orange.
+        * Transition arrows are red and their labels are blue.
+    
+    The runtime FSM is custom; `GraphMachine` is imported only here as
+    an optional graph renderer. Before calling this helper:
+        * Install the transitions package with `pip install transitions`.
+        * Install graphing engine. For this:
+            * Either install Graphviz with `sudo apt install graphviz`,
+            * or install PyGraphviz with `pip install pygraphviz`.
     """
     import re
     from transitions.extensions import GraphMachine
 
-    dummy_model   = attach_state_callbacks( SimpleNamespace(), states)
+    dummy_model = type( "GraphModel", (), {})()
+    for state in states :
+        for callback_name in [ *state.on_exit, *state.on_enter ] :
+            setattr( dummy_model, callback_name, lambda : None)
+    
+    graph_states = [
+        {
+            "name"     : state.name,
+            "on_enter" : state.on_enter,
+            "on_exit"  : state.on_exit,
+        }
+        for state in states
+    ]
     graph_machine = GraphMachine(
         model                   = dummy_model,
-        states                  = states,
+        states                  = graph_states,
         initial                 = initial,
         transitions             = transitions,
         auto_transitions        = False,
-        ignore_invalid_triggers = True,
         show_state_attributes   = True,
     )
 
@@ -1858,41 +2078,3 @@ def draw_state_machine_graph(
     # Render the graph.
     graph.draw( filename, prog = "dot")
     return
-
-
-def ensure_homogeneous_states(
-    states : list[ CH_State | AsyncState ],
-) -> list[CH_State] | list[Async_CH_State] :
-    if not (
-        all( isinstance( state, CH_State)       for state in states ) or
-        all( isinstance( state, Async_CH_State) for state in states )
-    ) :
-        raise ValueError(f"In {here()}: List of states is not homogeneous")
-
-    return states
-
-
-def to_async_states(
-    states : list[ State | Async_CH_State ],
-) -> list[AsyncState] :
-    """
-        Convert synchronous handler states to async state objects.
-        """
-    async_states = []
-
-    for state in states :
-        if isinstance( state, AsyncState) :
-            async_states.append(state)
-        else :
-            async_states.append(
-                Async_CH_State(
-                    name                    = state.name,
-                    on_enter                = list(state.on_enter),
-                    while_in                = list(getattr( state, "while_in", [])),
-                    on_exit                 = list(state.on_exit),
-                    ignore_invalid_triggers = state.ignore_invalid_triggers,
-                    final                   = state.final,
-                )
-            )
-
-    return async_states

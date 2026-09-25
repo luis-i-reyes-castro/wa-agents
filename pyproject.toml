@@ -24,7 +24,6 @@ dependencies = [
   "phonenumbers>=9.0.13",
   "pydantic>=2.12.5",
   "sofia-utils[psycopg]>=1.0.0",
-  "transitions>=0.9.3",
   "types-aiobotocore-s3==2.25.1",
   "uvicorn[standard]>=0.30.0",
 ]

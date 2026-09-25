@@ -129,7 +129,7 @@ def test_frequently_refreshed_rows_update_before_insert() -> None :
     assert profile.index("WITH updated AS ( UPDATE") < profile.index(
         "inserted AS ( INSERT"
     )
-    assert "IS NOT DISTINCT FROM @profile_username" in profile
+    assert "IS NOT DISTINCT FROM (@profile_username)" in profile
     assert "WHERE NOT EXISTS ( SELECT 1 FROM updated )" in profile
     assert "ON CONFLICT ON CONSTRAINT wa_api_contact_profile_unique" in profile
 

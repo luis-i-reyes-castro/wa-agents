@@ -19,7 +19,7 @@ class _TemplateHandler(WhatsAppCaseHandler) :
     def process_message( self, _message, _media_content = None ) -> bool :
         return False
     
-    def generate_response( self, max_tokens = None ) -> bool :
+    def run_while_in_action( self, max_tokens = None ) -> bool :
         return False
 
 
@@ -28,7 +28,7 @@ class _AsyncTemplateHandler(AsyncWhatsAppCaseHandler) :
     async def process_message( self, _message, _media_content = None ) -> bool :
         return False
     
-    async def generate_response( self, max_tokens = None ) -> bool :
+    async def run_while_in_action( self, max_tokens = None ) -> bool :
         return False
 
 
@@ -182,6 +182,7 @@ def test_case_handler_send_template_dispatches_helper( monkeypatch ) -> None :
     handler.debug       = False
     
     message = ServerTemplateMsg(
+        id         = 1,
         name       = "hello_world",
         language   = "en_US",
         parameters = [ "Luis" ],
@@ -214,6 +215,7 @@ def test_async_case_handler_send_template_dispatches_helper( monkeypatch ) -> No
     handler.debug       = True
     
     message = ServerTemplateMsg(
+        id         = 1,
         name       = "hello_world",
         language   = "en_US",
         parameters = [ "Luis" ],

@@ -269,30 +269,25 @@ Template:
 
 Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py).
 
-- Initialize `CaseHandlerBase` or `WhatsAppCaseHandler` itself as a
-  `transitions.Machine` with `init_machine(...)`.
-- Initialize `AsyncCaseHandlerBase` or `AsyncWhatsAppCaseHandler` itself as a
-  `transitions.AsyncMachine`.
-  Async handlers that fire triggers from `async` methods must use
-  `await self.trigger(...)`.
-- [`context_build()`](wa_agents/case_handler_base.py) replays stored case messages into the handler state machine.
-- [`apply_and_persist_message()`](wa_agents/case_handler_base.py) applies a message
-  to handler state before persisting the message and resulting state changes.
+- Define the states and transitions with `CaseHandlerState` and
+  `define_state_machine_config()`, then call `init_machine()`.
+- Async handlers fire triggers with `await self.trigger(...)`.
+- [`context_build()`](wa_agents/case_handler_base.py) restores the persisted state
+  directly without replaying old messages.
+- [`apply_and_persist_message()`](wa_agents/case_handler_base.py) applies a message,
+  persists it with the resulting state, and then runs queued transition callbacks.
 - [`run_while_in_action()`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) checks the current state's `while_in` actions and routes to step handlers.
 - Each step can decide whether to continue (`True`) or wait for user (`False`).
 
-Use `on_enter` and `on_exit` only for true FSM callbacks that should run when a
-transition changes state. Use `while_in` for response-generation actions such as
-`ask_for_*` and `call_*_agent`, which must still be available when a new message
-is ingested but the machine remains in the same state.
+Use `on_enter` and `on_exit` for delayed transition callbacks: they run only after
+the triggering message and resulting state are durable. Context changes that must
+be persisted with the triggering message belong in `apply_message_to_state_machine()`.
+Use `while_in` for manually dispatched response-generation actions such as
+`ask_for_*` and `call_*_agent`.
 
-This distinction matters because `CaseHandlerBase.init_machine(...)` sets
-`auto_transitions = False`. With that setting, the machine can ingest a message,
-stay in the same state, and therefore skip `on_enter`. `run_while_in_action()`
-must then manually dispatch the current state's `while_in` actions. If you
-instead enabled `auto_transitions = True` to force same-state transitions, you
-would also need to handle that same state's `on_exit` + `on_enter` firing on
-each such loop.
+A trigger without a matching transition returns `False`, leaves the state unchanged,
+and queues no callbacks. Remaining in a state does not rerun `on_enter`; its
+`while_in` actions remain available to `run_while_in_action()`.
 
 ### 4) Multi-turn, with tool calls
 

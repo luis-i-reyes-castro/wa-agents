@@ -9,9 +9,10 @@ import pytest
 
 from wa_agents import case_handler_base
 from wa_agents.case_handler_base import (
+    Async_CH_StateMachine,
     AsyncCaseHandlerBase,
     AsyncWhatsAppCaseHandler,
-    CH_State,
+    CaseHandlerState,
     CaseHandlerBase,
     WhatsAppCaseHandler,
 )
@@ -41,6 +42,7 @@ class _StorageStub :
         self.inserted_handler_ids = []
         self.inserted_agent_names = []
         self.context_changes = []
+        self.inserted_texts  = []
 
     def get_open_case_manifest( self, _contact_id : int) -> CaseManifest :
         return self.manifest
@@ -60,6 +62,7 @@ class _StorageStub :
         agent_contexts_to_append : list[str] | None = None,
     ) -> Message :
         self.insert_states.append(machine_state)
+        self.inserted_texts.append(message.text)
         self.context_changes.append(
             (
                 agent_contexts_to_clear or [],
@@ -94,7 +97,7 @@ class _StateHandler (CaseHandlerBase) :
 
     @classmethod
     def define_state_machine_config(cls) :
-        return [ CH_State("start"), CH_State("ready") ], "start", []
+        return [ CaseHandlerState("start"), CaseHandlerState("ready") ], "start", []
 
     def __init__(
         self,
@@ -122,14 +125,14 @@ class _StateHandler (CaseHandlerBase) :
         self.storage  = _StorageStub(manifest)
         self.init_machine()
 
-    def ingest_message( self, message : Message) -> None :
+    def apply_message_to_state_machine( self, message : Message) -> None :
         self.ingested.append(message)
         self.state = "ready"
 
     def process_message( self, _message, _media_content = None) -> bool :
         return False
 
-    def generate_response( self, _max_tokens = None) -> bool :
+    def run_while_in_action( self, _max_tokens = None) -> bool :
         return False
 
 
@@ -137,11 +140,85 @@ class _AgentContextHandler (_StateHandler) :
 
     AGENT_NAMES = ( "image", "main" )
 
-    def ingest_message( self, message : Message) -> None :
+    def apply_message_to_state_machine( self, message : Message) -> None :
         self.agent_context_clear("image")
         self.agent_context_append( "image", message)
         self.agent_context_append( "main", message)
         self.state = "ready"
+
+
+class _CallbackHandler (_StateHandler) :
+
+    @classmethod
+    def define_state_machine_config(cls) :
+        return (
+            [
+                CaseHandlerState( "start", on_exit = "leave_start"),
+                CaseHandlerState(
+                    "ready",
+                    on_enter = "enter_ready",
+                    while_in = "respond",
+                ),
+            ],
+            "start",
+            [
+                {
+                    "source"  : "start",
+                    "trigger" : "advance",
+                    "dest"    : "ready",
+                }
+            ],
+        )
+
+    def __init__( self, manifest : CaseManifest) -> None :
+        super().__init__(manifest)
+        self.callback_events = []
+
+    def apply_message_to_state_machine( self, message : Message) -> None :
+        self.ingested.append(message)
+        self.trigger("advance")
+        return
+
+    def leave_start(self) -> None :
+        self.callback_events.append(
+            (
+                "exit",
+                list(self.storage.insert_states),
+                self.case_manifest.machine_state,
+            )
+        )
+        return
+
+    def enter_ready(self) -> None :
+        self.callback_events.append(
+            (
+                "enter",
+                list(self.storage.insert_states),
+                self.case_manifest.machine_state,
+            )
+        )
+        return
+
+
+class _ReplyCallbackHandler (_CallbackHandler) :
+
+    AGENT_NAMES = ( "main", )
+
+    def apply_message_to_state_machine( self, message : Message) -> None :
+        if message.text == "inbound" :
+            self.agent_context_append( "main", message)
+        super().apply_message_to_state_machine(message)
+        return
+
+    def leave_start(self) -> None :
+        super().leave_start()
+        self.agent_context_clear("main")
+        return
+
+    def enter_ready(self) -> None :
+        super().enter_ready()
+        self.apply_and_persist_message(ServerTextMsg(text = "reply"))
+        return
 
 
 class _LookupStorage :
@@ -179,7 +256,7 @@ class _IDHandler(CaseHandlerBase) :
     def process_message( self, _message) -> bool :
         return False
 
-    def generate_response( self, _max_tokens = None) -> bool :
+    def run_while_in_action( self, _max_tokens = None) -> bool :
         return False
 
 
@@ -188,7 +265,7 @@ class _AsyncIDHandler(AsyncCaseHandlerBase) :
     async def process_message( self, _message) -> bool :
         return False
 
-    async def generate_response( self, _max_tokens = None) -> bool :
+    async def run_while_in_action( self, _max_tokens = None) -> bool :
         return False
 
 
@@ -264,7 +341,7 @@ class _InboundMediaHandler (WhatsAppCaseHandler) :
         )
         return manifest.id, manifest
 
-    def context_update( self, message : Message) -> Message :
+    def apply_and_persist_message( self, message : Message) -> Message :
         return message.model_copy(
             update = {
                 "id"            : 51,
@@ -275,7 +352,7 @@ class _InboundMediaHandler (WhatsAppCaseHandler) :
     def process_message( self, _message : Message) -> bool :
         return False
 
-    def generate_response( self, _max_tokens : int | None = None) -> bool :
+    def run_while_in_action( self, _max_tokens : int | None = None) -> bool :
         return False
 
 
@@ -319,7 +396,7 @@ class _AsyncInboundMediaHandler (AsyncWhatsAppCaseHandler) :
         )
         return manifest.id, manifest
 
-    async def context_update( self, message : Message) -> Message :
+    async def apply_and_persist_message( self, message : Message) -> Message :
         return message.model_copy(
             update = {
                 "id"            : 51,
@@ -330,7 +407,7 @@ class _AsyncInboundMediaHandler (AsyncWhatsAppCaseHandler) :
     async def process_message( self, _message : Message) -> bool :
         return False
 
-    async def generate_response( self, _max_tokens : int | None = None) -> bool :
+    async def run_while_in_action( self, _max_tokens : int | None = None) -> bool :
         return False
 
 
@@ -370,13 +447,93 @@ def test_context_build_restores_fsm_without_replay() -> None :
     assert len(handler.case_context) == 1
 
 
-def test_context_update_persists_resulting_fsm_state_atomically() -> None :
+def test_state_callbacks_run_after_triggering_message_is_persisted() -> None :
+    handler               = _CallbackHandler(_manifest("start"))
+    handler.case_id       = handler.storage.manifest.id
+    handler.case_manifest = handler.storage.manifest
+    handler.case_context  = []
+
+    stored = handler.apply_and_persist_message(ServerTextMsg(text = "new"))
+
+    assert stored.id == 51
+    assert handler.state == "ready"
+    assert handler.machine.get_state("ready").while_in == [ "respond" ]
+    assert handler.callback_events == [
+        ( "exit", [ "ready" ], "ready"),
+        ( "enter", [ "ready" ], "ready"),
+    ]
+
+
+def test_on_enter_reply_is_persisted_after_triggering_message() -> None :
+    handler               = _ReplyCallbackHandler(_manifest("start"))
+    handler.case_id       = handler.storage.manifest.id
+    handler.case_manifest = handler.storage.manifest
+    handler.case_context  = []
+
+    handler.apply_and_persist_message(ServerTextMsg(text = "inbound"))
+
+    assert handler.storage.inserted_texts == [ "inbound", "reply" ]
+    assert handler.storage.insert_states == [ "ready", "ready" ]
+    assert handler.storage.context_changes == [
+        ( [], [ "main" ] ),
+        ( [ "main" ], [] ),
+    ]
+    assert handler.agent_contexts["main"] == []
+
+
+def test_async_state_callbacks_are_explicitly_delayed() -> None :
+    class Model :
+
+        def __init__(self) -> None :
+            self.events = []
+
+        async def leave_start(self) -> None :
+            self.events.append("exit")
+
+        async def enter_ready(self) -> None :
+            self.events.append("enter")
+
+    model   = Model()
+    machine = Async_CH_StateMachine(
+        [
+            CaseHandlerState( "start", on_exit = "leave_start"),
+            CaseHandlerState( "ready", on_enter = "enter_ready"),
+        ],
+        "start",
+        [
+            {
+                "source"  : "start",
+                "trigger" : "advance",
+                "dest"    : "ready",
+            }
+        ],
+        {
+            "leave_start" : model.leave_start,
+            "enter_ready" : model.enter_ready,
+        },
+    )
+
+    async def run_transition() -> None :
+        assert await machine.trigger("advance")
+        assert machine.state == "ready"
+        assert model.events == []
+
+        await machine.run_pending_state_callbacks()
+
+    asyncio.run(run_transition())
+
+    assert not hasattr( machine, "model")
+    assert model.events == [ "exit", "enter" ]
+    assert asyncio.run(machine.trigger("advance")) is False
+
+
+def test_apply_and_persist_message_stores_resulting_fsm_state() -> None :
     handler               = _StateHandler(_manifest("start"))
     handler.case_id       = handler.storage.manifest.id
     handler.case_manifest = handler.storage.manifest
     handler.case_context  = []
 
-    stored = handler.context_update(ServerTextMsg(text = "new"))
+    stored = handler.apply_and_persist_message(ServerTextMsg(text = "new"))
 
     assert handler.ingested
     assert handler.storage.insert_states == [ "ready" ]
@@ -386,13 +543,13 @@ def test_context_update_persists_resulting_fsm_state_atomically() -> None :
     assert handler.case_context == [ stored ]
 
 
-def test_context_update_persists_agent_context_changes_atomically() -> None :
+def test_apply_and_persist_message_stores_agent_context_changes() -> None :
     handler               = _AgentContextHandler(_manifest("start"))
     handler.case_id       = handler.storage.manifest.id
     handler.case_manifest = handler.storage.manifest
     handler.case_context  = []
 
-    stored = handler.context_update(ServerTextMsg(text = "new"))
+    stored = handler.apply_and_persist_message(ServerTextMsg(text = "new"))
 
     assert handler.storage.context_changes == [
         ( [ "image" ], [ "image", "main" ] )
