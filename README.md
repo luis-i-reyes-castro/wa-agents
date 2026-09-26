@@ -41,22 +41,24 @@ pip install -r requirements.txt
 
 ## Runtime Architecture
 
+![Runtime Architecture](./architecture.png)
+
 `wa-agents` is designed around this flow:
 
 1. `WhatsAppAPIServer` receives webhook payload dictionaries and passes them to `QueueDB`.
 2. `QueueDB` audits and validates each payload, normalizes its messages in Supabase
-   Postgres, resolves the normalized business/contact to a handler route, and enqueues
-   newly persisted message IDs.
-3. `AsyncQueueWorker` runs inside the FastAPI lifespan, drains queue items, and
-   calls your `CaseHandler`.
-4. `CaseHandlerBase` resolves the persisted business/contact identity and handles
-   case open/close logic, context persistence, FSM state, and S3 media access without
-   depending on a messaging transport.
+    Postgres, resolves the normalized business/contact to a handler route, and enqueues
+    newly persisted message IDs.
+3. `QueueWorker` runs inside the FastAPI lifespan, drains queue items, and
+    calls your `WhatsAppCaseHandler`.
+4. `CaseHandlerBase` (parent of `WhatsAppCaseHandler`) resolves the persisted
+    business/contact identity and handles case open/close logic, context persistence, 
+    FSM state, and S3 media access without depending on a messaging transport.
 5. `WhatsAppCaseHandler` adds webhook-message conversion, deduplication, WhatsApp
-   media-metadata persistence, API-message linking, and sending helpers.
-6. Your `CaseHandler` implements business logic in:
-   - `process_message(...)` for ingestion-time decisions,
-   - `run_while_in_action(...)` for LLM response generation (single or multi-turn).
+    media-metadata persistence, API-message linking, and sending helpers.
+6. Your `CaseHandlerBase` child class implements business logic in:
+    - `process_message(...)` for ingestion-time decisions,
+    - `run_while_in_action(...)` for LLM response generation (single or multi-turn).
 
 ## Required Environment Variables
 

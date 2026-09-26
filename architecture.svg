@@ -1,0 +1,1004 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="2400"
+   height="1600"
+   viewBox="0 0 2399.9999 1600"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.4 (1:1.4.4+202605061436+dcaf3e7d9e)"
+   sodipodi:docname="architecture.svg"
+   inkscape:export-filename="architecture.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px"
+     showgrid="true"
+     showguides="true"
+     inkscape:lockguides="true"
+     inkscape:zoom="0.2299378"
+     inkscape:cx="1100.2976"
+     inkscape:cy="698.01486"
+     inkscape:window-width="1300"
+     inkscape:window-height="702"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="g226"
+     inkscape:export-bgcolor="#ffffffff">
+    <inkscape:grid
+       id="grid244"
+       units="px"
+       originx="0"
+       originy="0"
+       spacingx="4.9999998"
+       spacingy="4.9999998"
+       empcolor="#0099e5"
+       empopacity="0.30196078"
+       color="#0099e5"
+       opacity="0.14901961"
+       empspacing="10"
+       enabled="true"
+       visible="true" />
+  </sodipodi:namedview>
+  <defs
+     id="defs1">
+    <marker
+       style="overflow:visible"
+       id="marker11"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Colored triangle"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.5)"
+         style="fill:context-fill;fill-rule:evenodd;stroke:context-stroke;stroke-width:2"
+         d="M 5.77,0 -2.88,5 V -5 Z"
+         id="path11" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="marker10"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Colored triangle"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.5)"
+         style="fill:context-fill;fill-rule:evenodd;stroke:context-stroke;stroke-width:2"
+         d="M 5.77,0 -2.88,5 V -5 Z"
+         id="path10" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="marker7"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Colored triangle"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.5)"
+         style="fill:context-fill;fill-rule:evenodd;stroke:context-stroke;stroke-width:2"
+         d="M 5.77,0 -2.88,5 V -5 Z"
+         id="path7" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="marker6"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Colored triangle"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.5)"
+         style="fill:context-fill;fill-rule:evenodd;stroke:context-stroke;stroke-width:2"
+         d="M 5.77,0 -2.88,5 V -5 Z"
+         id="path6" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="marker3"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Colored triangle"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.5)"
+         style="fill:context-fill;fill-rule:evenodd;stroke:context-stroke;stroke-width:2"
+         d="M 5.77,0 -2.88,5 V -5 Z"
+         id="path3" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="ColoredTriangle"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Colored triangle"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.5)"
+         style="fill:context-fill;fill-rule:evenodd;stroke:context-stroke;stroke-width:2"
+         d="M 5.77,0 -2.88,5 V -5 Z"
+         id="path5" />
+    </marker>
+    <linearGradient
+       id="swatch235"
+       inkscape:swatch="solid">
+      <stop
+         style="stop-color:#000000;stop-opacity:1;"
+         offset="0"
+         id="stop235" />
+    </linearGradient>
+    <rect
+       x="1105.915"
+       y="-158.39192"
+       width="240.41631"
+       height="164.04877"
+       id="rect120" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect9" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect10" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect12" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect14" />
+    <rect
+       x="740"
+       y="540"
+       width="1857.3181"
+       height="414.05753"
+       id="rect16" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect18" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect20" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect22" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect24" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect26" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect28" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect30" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect32" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect34" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect36" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect38" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect40" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect42" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect45" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect46" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect49" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect50" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect55" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect56" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect57" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect58" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect63" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect64" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect65" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect66" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect68" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect70" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect72" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect74" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect76" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect79" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect82" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect83" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect87" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect88" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect92" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect94" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect95" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect98" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect108" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect109" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect111" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect112" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect127" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect128" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect130" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect141" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect142" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect5" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect71" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect144" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect152" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect90" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect96" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect156" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect177" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect180" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect183" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect186" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect187" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect199" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect200" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect215" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect217" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect220" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect224" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect103" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect105" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect150" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect153" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect155" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect163" />
+    <rect
+       x="740"
+       y="540"
+       width="502.68344"
+       height="124.11105"
+       id="rect118" />
+    <rect
+       x="740"
+       y="540"
+       width="504.957"
+       height="180.39127"
+       id="rect119" />
+    <rect
+       x="740"
+       y="540"
+       width="502.96793"
+       height="180.3912"
+       id="rect122" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect212" />
+    <rect
+       x="740"
+       y="540"
+       width="651.5849"
+       height="164.68452"
+       id="rect219" />
+    <rect
+       x="740"
+       y="540"
+       width="736.23169"
+       height="123.0645"
+       id="rect225" />
+    <rect
+       x="740"
+       y="540"
+       width="897.78198"
+       height="363.01472"
+       id="rect232" />
+    <rect
+       x="740"
+       y="540"
+       width="560"
+       height="60"
+       id="rect233" />
+    <rect
+       x="740"
+       y="540"
+       width="736.23169"
+       height="123.0645"
+       id="rect234" />
+    <rect
+       x="740"
+       y="540"
+       width="1857.3181"
+       height="414.05753"
+       id="rect237" />
+    <rect
+       x="740"
+       y="540"
+       width="1489.0205"
+       height="1345.9524"
+       id="rect239" />
+    <rect
+       x="740"
+       y="540"
+       width="1857.3181"
+       height="414.05753"
+       id="rect241" />
+  </defs>
+  <g
+     id="g226"
+     inkscape:label="WhatsAppAPIServer"
+     transform="translate(249.99996,270)"
+     style="display:inline">
+    <g
+       id="g231"
+       inkscape:label="QueueWorker"
+       transform="translate(560.73657,57.899475)"
+       style="display:inline">
+      <g
+         id="g228"
+         transform="translate(341.88007,61.614166)"
+         inkscape:label="CaseHandler"
+         style="display:inline">
+        <text
+           xml:space="preserve"
+           transform="matrix(0.52604413,0,0,0.59531214,-278.47948,111.63657)"
+           id="text227"
+           style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:75.0526px;font-family:'Ubuntu Sans';-inkscape-font-specification:'Ubuntu Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:center;white-space:pre;shape-inside:url(#rect232);display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.99923;stroke-dasharray:none;stroke-opacity:1"
+           x="228.62517"
+           y="0"><tspan
+             x="801.24418"
+             y="608.17278"
+             id="tspan1">WhatsAppCaseHandler</tspan></text>
+        <rect
+           style="fill:none;stroke:#000000;stroke-width:6;stroke-dasharray:none;stroke-opacity:1"
+           id="rect228"
+           width="500"
+           height="100"
+           x="97.383453"
+           y="410.48636"
+           ry="10"
+           rx="10"
+           inkscape:highlight-color="#73b92f" />
+      </g>
+      <rect
+         style="fill:none;stroke:#000000;stroke-width:4;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+         id="rect230"
+         width="750"
+         height="300"
+         x="239.2635"
+         y="372.10052"
+         ry="25"
+         rx="25" />
+      <rect
+         style="display:inline;fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:6;stroke-dasharray:none;stroke-opacity:1"
+         id="rect231"
+         width="300"
+         height="100"
+         x="89.263519"
+         y="322.10052"
+         ry="10"
+         rx="10"
+         inkscape:highlight-color="#73b92f" />
+      <text
+         xml:space="preserve"
+         transform="matrix(0.52604413,0,0,0.59531214,-346.40653,27.77009)"
+         id="text231"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:57.1829px;font-family:'Ubuntu Sans';-inkscape-font-specification:'Ubuntu Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:center;white-space:pre;shape-inside:url(#rect234);display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:4;stroke-dasharray:none;stroke-opacity:1"
+         x="228.62517"
+         y="0"><tspan
+           x="927.5613"
+           y="591.94113"
+           id="tspan2">QueueWorker</tspan></text>
+    </g>
+    <g
+       id="g213"
+       transform="translate(-113.16459,166.43527)"
+       inkscape:label="QueueDB"
+       style="display:inline">
+      <text
+         xml:space="preserve"
+         transform="matrix(0.52604413,0,0,0.59531214,-97.594258,70.076862)"
+         id="text212"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:57.1829px;font-family:'Ubuntu Sans';-inkscape-font-specification:'Ubuntu Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:center;white-space:pre;shape-inside:url(#rect219);display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:4;stroke-dasharray:none;stroke-opacity:1"
+         x="228.62517"
+         y="0"><tspan
+           x="941.04753"
+           y="591.94113"
+           id="tspan3">QueueDB</tspan></text>
+      <rect
+         style="fill:none;stroke:#000000;stroke-width:6;stroke-dasharray:none;stroke-opacity:1"
+         id="rect213"
+         width="200"
+         height="100"
+         x="363.16464"
+         y="363.56473"
+         ry="10"
+         rx="10" />
+    </g>
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:4;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+       id="rect227"
+       width="1400"
+       height="400"
+       x="150.00006"
+       y="330"
+       ry="25"
+       rx="25" />
+    <g
+       id="g235"
+       inkscape:label="WhatsAppAPIServer">
+      <rect
+         style="display:inline;fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:6;stroke-dasharray:none;stroke-opacity:1"
+         id="rect226"
+         width="400"
+         height="100"
+         x="50.000065"
+         y="280"
+         ry="10"
+         rx="10"
+         inkscape:highlight-color="#73b92f" />
+      <text
+         xml:space="preserve"
+         transform="matrix(0.52604413,0,0,0.59531214,-333.30711,-14.938185)"
+         id="text219"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:64.3308px;font-family:'Ubuntu Sans';-inkscape-font-specification:'Ubuntu Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:center;white-space:pre;shape-inside:url(#rect225);display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:4;stroke-dasharray:none;stroke-opacity:1"
+         x="228.62517"
+         y="0"><tspan
+           x="816.89082"
+           y="598.43381"
+           id="tspan4">WhatsAppAPIServer</tspan></text>
+    </g>
+  </g>
+  <g
+     id="g238"
+     inkscape:label="OpenRouter"
+     style="display:inline"
+     transform="translate(1774.2563,-66)">
+    <rect
+       style="display:inline;fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:8;stroke-dasharray:none;stroke-opacity:1"
+       id="rect238"
+       width="200"
+       height="1000"
+       x="325.74374"
+       y="366"
+       ry="10"
+       rx="10"
+       inkscape:highlight-color="#73b92f" />
+    <text
+       xml:space="preserve"
+       transform="scale(0.9400235,1.0638032)"
+       id="text17"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:96.0001px;font-family:'Ubuntu Sans';-inkscape-font-specification:'Ubuntu Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:center;letter-spacing:-40px;word-spacing:0px;white-space:pre;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:2.23843;stroke-dasharray:none;stroke-opacity:1"
+       x="450.53159"
+       y="743.32104"><tspan
+         sodipodi:role="line"
+         style="letter-spacing:-40px;writing-mode:tb-rl;text-orientation:upright"
+         x="450.53159"
+         y="743.32104"
+         id="tspan17">Router</tspan></text>
+    <text
+       xml:space="preserve"
+       transform="scale(0.94002352,1.0638032)"
+       id="text12"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:96.0001px;font-family:'Ubuntu Sans';-inkscape-font-specification:'Ubuntu Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:center;letter-spacing:-40px;word-spacing:0px;white-space:pre;display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:2.23843;stroke-dasharray:none;stroke-opacity:1"
+       x="452.90765"
+       y="389.8331"><tspan
+         sodipodi:role="line"
+         style="letter-spacing:-40px;writing-mode:tb-rl;text-orientation:upright"
+         x="452.90765"
+         y="389.8331"
+         id="tspan16">Open</tspan></text>
+  </g>
+  <g
+     id="g236"
+     transform="translate(899.6971,1007.6577)"
+     inkscape:label="S3"
+     style="display:inline">
+    <text
+       xml:space="preserve"
+       transform="matrix(0.52604413,0,0,0.59531214,22.785363,-34.365919)"
+       id="text236"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:257.323px;font-family:FreeSans;-inkscape-font-specification:'FreeSans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:center;white-space:pre;shape-inside:url(#rect237);display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:4;stroke-dasharray:none;stroke-opacity:1"
+       x="228.62517"
+       y="0"><tspan
+         x="1572.5059"
+         y="778.02377"
+         id="tspan6"><tspan
+           style="font-size:171.549px;font-family:Sans;-inkscape-font-specification:'Sans, Normal'"
+           id="tspan5">S3</tspan></tspan></text>
+    <rect
+       style="display:inline;fill:none;stroke:#000000;stroke-width:8;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+       id="rect236"
+       width="400"
+       height="200"
+       x="700.30298"
+       y="292.34235"
+       ry="25"
+       rx="25" />
+  </g>
+  <g
+     id="g244"
+     transform="translate(-348.41317,1040.813)"
+     inkscape:label="Supabase"
+     style="display:inline">
+    <text
+       xml:space="preserve"
+       transform="matrix(0.52604413,0,0,0.59531214,171.66263,-24.867321)"
+       id="text15"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:171.549px;font-family:'Ubuntu Sans';-inkscape-font-specification:'Ubuntu Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:center;white-space:pre;shape-inside:url(#rect16);display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:4;stroke-dasharray:none;stroke-opacity:1"
+       x="228.62517"
+       y="0"><tspan
+         x="1301.6303"
+         y="695.82367"
+         id="tspan7">Supabase</tspan></text>
+    <rect
+       style="display:inline;fill:none;stroke:#000000;stroke-width:8;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+       id="rect15"
+       width="1200"
+       height="200"
+       x="448.41318"
+       y="259.18698"
+       ry="25"
+       rx="25" />
+  </g>
+  <g
+     id="g240"
+     transform="translate(1.5868413,-159.18698)"
+     inkscape:label="WhatsApp_API"
+     style="display:inline">
+    <text
+       xml:space="preserve"
+       transform="matrix(0.52604413,0,0,0.59531214,173.1065,-16.033513)"
+       id="text240"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:171.549px;font-family:'Ubuntu Sans';-inkscape-font-specification:'Ubuntu Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:center;white-space:pre;shape-inside:url(#rect241);display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:4;stroke-dasharray:none;stroke-opacity:1"
+       x="228.62517"
+       y="0"><tspan
+         x="1118.416"
+         y="695.82367"
+         id="tspan8">WhatsAPP API</tspan></text>
+    <rect
+       style="display:inline;fill:none;stroke:#000000;stroke-width:8;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+       id="rect240"
+       width="1400"
+       height="200"
+       x="448.41318"
+       y="259.18698"
+       ry="25"
+       rx="25" />
+  </g>
+  <path
+     style="fill:none;fill-opacity:1;stroke:#0000ff;stroke-width:6;stroke-opacity:1;marker-start:url(#marker6);marker-end:url(#marker7)"
+     d="M 600.00003,650 V 800"
+     id="path4" />
+  <path
+     style="display:inline;fill:none;stroke:#ff0000;stroke-width:6;fill-opacity:1;stroke-opacity:1;marker-start:url(#ColoredTriangle);marker-end:url(#marker3)"
+     d="m 350.00007,30 -10e-6,250"
+     id="path1"
+     transform="translate(249.99996,270)" />
+  <path
+     style="display:inline;fill:none;fill-opacity:1;stroke:#ff0000;stroke-width:6;stroke-opacity:1;marker-start:url(#ColoredTriangle);marker-end:url(#marker3)"
+     d="m 600.00003,900 -1e-5,400"
+     id="path8"
+     sodipodi:nodetypes="cc" />
+  <path
+     style="fill:none;fill-opacity:1;stroke:#0000ff;stroke-width:6;stroke-opacity:1;marker-start:url(#marker10);marker-end:url(#marker11)"
+     d="M 700.00003,850 H 950.00004 V 750"
+     id="path9" />
+  <path
+     style="fill:none;fill-opacity:1;stroke:#0000ff;stroke-width:6;stroke-opacity:1;marker-start:url(#marker11);marker-end:url(#marker11)"
+     d="m 1150,750 v 100 h 100.0001"
+     id="path12"
+     sodipodi:nodetypes="ccc" />
+  <path
+     style="fill:none;fill-opacity:1;stroke:#ff0000;stroke-width:6;stroke-opacity:1;marker-end:url(#marker11);marker-start:url(#marker11)"
+     d="M 1500.0001,800 V 300"
+     id="path13" />
+  <path
+     style="fill:none;fill-opacity:1;stroke:#ff0000;stroke-width:6;stroke-opacity:1;marker-start:url(#marker11);marker-end:url(#marker11)"
+     d="m 1300.0001,1400 h 100 V 900"
+     id="path14" />
+  <path
+     style="fill:none;fill-opacity:1;stroke:#ff0000;stroke-width:6;stroke-opacity:1;marker-start:url(#marker11);marker-end:url(#marker11)"
+     d="m 1600.0001,1400 h -100 V 900"
+     id="path15" />
+  <path
+     style="fill:none;fill-opacity:1;stroke:#ff0000;stroke-width:6;stroke-opacity:1;marker-start:url(#marker11);marker-end:url(#marker11)"
+     d="m 1750.0001,850 h 350"
+     id="path16"
+     sodipodi:nodetypes="cc" />
+</svg>

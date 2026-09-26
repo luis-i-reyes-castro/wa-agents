@@ -1297,7 +1297,7 @@ class AsyncCaseHandlerBase (ABC) :
     @classmethod
     def draw_state_machine_graph(
         cls,
-        filename : str | None = "state_machine.png",
+        filename : str | None = "case_handler_state_machine.png",
     ) -> None :
         states, initial, transitions = cls.define_state_machine_config()
 
