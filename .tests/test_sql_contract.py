@@ -232,6 +232,42 @@ def test_case_message_insert_persists_machine_state_atomically() -> None :
     assert "machine_state = @machine_state" in normalized
 
 
+def test_case_handler_state_history_schema_contract() -> None :
+    assert "CREATE TABLE IF NOT EXISTS public.wa_case_handler_state_histories" in DDL
+    assert "case_manifest   BIGINT       NOT NULL" in DDL
+    assert "case_message    BIGINT       DEFAULT NULL" in DDL
+    assert "machine_state   T_NO_WS_STR  DEFAULT NULL" in DDL
+    assert "wa_case_handler_state_histories_case_manifest_fkey" in DDL
+    assert "wa_case_handler_state_histories_case_message_fkey" in DDL
+    assert "wa_case_handler_state_histories_snapshot_unique" in DDL
+    assert "UNIQUE NULLS NOT DISTINCT" in DDL
+    assert "wa_case_handler_state_histories_case_timeline_idx" in DDL
+    assert "ALTER TABLE public.wa_case_handler_state_histories" in DDL
+
+
+def test_case_creation_persists_initial_state_history() -> None :
+    sql = ( SQL_DIR / "insert_case_manifest.sql").read_text(encoding = "utf-8")
+    normalized = _normalized_sql(sql)
+
+    assert "INSERT INTO public.wa_case_handler_state_histories" in normalized
+    assert "NULL::BIGINT" in normalized
+    assert "manifest.machine_state" in normalized
+    assert "initial_state AS" in normalized
+
+
+def test_case_message_insert_persists_state_history() -> None :
+    sql = ( SQL_DIR / "insert_case_handler_message.sql").read_text(
+        encoding = "utf-8"
+    )
+    normalized = _normalized_sql(sql)
+
+    assert "INSERT INTO public.wa_case_handler_state_histories" in normalized
+    assert "message.id" in normalized
+    assert "manifest.machine_state" in normalized
+    assert "state_history AS" in normalized
+    assert "history.case_message = msg.id" in normalized
+
+
 def test_agent_contexts_are_append_only_generations() -> None :
     get_contexts = ( SQL_DIR / "get_agent_contexts.sql").read_text(
         encoding = "utf-8"

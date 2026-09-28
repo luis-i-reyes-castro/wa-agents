@@ -39,6 +39,21 @@ manifest AS (
     is_open,
     machine_state
 ),
+initial_state AS (
+  INSERT INTO public.wa_case_handler_state_histories (
+    case_manifest,
+    case_message,
+    machine_state
+  )
+  SELECT
+    manifest.id,
+    NULL::BIGINT,
+    manifest.machine_state
+  FROM
+    manifest
+  RETURNING
+    case_manifest
+),
 initialized AS (
   INSERT INTO public.wa_case_handler_agent_contexts (
     agent_name,
@@ -69,9 +84,17 @@ SELECT
   manifest.machine_state
 FROM
   manifest
-LEFT JOIN (
+JOIN
+  initial_state AS history
+ON
+  manifest.id = history.case_manifest
+LEFT JOIN
+  (
   SELECT DISTINCT
     initialized.case_manifest
   FROM
     initialized
-) AS contexts ON contexts.case_manifest = manifest.id;
+  )
+  AS contexts
+ON
+  manifest.id = contexts.case_manifest;

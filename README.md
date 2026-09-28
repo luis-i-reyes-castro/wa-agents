@@ -291,6 +291,37 @@ A trigger without a matching transition returns `False`, leaves the state unchan
 and queues no callbacks. Remaining in a state does not rerun `on_enter`; its
 `while_in` actions remain available to `run_while_in_action()`.
 
+#### Debugging persisted state
+
+`wa_case_handler_state_histories` stores an append-only snapshot timeline. The first
+row for a case has no `case_message` and records its initial state. Each subsequently
+persisted case-handler message adds one row containing the resulting state, including
+unchanged or `NULL` states. Manifest-only updates, such as closing a case, do not add
+a snapshot.
+
+Query a case timeline directly in PostgreSQL:
+
+```sql
+SELECT
+  history.id,
+  history.created_at,
+  message.message_index,
+  message.ts AS message_ts,
+  history.machine_state,
+  message.basemodel,
+  message.origin
+FROM
+  public.wa_case_handler_state_histories AS history
+LEFT JOIN
+  public.wa_case_handler_messages AS message ON
+    ( message.case_id = history.case_manifest ) AND
+    ( message.id      = history.case_message  )
+WHERE
+  ( history.case_manifest = 123 )
+ORDER BY
+  history.id;
+```
+
 ### 4) Multi-turn, with tool calls
 
 Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) (`call_match_agent`, `call_main_agent`) and mirrored in:

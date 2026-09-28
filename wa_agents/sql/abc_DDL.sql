@@ -560,6 +560,46 @@ CREATE UNIQUE INDEX IF NOT EXISTS wa_case_handler_messages_case_id_id_idx
 ALTER TABLE public.wa_case_handler_messages
   ENABLE ROW LEVEL SECURITY;
 
+-- STATE HISTORIES
+
+CREATE TABLE IF NOT EXISTS public.wa_case_handler_state_histories (
+
+  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  case_manifest   BIGINT       NOT NULL,
+  case_message    BIGINT       DEFAULT NULL,
+  machine_state   T_NO_WS_STR  DEFAULT NULL,
+
+  CONSTRAINT wa_case_handler_state_histories_case_manifest_fkey
+    FOREIGN KEY (case_manifest)
+    REFERENCES public.wa_case_handler_case_manifests(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT wa_case_handler_state_histories_case_message_fkey
+    FOREIGN KEY ( case_manifest, case_message)
+    REFERENCES public.wa_case_handler_messages( case_id, id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT wa_case_handler_state_histories_snapshot_unique
+    UNIQUE NULLS NOT DISTINCT (
+      case_manifest,
+      case_message
+    )
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_case_handler_state_histories_case_timeline_idx
+  ON public.wa_case_handler_state_histories (
+    case_manifest,
+    id
+  );
+
+ALTER TABLE public.wa_case_handler_state_histories
+  ENABLE ROW LEVEL SECURITY;
+
 -- WHATSAPP MESSAGE IDS
 
 CREATE TABLE IF NOT EXISTS public.wa_case_handler_to_api (

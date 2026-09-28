@@ -49,6 +49,24 @@ inserted_message AS (
     origin,
     data
 ),
+state_history AS (
+  INSERT INTO public.wa_case_handler_state_histories (
+    case_manifest,
+    case_message,
+    machine_state
+  )
+  SELECT
+    manifest.id,
+    message.id,
+    manifest.machine_state
+  FROM
+    case_manifest   AS manifest
+  JOIN
+    inserted_message AS message ON message.case_id = manifest.id
+  RETURNING
+    case_manifest,
+    case_message
+),
 changed_agent_names AS (
   SELECT DISTINCT
     names.agent_name
@@ -129,6 +147,12 @@ SELECT
   msg.data,
   manifest.machine_state
 FROM
-  inserted_message AS msg
+  inserted_message  AS msg
 JOIN
-  case_manifest AS manifest ON manifest.id = msg.case_id;
+  case_manifest     AS manifest ON msg.case_id = manifest.id
+JOIN
+  state_history     AS history  ON
+  (
+    ( msg.case_id = history.case_manifest ) AND
+    ( msg.id      = history.case_message  )
+  );
