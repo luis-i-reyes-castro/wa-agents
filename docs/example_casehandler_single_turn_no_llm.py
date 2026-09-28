@@ -14,7 +14,7 @@ from wa_agents.case_handler_models import (
     ServerTextMsg,
 )
 from wa_agents.whatsapp_models import (
-    WhatsAppMessage,
+    WhatsApp_IB_Message,
 )
 
 
@@ -24,7 +24,7 @@ class CaseHandler(WhatsAppCaseHandler) :
     """
 
     def process_message( self,
-                         message       : WhatsAppMessage,
+                         message       : WhatsApp_IB_Message,
                          media_content : bytes | None = None ) -> bool :
         """
         Deduplicate + ingest and decide whether to respond.

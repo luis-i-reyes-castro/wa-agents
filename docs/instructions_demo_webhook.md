@@ -13,7 +13,7 @@ To obtain a permanent access token:
 3. Generate a **permanent access token** tied to that user.
 4. Give it the role **WhatsApp Business API → Full Access**.
 5. Copy the new token to your `.env` file (see Step 2).
-6. Restart Flask + ngrok.
+6. Restart FastAPI + ngrok.
 
 ---
 
@@ -51,7 +51,7 @@ After launch, copy the **HTTPS forwarding URL**, e.g., `https://abc123.ngrok-fre
 
 ---
 
-## 4. Launch Flask Webhook
+## 4. Launch FastAPI Webhook
 
 Start the Python script:
 ```bash
@@ -60,7 +60,7 @@ python3 demo_webhook.py
 
 You should see:
 ```
- * Running on http://127.0.0.1:5000
+INFO: Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
 ```
 
 ---
@@ -94,7 +94,7 @@ You should see:
 
 ## 8. Stopping
 
-* Stop Flask: `Ctrl+C`
+* Stop FastAPI: `Ctrl+C`
 * Stop ngrok: `Ctrl+C`
 
 ---

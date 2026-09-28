@@ -23,10 +23,10 @@ from .case_handler_models import (
     ServerTextMsg,
 )
 from .whatsapp_models import (
-    WhatsAppContactPayload,
+    WhatsAppContactCard,
     WhatsAppLocation,
-    WhatsAppMediaData,
     WhatsAppText,
+    WhatsApp_IB_MediaData,
     WhatsApp_OB_ContactsMessage,
     WhatsApp_OB_InteractiveOptionsBodyObject,
     WhatsApp_OB_InteractiveOptionsButtonEntry,
@@ -96,7 +96,7 @@ def _collect_send_results(
 # =========================================================================================
 # INBOUND
 
-def fetch_media( media_data : WhatsAppMediaData) -> bytes :
+def fetch_media( media_data : WhatsApp_IB_MediaData) -> bytes :
     """
     Download WhatsApp media content using its media id \\
     Args:
@@ -121,7 +121,7 @@ def fetch_media( media_data : WhatsAppMediaData) -> bytes :
     
     return result
 
-async def async_fetch_media( media_data : WhatsAppMediaData) -> bytes :
+async def async_fetch_media( media_data : WhatsApp_IB_MediaData) -> bytes :
     """
     Download WhatsApp media content using its media id \\
     Args:
@@ -332,7 +332,7 @@ async def async_send_whatsapp_template(
 def send_whatsapp_content(
     operator_id : str,
     to_number   : str,
-    content     : WhatsAppContactPayload | WhatsAppLocation,
+    content     : WhatsAppContactCard | WhatsAppLocation,
 ) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp content message \\
@@ -355,7 +355,7 @@ def send_whatsapp_content(
 async def async_send_whatsapp_content(
     operator_id : str,
     to_number   : str,
-    content     : WhatsAppContactPayload | WhatsAppLocation,
+    content     : WhatsAppContactCard | WhatsAppLocation,
 ) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp content message asynchronously \\
@@ -556,7 +556,7 @@ def write_payload(
               | ServerInteractiveOptsMsg
               | ServerTemplateMsg
               | ServerMediaMsg
-              | WhatsAppContactPayload
+              | WhatsAppContactCard
               | WhatsAppLocation,
 ) -> dict[ str, Any] :
     """
@@ -677,7 +677,7 @@ def write_payload(
             **{ content.type : media_data },
         ).model_dump()
     
-    elif isinstance( content, WhatsAppContactPayload) :
+    elif isinstance( content, WhatsAppContactCard) :
         
         # Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contacts-messages
         

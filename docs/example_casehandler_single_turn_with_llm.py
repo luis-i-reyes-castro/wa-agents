@@ -16,7 +16,7 @@ from wa_agents.supabase import (
     WhatsAppDatabaseRecord_Contact,
 )
 from wa_agents.case_handler_models import HumanServerMsg
-from wa_agents.whatsapp_models import WhatsAppMessage
+from wa_agents.whatsapp_models import WhatsApp_IB_Message
 
 
 class CaseHandler (AsyncWhatsAppCaseHandler) :
@@ -55,7 +55,7 @@ class CaseHandler (AsyncWhatsAppCaseHandler) :
 
     async def process_message(
         self,
-        message       : WhatsAppMessage,
+        message       : WhatsApp_IB_Message,
         media_content : bytes | None = None,
     ) -> bool :
         """

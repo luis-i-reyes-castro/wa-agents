@@ -27,8 +27,8 @@ from wa_agents.supabase import (
     WhatsAppDatabaseRecord_Contact,
 )
 from wa_agents.whatsapp_models import (
-    WhatsAppMessage,
-    WhatsAppProfile,
+    WhatsApp_IB_Message,
+    WhatsApp_IB_Profile,
 )
 
 
@@ -112,7 +112,7 @@ class _StateHandler (CaseHandlerBase) :
         )
         contact = WhatsAppDatabaseRecord_Contact(
             row_id  = 31,
-            profile = WhatsAppProfile( name = "Test User"),
+            profile = WhatsApp_IB_Profile( name = "Test User"),
             wa_id   = "593995341161",
         )
         super().__init__(
@@ -421,8 +421,8 @@ def _manifest( machine_state : str = "ready") -> CaseManifest :
     )
 
 
-def _media_message() -> WhatsAppMessage :
-    return WhatsAppMessage.model_validate({
+def _media_message() -> WhatsApp_IB_Message :
+    return WhatsApp_IB_Message.model_validate({
         "from"      : "593995341161",
         "id"        : "wamid.document",
         "timestamp" : "1788724265",

@@ -134,9 +134,9 @@ class WhatsAppInteractiveOption (BaseModel) :
     title       : WhatsAppInteractiveTitle
     description : WhatsAppInteractiveDescription | None = None
 
-class WhatsAppContactPayload_Name (BaseModel) :
+class WhatsAppContactCard_Name (BaseModel) :
     """
-    WhatsApp incoming contact name
+    WhatsApp contact-card name
         `formatted_name` : "<name>"
         `first_name`     : str | null
         `middle_name`    : str | null
@@ -166,9 +166,9 @@ class WhatsAppContactPayload_Name (BaseModel) :
         
         return self
 
-class WhatsAppContactPayload_Phone (BaseModel) :
+class WhatsAppContactCard_Phone (BaseModel) :
     """
-    WhatsApp incoming contact phone
+    WhatsApp contact-card phone
         `phone` : "<phone number starting with plus sign>"
         `type`  : "CELL" | "Mobile" | "Landline" | str
         `wa_id` : "<WhatsApp phone number ID>" | null
@@ -179,9 +179,9 @@ class WhatsAppContactPayload_Phone (BaseModel) :
     type  : str
     wa_id : str | None = None
 
-class WhatsAppContactPayload_Email (BaseModel) :
+class WhatsAppContactCard_Email (BaseModel) :
     """
-    WhatsApp incoming contact email
+    WhatsApp contact-card email
         `email` : "<email>"
         `type`  : "Work" | "Personal" | str
     """
@@ -190,9 +190,9 @@ class WhatsAppContactPayload_Email (BaseModel) :
     email : str
     type  : str
 
-class WhatsAppContactPayload_Org (BaseModel) :
+class WhatsAppContactCard_Org (BaseModel) :
     """
-    WhatsApp incoming contact organization
+    WhatsApp contact-card organization
         `company` : "<company name>"
     """
     model_config = ConfigDict( frozen = True)
@@ -201,9 +201,9 @@ class WhatsAppContactPayload_Org (BaseModel) :
     department : str | None = None
     title      : str | None = None
 
-class WhatsAppContactPayload_Address (BaseModel) :
+class WhatsAppContactCard_Address (BaseModel) :
     """
-    WhatsApp incoming contact address
+    WhatsApp contact-card address
         `type`         : "HOME" | "WORK" | str | null
         `city`         : "<city>" | null
         `country`      : "<country>" | null
@@ -237,9 +237,9 @@ class WhatsAppContactPayload_Address (BaseModel) :
         
         return self
 
-class WhatsAppContactPayload_Url (BaseModel) :
+class WhatsAppContactCard_Url (BaseModel) :
     """
-    WhatsApp incoming contact URL
+    WhatsApp contact-card URL
         `type` : "HOME" | "WORK" | str | null
         `url`  : "<URL>"
     """
@@ -248,26 +248,26 @@ class WhatsAppContactPayload_Url (BaseModel) :
     type : str | None = None
     url  : str
 
-class WhatsAppContactPayload (BaseModel) :
+class WhatsAppContactCard (BaseModel) :
     """
-    WhatsApp incoming contact payload (a.k.a. CONTACT CARD)
-        `name`   : `WhatsAppContactPayload_Name`
-        `phones` : `tuple[ WhatsAppContactPayload_Phone, ...]`
-        `org`    : `WhatsAppContactPayload_Org`                | null
-        `emails` : `tuple[ WhatsAppContactPayload_Email, ...]` | null
+    WhatsApp contact card
+        `name`   : `WhatsAppContactCard_Name`
+        `phones` : `tuple[ WhatsAppContactCard_Phone, ...]`
+        `org`    : `WhatsAppContactCard_Org`                | null
+        `emails` : `tuple[ WhatsAppContactCard_Email, ...]` | null
     NOTE:
-        * This class models contact data payload ATTACHED to a WhatsAppMessage
-        * Different from `WhatsAppContact`
+        * This class models a contact card in inbound and outbound WhatsApp messages
+        * Different from `WhatsApp_IB_Contact`
     """
     model_config = ConfigDict( frozen = True)
     
-    name   : WhatsAppContactPayload_Name
-    phones : tuple[ WhatsAppContactPayload_Phone, ...]
-    org    : WhatsAppContactPayload_Org                | None = None
-    emails : tuple[ WhatsAppContactPayload_Email, ...] | None = None
+    name   : WhatsAppContactCard_Name
+    phones : tuple[ WhatsAppContactCard_Phone, ...]
+    org    : WhatsAppContactCard_Org                | None = None
+    emails : tuple[ WhatsAppContactCard_Email, ...] | None = None
     birthday  : str                                         | None = None
-    addresses : tuple[ WhatsAppContactPayload_Address, ...] | None = None
-    urls      : tuple[ WhatsAppContactPayload_Url, ...]     | None = None
+    addresses : tuple[ WhatsAppContactCard_Address, ...] | None = None
+    urls      : tuple[ WhatsAppContactCard_Url, ...]     | None = None
 
 class WhatsAppLocation (BaseModel) :
     """
@@ -286,7 +286,7 @@ class WhatsAppLocation (BaseModel) :
 # =========================================================================================
 # INBOUND: MESSAGES
 
-class WhatsAppMetaData (BaseModel) :
+class WhatsApp_IB_MetaData (BaseModel) :
     """
     WhatsApp message or status recipient metadata.
         `display_phone_number` : "<receiver phone number>"
@@ -297,7 +297,7 @@ class WhatsAppMetaData (BaseModel) :
     display_phone_number : NumericID # Receiver phone number
     phone_number_id      : NumericID # Receiver phone number ID
 
-class WhatsAppProfile (BaseModel) :
+class WhatsApp_IB_Profile (BaseModel) :
     """
     WhatsApp contact profile corresponding to message sender (NOT CONTACT CARD)
         `name`     : "<display name>"
@@ -308,20 +308,20 @@ class WhatsAppProfile (BaseModel) :
     name     : NE_str
     username : WhatsAppUsername | None = None
 
-class WhatsAppContact (BaseModel) :
+class WhatsApp_IB_Contact (BaseModel) :
     """
     WhatsApp contact corresponding to message sender (NOT CONTACT CARD)
         
-        `profile` : WhatsAppProfile | null
+        `profile` : WhatsApp_IB_Profile | null
         `wa_id`   : "<sender phone number>"
         `user_id` : "<BSUID>"       | null
     NOTE:
-        * This class models contact data ASSOCIATED WITH an incoming WhatsAppMessage
-        * Different from `WhatsAppContactPayload`
+        * This class models contact data ASSOCIATED WITH an incoming WhatsApp_IB_Message
+        * Different from `WhatsAppContactCard`
     """
     model_config = ConfigDict( frozen = True)
     
-    profile : WhatsAppProfile | None = None
+    profile : WhatsApp_IB_Profile | None = None
     wa_id   : NumericID       | None = None # Sender phone number
     user_id : WhatsAppBSUID   | None = None # Sender BSUID
     
@@ -333,7 +333,7 @@ class WhatsAppContact (BaseModel) :
             )
         return self
 
-class WhatsAppContext (BaseModel) :
+class WhatsApp_IB_Context (BaseModel) :
     """
     WhatsApp message context
         `user`                 : "<sender phone number>" | null
@@ -361,7 +361,7 @@ class WhatsAppContext (BaseModel) :
     # Field below present only if message refers to a catalog product
     referred_product : dict[ str, str] | None = None
 
-class WhatsAppInteractiveReply (BaseModel) :
+class WhatsApp_IB_InteractiveReply (BaseModel) :
     """
     WhatsApp interactive reply
         `type`         : "button_reply" | "list_reply"
@@ -395,7 +395,7 @@ class WhatsAppInteractiveReply (BaseModel) :
         
         return
 
-class WhatsAppMediaData (BaseModel) :
+class WhatsApp_IB_MediaData (BaseModel) :
     """
     WhatsApp media descriptor
         `id`        : "<media ID>"
@@ -424,7 +424,7 @@ class WhatsAppMediaData (BaseModel) :
     def type(self) -> str :
         return self.mime_type.split("/")[0]
 
-class WhatsAppReaction (BaseModel) :
+class WhatsApp_IB_Reaction (BaseModel) :
     """
     WhatsApp reaction
         `message_id` : "<message ID>"
@@ -435,7 +435,7 @@ class WhatsAppReaction (BaseModel) :
     message_id : WhatsAppMessageID
     emoji      : str | None = None
 
-class WhatsAppMessage (BaseModel) :
+class WhatsApp_IB_Message (BaseModel) :
     """
     WhatsApp message payload
         `from`         : "<sender phone number>"
@@ -443,16 +443,19 @@ class WhatsAppMessage (BaseModel) :
         `id`           : "<message ID>"
         `timestamp`    : "<unix timestamp>"
         `type`         : "<message type>"
-        `text`         : `WhatsAppText`             | null
-        `interactive`  : `WhatsAppInteractiveReply` | null
-        `image`        : `WhatsAppMediaData`        | null
-        `video`        : `WhatsAppMediaData`        | null
-        `audio`        : `WhatsAppMediaData`        | null
-        `document`     : `WhatsAppMediaData`        | null
-        `sticker`      : `WhatsAppMediaData`        | null
-        `reaction`     : `WhatsAppReaction`         | null
-        `contacts`     : `tuple[ WhatsAppContactPayload, ...]` | null
-        `location`     : `WhatsAppLocation`                    | null
+        
+        `contacts`    : `tuple[ WhatsAppContactCard, ...]` | null
+        `interactive` : `WhatsApp_IB_InteractiveReply`     | null
+        `location`    : `WhatsAppLocation`      | null
+        `reaction`    : `WhatsApp_IB_Reaction`  | null
+        `text`        : `WhatsAppText`          | null
+        
+        `audio`       : `WhatsApp_IB_MediaData` | null
+        `document`    : `WhatsApp_IB_MediaData` | null
+        `image`       : `WhatsApp_IB_MediaData` | null
+        `sticker`     : `WhatsApp_IB_MediaData` | null
+        `video`       : `WhatsApp_IB_MediaData` | null
+    
     NOTE:
         * Since `from` is a reserved keyword in Python here we declare it as the dummy field `user` and then assign it the alias `from`.
         * Similarly `from_user_id` is declared as `user_id` and then aliased.
@@ -460,7 +463,7 @@ class WhatsAppMessage (BaseModel) :
     model_config = ConfigDict( frozen           = True,
                                populate_by_name = True)
     
-    context   : WhatsAppContext | None = None
+    context   : WhatsApp_IB_Context | None = None
     
     user      : NumericID     | None = Field( alias   = "from",         default = None)
     user_id   : WhatsAppBSUID | None = Field( alias   = "from_user_id", default = None)
@@ -471,16 +474,18 @@ class WhatsAppMessage (BaseModel) :
     
     # In a WhatsApp message only one of the fields below will be present
     # (more precisely, the field that matches the message `type`).
-    text        : WhatsAppText             | None = None
-    interactive : WhatsAppInteractiveReply | None = None
-    image       : WhatsAppMediaData        | None = None
-    video       : WhatsAppMediaData        | None = None
-    audio       : WhatsAppMediaData        | None = None
-    document    : WhatsAppMediaData        | None = None
-    sticker     : WhatsAppMediaData        | None = None
-    reaction    : WhatsAppReaction         | None = None
-    contacts    : tuple[ WhatsAppContactPayload, ...] | None = None
-    location    : WhatsAppLocation                    | None = None
+    
+    contacts    : tuple[ WhatsAppContactCard, ...] | None = None
+    interactive : WhatsApp_IB_InteractiveReply     | None = None
+    location    : WhatsAppLocation      | None = None
+    reaction    : WhatsApp_IB_Reaction  | None = None
+    text        : WhatsAppText          | None = None
+    
+    audio       : WhatsApp_IB_MediaData | None = None
+    document    : WhatsApp_IB_MediaData | None = None
+    image       : WhatsApp_IB_MediaData | None = None
+    sticker     : WhatsApp_IB_MediaData | None = None
+    video       : WhatsApp_IB_MediaData | None = None
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
@@ -502,18 +507,18 @@ class WhatsAppMessage (BaseModel) :
         return self
     
     @property
-    def media_data(self) -> WhatsAppMediaData | None :
+    def media_data(self) -> WhatsApp_IB_MediaData | None :
         
         if self.type in { "audio", "document", "image", "sticker", "video" } :
             return getattr( self, self.type, None)
         
         return None
 
-class WhatsAppMessageEcho (WhatsAppMessage) :
+class WhatsApp_IB_MessageEcho (WhatsApp_IB_Message) :
     """
     WhatsApp message echo payload
     
-    Includes all the fields in `WhatsAppMessage` along with:
+    Includes all the fields in `WhatsApp_IB_Message` along with:
         `to`: "<receiver phone number>"
     """
     
@@ -534,7 +539,7 @@ class WhatsAppMessageEcho (WhatsAppMessage) :
 # =========================================================================================
 # INBOUND: STATUSES OF SENT MESSAGES
 
-class WhatsAppConversationOrigin (BaseModel) :
+class WhatsApp_IB_ConversationOrigin (BaseModel) :
     """
     WhatsApp conversation origin
         `type` : "authentication" | "authentication_international" | "marketing" | "marketing_lite" | "referral_conversion" | "service" | "utility"
@@ -551,20 +556,20 @@ class WhatsAppConversationOrigin (BaseModel) :
         "utility",
     ]
 
-class WhatsAppConversation (BaseModel) :
+class WhatsApp_IB_Conversation (BaseModel) :
     """
     WhatsApp status conversation data
         `id`                   : "<conversation ID>"
-        `origin`               : WhatsAppConversationOrigin | null
-        `expiration_timestamp` : "<unix timestamp>" | null
+        `origin`               : WhatsApp_IB_ConversationOrigin | null
+        `expiration_timestamp` : "<unix timestamp>"             | null
     """
     model_config = ConfigDict( frozen = True)
     
     id                   : NumericID
-    origin               : WhatsAppConversationOrigin | None = None
-    expiration_timestamp : UnixTS                     | None = None
+    origin               : WhatsApp_IB_ConversationOrigin | None = None
+    expiration_timestamp : UnixTS                         | None = None
 
-class WhatsAppPricing (BaseModel) :
+class WhatsApp_IB_Pricing (BaseModel) :
     """
     WhatsApp status pricing data
         `billable`      : true | false | null
@@ -594,7 +599,7 @@ class WhatsAppPricing (BaseModel) :
         "regular",
     ] | None = None
 
-class WhatsAppStatusErrorData (BaseModel) :
+class WhatsApp_IB_StatusErrorData (BaseModel) :
     """
     WhatsApp status error details
         `details` : "<error details>" | null
@@ -603,24 +608,24 @@ class WhatsAppStatusErrorData (BaseModel) :
     
     details : str | None = None
 
-class WhatsAppStatusError (BaseModel) :
+class WhatsApp_IB_StatusError (BaseModel) :
     """
     WhatsApp status error
         `code`       : <error code>
         `title`      : "<error title>"
         `message`    : "<error message>" | null
-        `error_data` : WhatsAppStatusErrorData | null
+        `error_data` : WhatsApp_IB_StatusErrorData | null
         `href`       : "<error code URL>" | null
     """
     model_config = ConfigDict( frozen = True)
     
     code       : int
     title      : NE_str
-    message    : NE_str                  | None = None
-    error_data : WhatsAppStatusErrorData | None = None
-    href       : NE_str                  | None = None
+    message    : NE_str                      | None = None
+    error_data : WhatsApp_IB_StatusErrorData | None = None
+    href       : NE_str                      | None = None
 
-class WhatsAppStatus (BaseModel) :
+class WhatsApp_IB_Status (BaseModel) :
     """
     WhatsApp outbound message status update
         `id`                : "<WhatsApp message ID>"
@@ -628,9 +633,9 @@ class WhatsAppStatus (BaseModel) :
         `recipient_user_id` : "<user BSUID>"
         `status`            : "delivered" | "failed" | "played" | "read" | "sent" | null
         `timestamp`         : "<unix timestamp>"
-        `conversation`      : WhatsAppConversation | null
-        `pricing`           : WhatsAppPricing | null
-        `errors`            : tuple[ WhatsAppStatusError, ...] | null
+        `conversation`      : WhatsApp_IB_Conversation | null
+        `pricing`           : WhatsApp_IB_Pricing | null
+        `errors`            : tuple[ WhatsApp_IB_StatusError, ...] | null
     """
     model_config = ConfigDict( frozen = True)
     
@@ -646,16 +651,16 @@ class WhatsAppStatus (BaseModel) :
     ]
     
     timestamp    : UnixTS
-    conversation : WhatsAppConversation             | None = None
-    pricing      : WhatsAppPricing                  | None = None
-    errors       : tuple[ WhatsAppStatusError, ...] | None = None
+    conversation : WhatsApp_IB_Conversation             | None = None
+    pricing      : WhatsApp_IB_Pricing                  | None = None
+    errors       : tuple[ WhatsApp_IB_StatusError, ...] | None = None
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
         
         if not ( self.recipient_id or self.recipient_user_id ) :
             raise ValueError(
-                "WhatsAppStatus is missing both fields "
+                "WhatsApp_IB_Status is missing both fields "
                 "'recipient_id' and 'recipient_user_id'"
             )
         
@@ -665,26 +670,26 @@ class WhatsAppStatus (BaseModel) :
 # =========================================================================================
 # INBOUND: PAYLOADS
 
-class WhatsAppValue (BaseModel) :
+class WhatsApp_IB_Value (BaseModel) :
     """
     WhatsApp change value payload
         `messaging_product` : "whatsapp"
-        `metadata`          : WhatsAppMetaData
-        `contacts`          : tuple[ WhatsAppContact ]
-        `messages`          : tuple[ WhatsAppMessage,     ...]
-        `statuses`          : tuple[ WhatsAppStatus,      ...]
-        `message_echoes`    : tuple[ WhatsAppMessageEcho, ...]
+        `metadata`          : WhatsApp_IB_MetaData
+        `contacts`          : tuple[ WhatsApp_IB_Contact ]
+        `messages`          : tuple[ WhatsApp_IB_Message,     ...]
+        `statuses`          : tuple[ WhatsApp_IB_Status,      ...]
+        `message_echoes`    : tuple[ WhatsApp_IB_MessageEcho, ...]
     """
     
     model_config = ConfigDict( frozen = True)
     
     messaging_product : Literal["whatsapp"] = "whatsapp"
     
-    metadata       : WhatsAppMetaData
-    contacts       : tuple[ WhatsAppContact ] # Exactly one item
-    messages       : tuple[ WhatsAppMessage,     ...] = ()
-    statuses       : tuple[ WhatsAppStatus,      ...] = ()
-    message_echoes : tuple[ WhatsAppMessageEcho, ...] = ()
+    metadata       : WhatsApp_IB_MetaData
+    contacts       : tuple[ WhatsApp_IB_Contact ] # Exactly one item
+    messages       : tuple[ WhatsApp_IB_Message,     ...] = ()
+    statuses       : tuple[ WhatsApp_IB_Status,      ...] = ()
+    message_echoes : tuple[ WhatsApp_IB_MessageEcho, ...] = ()
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
@@ -705,7 +710,7 @@ class WhatsAppValue (BaseModel) :
         
         return serialize_without_nones( self, handler)
 
-class WhatsAppPartnerWABAInfo (BaseModel) :
+class WhatsApp_IB_PartnerWABAInfo (BaseModel) :
     """
     WhatsApp Business Account data included in partner updates
         `waba_id`           : "<WhatsApp Business Account ID>"
@@ -719,12 +724,12 @@ class WhatsAppPartnerWABAInfo (BaseModel) :
     owner_business_id : NumericID
     partner_app_id    : NumericID | None = None
 
-class WhatsAppPartnerUpdate (BaseModel) :
+class WhatsApp_IB_PartnerUpdate (BaseModel) :
     """
     WhatsApp partner account update
         `event`     : "PARTNER_ADDED"   | "PARTNER_APP_INSTALLED" |
                       "PARTNER_REMOVED" | "PARTNER_APP_UNINSTALLED"
-        `waba_info` : WhatsAppPartnerWABAInfo
+        `waba_info` : WhatsApp_IB_PartnerWABAInfo
     """
     
     model_config = ConfigDict( frozen = True)
@@ -735,12 +740,12 @@ class WhatsAppPartnerUpdate (BaseModel) :
         "PARTNER_REMOVED",
         "PARTNER_APP_UNINSTALLED",
     ]
-    waba_info : WhatsAppPartnerWABAInfo
+    waba_info : WhatsApp_IB_PartnerWABAInfo
 
-class WhatsAppChange (BaseModel) :
+class WhatsApp_IB_Change (BaseModel) :
     """
     WhatsApp change item
-        `value` : WhatsAppValue | WhatsAppPartnerUpdate
+        `value` : WhatsApp_IB_Value | WhatsApp_IB_PartnerUpdate
         `field` : "<webhook_field>"
     Currently supported fields:
         `account_update`     : Partner account and app updates
@@ -750,7 +755,7 @@ class WhatsAppChange (BaseModel) :
     
     model_config = ConfigDict( frozen = True)
     
-    value : WhatsAppValue | WhatsAppPartnerUpdate
+    value : WhatsApp_IB_Value | WhatsApp_IB_PartnerUpdate
     field : Literal[
                 "account_update",
                 "messages",
@@ -763,7 +768,7 @@ class WhatsAppChange (BaseModel) :
         if (
             ( self.field == "messages"                           ) and
             (
-                ( not isinstance( self.value, WhatsAppValue) ) or
+                ( not isinstance( self.value, WhatsApp_IB_Value) ) or
                 ( not ( self.value.messages or self.value.statuses ) )
             )
         ) :
@@ -774,7 +779,7 @@ class WhatsAppChange (BaseModel) :
         elif (
             ( self.field == "smb_message_echoes" ) and
             (
-                ( not isinstance( self.value, WhatsAppValue) ) or
+                ( not isinstance( self.value, WhatsApp_IB_Value) ) or
                 ( not self.value.message_echoes )
             )
         ) :
@@ -784,34 +789,34 @@ class WhatsAppChange (BaseModel) :
             )
         elif (
             ( self.field == "account_update" ) and
-            ( not isinstance( self.value, WhatsAppPartnerUpdate) )
+            ( not isinstance( self.value, WhatsApp_IB_PartnerUpdate) )
         ) :
             raise ValueError(
                 f"Received {self.__class__.__name__} has 'field' = 'account_update' "
-                f"but field 'value' is not a {WhatsAppPartnerUpdate.__name__}"
+                f"but field 'value' is not a {WhatsApp_IB_PartnerUpdate.__name__}"
             )
         
         return self
 
-class WhatsAppPayloadItem (BaseModel) :
+class WhatsApp_IB_PayloadItem (BaseModel) :
     """
     WhatsApp payload item
         `id`      : "<receiver WABA number>"
         `time`    : "<unix timestamp>" | null
-        `changes` : tuple[ WhatsAppChange, ...]
+        `changes` : tuple[ WhatsApp_IB_Change, ...]
     """
     
     model_config = ConfigDict( frozen = True)
     
     id      : NumericID # Receiver WABA ID
     time    : int | None = None
-    changes : Annotated[ tuple[ WhatsAppChange, ...], Field( min_length = 1)]
+    changes : Annotated[ tuple[ WhatsApp_IB_Change, ...], Field( min_length = 1)]
 
-class WhatsAppPayload (BaseModel) :
+class WhatsApp_IB_Payload (BaseModel) :
     """
     Top-level WhatsApp webhook payload
         `object` : "whatsapp_business_account"
-        `entry`  : tuple[ WhatsAppPayloadItem, ...]
+        `entry`  : tuple[ WhatsApp_IB_PayloadItem, ...]
     NOTE:
         Since `object` is a reserved keyword in Python here we declare it
         as the dummy field `object_field` and then assign it the alias `object`.
@@ -824,13 +829,13 @@ class WhatsAppPayload (BaseModel) :
                                 default = "whatsapp_business_account",
                             )
     entry        : Annotated[
-                       tuple[ WhatsAppPayloadItem, ...],
+                       tuple[ WhatsApp_IB_PayloadItem, ...],
                        Field( min_length = 1),
                    ]
     
     def has_messages(self) -> bool :
         return any(
-            isinstance( change.value, WhatsAppValue) and change.value.messages
+            isinstance( change.value, WhatsApp_IB_Value) and change.value.messages
             for entry in self.entry
             for change in entry.changes
         )
@@ -1126,7 +1131,7 @@ class WhatsApp_OB_MediaMessage (WhatsApp_OB_PayloadHeader) :
 class WhatsApp_OB_ContactsMessage (WhatsApp_OB_PayloadHeader) :
     
     type     : Literal["contacts"] = "contacts"
-    contacts : Annotated[ list[WhatsAppContactPayload], Field( min_length = 1)]
+    contacts : Annotated[ list[WhatsAppContactCard], Field( min_length = 1)]
 
 class WhatsApp_OB_LocationMessage (WhatsApp_OB_PayloadHeader) :
     

@@ -60,9 +60,9 @@ from .whatsapp_functions import (
     send_whatsapp_text,
 )
 from .whatsapp_models import (
-    WhatsAppContactPayload,
-    WhatsAppMessage,
-    WhatsAppMessageEcho,
+    WhatsAppContactCard,
+    WhatsApp_IB_Message,
+    WhatsApp_IB_MessageEcho,
 )
 
 
@@ -856,7 +856,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
 
     def dedup_and_ingest_message(
         self,
-        message            : WhatsAppMessage | WhatsAppMessageEcho,
+        message            : WhatsApp_IB_Message | WhatsApp_IB_MessageEcho,
         media_content      : bytes | None = None,
         api_inbound_msg_id : int | None   = None,
     ) -> HumanMsg | None :
@@ -882,12 +882,12 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
 
         ContentMsgBM = (
             HumanUserContentMsg
-            if ( not isinstance( message, WhatsAppMessageEcho) ) else
+            if ( not isinstance( message, WhatsApp_IB_MessageEcho) ) else
             HumanServerContentMsg
         )
         InteractiveMsgBM = (
             HumanUserInteractiveReplyMsg
-            if ( not isinstance( message, WhatsAppMessageEcho) ) else
+            if ( not isinstance( message, WhatsApp_IB_MessageEcho) ) else
             HumanServerInteractiveReplyMsg
         )
         msg : HumanMsg | None = None
@@ -936,7 +936,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                 origin = here(),
                 ts     = message.timestamp,
                 text   = (
-                    TypeAdapter( tuple[ WhatsAppContactPayload, ...] )
+                    TypeAdapter( tuple[ WhatsAppContactCard, ...] )
                     .dump_json(message.contacts).decode()
                 ),
             )
@@ -1112,7 +1112,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
     @abstractmethod
     def process_message(
         self,
-        message       : WhatsAppMessage | WhatsAppMessageEcho,
+        message       : WhatsApp_IB_Message | WhatsApp_IB_MessageEcho,
         media_content : bytes | None = None,
     ) -> bool :
         """
@@ -1698,7 +1698,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
 
     async def dedup_and_ingest_message(
         self,
-        message            : WhatsAppMessage | WhatsAppMessageEcho,
+        message            : WhatsApp_IB_Message | WhatsApp_IB_MessageEcho,
         media_content      : bytes | None = None,
         api_inbound_msg_id : int | None   = None,
     ) -> HumanMsg | None :
@@ -1724,12 +1724,12 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
 
         ContentMsgBM = (
             HumanUserContentMsg
-            if ( not isinstance( message, WhatsAppMessageEcho) ) else
+            if ( not isinstance( message, WhatsApp_IB_MessageEcho) ) else
             HumanServerContentMsg
         )
         InteractiveMsgBM = (
             HumanUserInteractiveReplyMsg
-            if ( not isinstance( message, WhatsAppMessageEcho) ) else
+            if ( not isinstance( message, WhatsApp_IB_MessageEcho) ) else
             HumanServerInteractiveReplyMsg
         )
         msg : HumanMsg | None = None
@@ -1778,7 +1778,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                 origin = here(),
                 ts     = message.timestamp,
                 text   = (
-                    TypeAdapter( tuple[ WhatsAppContactPayload, ...] )
+                    TypeAdapter( tuple[ WhatsAppContactCard, ...] )
                     .dump_json(message.contacts).decode()
                 ),
             )
@@ -1957,7 +1957,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
     @abstractmethod
     async def process_message(
         self,
-        message       : WhatsAppMessage,
+        message       : WhatsApp_IB_Message,
         media_content : bytes | None = None,
     ) -> bool :
         """

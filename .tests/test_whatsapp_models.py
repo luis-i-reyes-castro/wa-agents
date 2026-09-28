@@ -4,8 +4,8 @@ from pydantic import ValidationError
 
 from wa_agents.whatsapp_models import (
     WhatsAppInteractiveOption,
-    WhatsAppMessage,
-    WhatsAppMessageEcho,
+    WhatsApp_IB_Message,
+    WhatsApp_IB_MessageEcho,
     WhatsApp_OB_InteractiveOptionsBodyObject,
     WhatsApp_OB_InteractiveOptionsButtonEntry,
     WhatsApp_OB_InteractiveOptionsButtons,
@@ -34,7 +34,7 @@ DOCUMENT_DATA = {
 
 def test_inbound_document_message() -> None :
     
-    message = WhatsAppMessage.model_validate({
+    message = WhatsApp_IB_Message.model_validate({
         "from"     : "593995341161",
         "id"       : "wamid.document",
         "timestamp" : "1788724265",
@@ -50,7 +50,7 @@ def test_inbound_document_message() -> None :
 
 def test_document_message_echo() -> None :
     
-    message = WhatsAppMessageEcho.model_validate({
+    message = WhatsApp_IB_MessageEcho.model_validate({
         "from"       : "593964204854",
         "to_user_id" : "EC.1286082552926188",
         "id"         : "wamid.documentecho",

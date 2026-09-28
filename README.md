@@ -342,7 +342,7 @@ placeholder contacts for their independent concurrency keys.
 
 ## WhatsApp Payload Data You Can Use
 
-The parsed payload model is `WhatsAppPayload`.
+The parsed payload model is `WhatsApp_IB_Payload`.
 
 `ServerMsg.user_eyes=True` marks a message meant only for the end user, for example
   transient UX text like "Thinking..." or "Looking up in database...". These
@@ -353,7 +353,7 @@ subclasses and WhatsApp Business message echoes to `HumanServerMsg` subclasses.
 Persist both in context, but generally return `False` for `HumanServerMsg` so an
 operator's message does not trigger a chatbot reply.
 
-Most routing happens in `WhatsAppMessage` fields:
+Most routing happens in `WhatsApp_IB_Message` fields:
 - `message.type`: `text`, `interactive`, `image`, `video`, `audio`, `sticker`, etc.
 - `message.text.body`: user text content.
 - `message.interactive.choice`: selected button/list option.
@@ -372,7 +372,7 @@ from wa_agents.case_handler_models import HumanServerMsg
 
 def process_message(
   self,
-  message       : WhatsAppMessage,
+  message       : WhatsApp_IB_Message,
   media_content : MediaContent | None = None,
 ) -> bool:
     msg = self.dedup_and_ingest_message( message, media_content)

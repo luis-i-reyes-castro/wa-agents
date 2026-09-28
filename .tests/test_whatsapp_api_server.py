@@ -9,7 +9,7 @@ from pydantic import ValidationError
 import pytest
 
 from wa_agents.whatsapp_api_server import WhatsAppAPIServer
-from wa_agents.whatsapp_models import WhatsAppPayload
+from wa_agents.whatsapp_models import WhatsApp_IB_Payload
 
 
 class StubRequest :
@@ -82,7 +82,7 @@ def test_webhook_passes_payload_dict_to_queue() -> None :
 def test_webhook_handles_payload_validation_error_from_queue() -> None :
     data = { "object" : "whatsapp_business_account", "entry" : [] }
     with pytest.raises(ValidationError) as exc_info :
-        WhatsAppPayload.model_validate(data)
+        WhatsApp_IB_Payload.model_validate(data)
 
     queue    = StubQueue(exc_info.value)
     server   = WhatsAppAPIServer( StubHandler, queue)

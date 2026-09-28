@@ -37,11 +37,11 @@ from .supabase import (
     get_database_url,
 )
 from .whatsapp_models import (
-    WhatsAppContact,
-    WhatsAppMessage,
-    WhatsAppMessageEcho,
-    WhatsAppPayload,
-    WhatsAppValue,
+    WhatsApp_IB_Contact,
+    WhatsApp_IB_Message,
+    WhatsApp_IB_MessageEcho,
+    WhatsApp_IB_Payload,
+    WhatsApp_IB_Value,
 )
 
 
@@ -62,7 +62,7 @@ class PayloadEnqueueResult (TypedDict) :
 
 
 def _message_data(
-    message : WhatsAppMessage | WhatsAppMessageEcho,
+    message : WhatsApp_IB_Message | WhatsApp_IB_MessageEcho,
 ) -> dict[ str, Any] :
     """
     Return message-specific data stored outside normalized columns.
@@ -75,7 +75,7 @@ def _message_data(
     )
 
 
-def _value_contact( value : WhatsAppValue) -> WhatsAppContact :
+def _value_contact( value : WhatsApp_IB_Value) -> WhatsApp_IB_Contact :
     """
     Return the contact represented by one WhatsApp change value.
     """
@@ -83,16 +83,19 @@ def _value_contact( value : WhatsAppValue) -> WhatsAppContact :
         return value.contacts[0]
     if value.messages :
         message = value.messages[0]
-        return WhatsAppContact( wa_id = message.user, user_id = message.user_id)
+        return WhatsApp_IB_Contact(
+            wa_id   = message.user,
+            user_id = message.user_id,
+        )
     if value.message_echoes :
         message = value.message_echoes[0]
-        return WhatsAppContact(
+        return WhatsApp_IB_Contact(
             wa_id   = message.to,
             user_id = message.to_user_id,
         )
     if value.statuses :
         message_status = value.statuses[0]
-        return WhatsAppContact(
+        return WhatsApp_IB_Contact(
             wa_id   = message_status.recipient_id,
             user_id = message_status.recipient_user_id,
         )
@@ -158,7 +161,7 @@ class QueueDB :
     def _persist_valid_payload(
         self,
         payload_id : int,
-        payload    : WhatsAppPayload,
+        payload    : WhatsApp_IB_Payload,
     ) -> bool :
         """
         Normalize a validated payload and enqueue newly persisted messages.
@@ -172,7 +175,7 @@ class QueueDB :
             for change_index, change in enumerate(item.changes) :
                 
                 value = change.value
-                if not isinstance( value, WhatsAppValue) :
+                if not isinstance( value, WhatsApp_IB_Value) :
                     continue
                 
                 business = self.storage.upsert_business(
@@ -273,7 +276,7 @@ class QueueDB :
         stored     = bool(raw_payload.get("inserted"))
         
         try :
-            payload = WhatsAppPayload.model_validate(data)
+            payload = WhatsApp_IB_Payload.model_validate(data)
         except ValidationError as ex :
             invalid = self.storage.mark_inbound_payload_invalid(
                 payload_id,
@@ -419,7 +422,7 @@ class AsyncQueueDB :
     async def _persist_valid_payload(
         self,
         payload_id : int,
-        payload    : WhatsAppPayload,
+        payload    : WhatsApp_IB_Payload,
     ) -> bool :
         """
         Normalize a validated payload and enqueue newly persisted messages.
@@ -433,7 +436,7 @@ class AsyncQueueDB :
             for change_index, change in enumerate(item.changes) :
                 
                 value = change.value
-                if not isinstance( value, WhatsAppValue) :
+                if not isinstance( value, WhatsApp_IB_Value) :
                     continue
                 
                 business = await self.storage.upsert_business(
@@ -534,7 +537,7 @@ class AsyncQueueDB :
         stored     = bool(raw_payload.get("inserted"))
         
         try :
-            payload = WhatsAppPayload.model_validate(data)
+            payload = WhatsApp_IB_Payload.model_validate(data)
         except ValidationError as ex :
             invalid = await self.storage.mark_inbound_payload_invalid(
                 payload_id,

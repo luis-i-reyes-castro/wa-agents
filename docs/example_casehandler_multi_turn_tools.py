@@ -24,7 +24,7 @@ from wa_agents.case_handler_models import (
     ToolResultsMsg,
 )
 from wa_agents.whatsapp_models import (
-    WhatsAppMessage,
+    WhatsApp_IB_Message,
 )
 
 
@@ -104,7 +104,7 @@ class CaseHandler (AsyncWhatsAppCaseHandler) :
 
     async def process_message(
         self,
-        message       : WhatsAppMessage,
+        message       : WhatsApp_IB_Message,
         media_content : bytes | None = None,
     ) -> bool :
         """

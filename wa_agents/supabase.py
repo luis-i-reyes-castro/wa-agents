@@ -42,9 +42,9 @@ from .case_handler_models import (
     Message,
 )
 from .whatsapp_models import (
-    WhatsAppContact,
-    WhatsAppMetaData,
-    WhatsAppProfile,
+    WhatsApp_IB_Contact,
+    WhatsApp_IB_MetaData,
+    WhatsApp_IB_Profile,
 )
 
 
@@ -63,7 +63,7 @@ class WhatsAppDatabaseRecord (BaseModel) :
     api_id : NE_str = "<PHONE_NUMBER_ID|WA_ID|USER_ID>"
 
 
-class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsAppMetaData) :
+class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsApp_IB_MetaData) :
     """
     Normalized WhatsApp Business Record:
         `row_id` : `wa_api_businesses.id`
@@ -79,7 +79,7 @@ class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsAppMetaData
         return self
 
 
-class WhatsAppDatabaseRecord_Contact ( WhatsAppDatabaseRecord, WhatsAppContact) :
+class WhatsAppDatabaseRecord_Contact ( WhatsAppDatabaseRecord, WhatsApp_IB_Contact) :
     """
     Normalized WhatsApp Contact record:
         `row_id` : `wa_api_contacts.id`
@@ -393,7 +393,7 @@ class SyncSupabaseStorage :
             
             contact_business = row["business"]
             profile = (
-                WhatsAppProfile(
+                WhatsApp_IB_Profile(
                     name     = row["profile_name"],
                     username = row.get("profile_username"),
                 )
@@ -962,7 +962,7 @@ class AsyncSupabaseStorage :
             
             contact_business = row["business"]
             profile = (
-                WhatsAppProfile(
+                WhatsApp_IB_Profile(
                     name     = row["profile_name"],
                     username = row.get("profile_username"),
                 )

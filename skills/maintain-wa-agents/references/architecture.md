@@ -45,7 +45,7 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
 - `wa_api_inbound_payloads` combines raw audit data and resolved metadata.
   `contact` must remain nullable so malformed or otherwise unresolvable payloads can
   still be persisted with validation errors.
-- Treat each `WhatsAppValue` as carrying at most one contact identity. Do not
+- Treat each `WhatsApp_IB_Value` as carrying at most one contact identity. Do not
   generalize that cardinality without a real requirement and a schema decision.
 - `data_hash` makes raw payload ingestion idempotent. Message IDs independently
   protect normalized inbound-message deduplication.

@@ -1,7 +1,7 @@
 -- PARAMS:
   -- payload      : wa_api_inbound_payloads.id
   -- msg_id       : WhatsAppMessageID
-  -- msg_status   : WhatsAppStatus
+  -- msg_status   : WhatsApp_IB_Status
   -- status_ts    : datetime
   -- conversation : dict | None
   -- pricing      : dict | None

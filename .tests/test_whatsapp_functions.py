@@ -5,9 +5,9 @@ from wa_agents.case_handler_models import (
 )
 from wa_agents.whatsapp_functions import write_payload
 from wa_agents.whatsapp_models import (
-    WhatsAppContactPayload,
-    WhatsAppContactPayload_Name,
-    WhatsAppContactPayload_Phone,
+    WhatsAppContactCard,
+    WhatsAppContactCard_Name,
+    WhatsAppContactCard_Phone,
     WhatsAppInteractiveOption,
     WhatsAppLocation,
 )
@@ -151,13 +151,13 @@ def test_write_document_payload_uses_outbound_model() -> None :
 
 def test_write_contacts_payload_uses_outbound_model() -> None :
     
-    contact = WhatsAppContactPayload(
-        name   = WhatsAppContactPayload_Name(
+    contact = WhatsAppContactCard(
+        name   = WhatsAppContactCard_Name(
             formatted_name = "Luis Reyes",
             first_name     = "Luis",
         ),
         phones = (
-            WhatsAppContactPayload_Phone(
+            WhatsAppContactCard_Phone(
                 phone = "+593999000111",
                 type  = "CELL",
             ),

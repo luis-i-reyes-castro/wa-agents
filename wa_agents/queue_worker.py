@@ -43,9 +43,9 @@ from .whatsapp_functions import (
     fetch_media,
 )
 from .whatsapp_models import (
-    WhatsAppMessage,
-    WhatsAppMessageEcho,
-    WhatsAppProfile,
+    WhatsApp_IB_Message,
+    WhatsApp_IB_MessageEcho,
+    WhatsApp_IB_Profile,
 )
 
 
@@ -133,12 +133,12 @@ def _build_handler_registry(
 
 def _job_and_message(
     item : dict[str, Any],
-) -> tuple[ HandlerJob, WhatsAppMessage] :
+) -> tuple[ HandlerJob, WhatsApp_IB_Message] :
     """
     Reconstruct handler inputs from `get_inbound_message.sql` output.
     """
     profile = (
-        WhatsAppProfile(
+        WhatsApp_IB_Profile(
             name     = item["profile_name"],
             username = item.get("profile_username"),
         )
@@ -167,7 +167,7 @@ def _job_and_message(
             "type"         : item["msg_type"],
         }
     )
-    MsgBM   = WhatsAppMessageEcho if item["is_echo"] else WhatsAppMessage
+    MsgBM   = WhatsApp_IB_MessageEcho if item["is_echo"] else WhatsApp_IB_Message
     message = MsgBM.model_validate(msg_data)
     
     job = HandlerJob(

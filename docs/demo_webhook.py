@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
 
-# NOTE:
-# This script is old; the new stack uses FastAPI instead of Flask.
-# Since Flask is not longer included in `requirements.txt`,
-# install it via `pip install -U flask`.
-
 import os
+import uvicorn
+
 from dotenv import load_dotenv
-from flask import (
-    Flask,
-    request,
+from fastapi import (
+    FastAPI,
+    Request,
 )
+from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
 
 from sofia_utils.printing import (
     print_recursively,
     print_sep,
 )
-from wa_agents.whatsapp_models import WhatsAppPayload
+from wa_agents.whatsapp_models import WhatsApp_IB_Payload
 
 
 load_dotenv()
@@ -25,27 +23,27 @@ VERIFY_TOKEN = os.getenv("WA_VERIFY_TOKEN")
 print(f"WA_VERIFY TOKEN: {VERIFY_TOKEN}")
 
 
-app = Flask(__name__)
+app = FastAPI()
 
 
-@app.route( "/webhook", methods = ["GET"])
-def verify() :
+@app.get("/webhook")
+def verify( request : Request) -> PlainTextResponse :
     
-    token     = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
+    token     = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
     
     if token == VERIFY_TOKEN:
-        return challenge
+        return PlainTextResponse( challenge or "" )
     
-    return "Verification failed", 403
+    return PlainTextResponse( "Verification failed", status_code = 403)
 
 
-@app.route( "/webhook", methods = ["POST"])
-def webhook() :
+@app.post("/webhook")
+async def webhook( request : Request) -> PlainTextResponse :
     
-    data = request.get_json()
+    data = await request.json()
     try :
-        payload = WhatsAppPayload.model_validate(data)
+        payload = WhatsApp_IB_Payload.model_validate(data)
         print_sep()
         print("WHATSAPP PAYLOAD STRUCTURE:")
         print(payload.model_dump_json( indent = 2))
@@ -58,8 +56,8 @@ def webhook() :
     except Exception as e :
         print( "Error:", e)
     
-    return "ok", 200
+    return PlainTextResponse("OK")
 
 
 if __name__ == "__main__":
-    app.run( port = 8080, debug = True)
+    uvicorn.run( app, port = 5000)

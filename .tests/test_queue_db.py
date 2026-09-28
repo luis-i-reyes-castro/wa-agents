@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from wa_agents import queue_db
-from wa_agents.whatsapp_models import WhatsAppPayload
+from wa_agents.whatsapp_models import WhatsApp_IB_Payload
 
 
 class _StorageStub :
@@ -181,13 +181,13 @@ class _AsyncPayloadStorageStub :
 
 
 def _track_validation( monkeypatch, events : list[str]) -> None :
-    model_validate = WhatsAppPayload.model_validate
+    model_validate = WhatsApp_IB_Payload.model_validate
 
     def validate( _cls, data) :
         events.append("validate")
         return model_validate(data)
 
-    monkeypatch.setattr( WhatsAppPayload, "model_validate", classmethod(validate))
+    monkeypatch.setattr( WhatsApp_IB_Payload, "model_validate", classmethod(validate))
 
 
 def test_queue_stores_invalid_payload_before_validation( monkeypatch) -> None :
