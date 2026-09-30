@@ -6,8 +6,8 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from wa_agents import queue_db
-from wa_agents.whatsapp_models import WhatsApp_IB_Payload
+from wa_agents import database_queue
+from wa_agents.io_models import WhatsApp_IB_Payload
 
 
 class _StorageStub :
@@ -28,8 +28,53 @@ class _StorageStub :
         return True
 
 
+def test_legacy_queue_class_names_are_removed() -> None :
+    assert not hasattr( database_queue, "QueueDB")
+    assert not hasattr( database_queue, "AsyncQueueDB")
+
+
+@pytest.mark.parametrize( "raise_inside", [ False, True ] )
+def test_async_queue_owns_connection_pool_lifetime(
+    monkeypatch,
+    raise_inside : bool,
+) -> None :
+    events = []
+    queue  = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
+
+    async def open_pool( database_url : str) -> None :
+        events.append(f"open:{database_url}")
+
+    async def close_pool() -> None :
+        events.append("close")
+
+    monkeypatch.setattr(
+        database_queue,
+        "open_async_database_connection_pool",
+        open_pool,
+    )
+    monkeypatch.setattr(
+        database_queue,
+        "close_async_database_connection_pool",
+        close_pool,
+    )
+
+    async def run() -> None :
+        async with queue.connection_pool() :
+            events.append("yield")
+            if raise_inside :
+                raise RuntimeError("test")
+
+    if raise_inside :
+        with pytest.raises( RuntimeError, match = "test") :
+            asyncio.run(run())
+    else :
+        asyncio.run(run())
+
+    assert events == [ "open:postgresql://test", "yield", "close" ]
+
+
 def test_queue_enqueues_persisted_message_id( monkeypatch) -> None :
-    queue = queue_db.QueueDB(
+    queue = database_queue.WhatsAppDatabaseQueue(
         "postgresql://test",
         fallback_handler_key = "fallback",
     )
@@ -44,14 +89,14 @@ def test_queue_enqueues_persisted_message_id( monkeypatch) -> None :
     assert queue._enqueue_message("wamid.ABC123=") is True
     assert calls == [
         (
-            queue_db.SQL_ENQUEUE,
+            database_queue.SQL_ENQUEUE,
             { "msg_id" : "wamid.ABC123=" },
         ),
     ]
 
 
 def test_queue_claim_returns_message_and_lease_identity( monkeypatch) -> None :
-    queue         = queue_db.QueueDB("postgresql://test")
+    queue         = database_queue.WhatsAppDatabaseQueue("postgresql://test")
     queue.storage = _StorageStub()
     calls         = []
 
@@ -75,7 +120,7 @@ def test_queue_claim_returns_message_and_lease_identity( monkeypatch) -> None :
     assert item["handler_id"] == 7
     assert item["handler_key"] == "default"
     assert isinstance( item["owner_token"], UUID)
-    assert calls[0][0] == queue_db.SQL_CLAIM_NEXT
+    assert calls[0][0] == database_queue.SQL_CLAIM_NEXT
     assert calls[0][1]["owner_token"] == item["owner_token"]
     assert calls[0][1]["handler_keys"] == [ "default" ]
     assert calls[0][1]["fallback_handler_key"] == "default"
@@ -193,7 +238,7 @@ def _track_validation( monkeypatch, events : list[str]) -> None :
 def test_queue_stores_invalid_payload_before_validation( monkeypatch) -> None :
     events        = []
     storage       = _PayloadStorageStub(events)
-    queue         = queue_db.QueueDB("postgresql://test")
+    queue         = database_queue.WhatsAppDatabaseQueue("postgresql://test")
     queue.storage = storage
     _track_validation( monkeypatch, events)
 
@@ -209,7 +254,7 @@ def test_async_queue_validates_normalizes_and_enqueues_payload(
 ) -> None :
     events        = []
     storage       = _AsyncPayloadStorageStub(events)
-    queue         = queue_db.AsyncQueueDB("postgresql://test")
+    queue         = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
     queue.storage = storage
     _track_validation( monkeypatch, events)
 
@@ -241,7 +286,7 @@ def test_async_queue_validates_normalizes_and_enqueues_payload(
 def test_async_queue_does_not_normalize_duplicate_payload( monkeypatch) -> None :
     events        = []
     storage       = _AsyncPayloadStorageStub( events, inserted = False)
-    queue         = queue_db.AsyncQueueDB("postgresql://test")
+    queue         = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
     queue.storage = storage
     _track_validation( monkeypatch, events)
 

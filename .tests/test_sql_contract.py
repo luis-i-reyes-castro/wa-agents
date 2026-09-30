@@ -265,7 +265,7 @@ def test_case_message_insert_persists_state_history() -> None :
     assert "message.id" in normalized
     assert "manifest.machine_state" in normalized
     assert "state_history AS" in normalized
-    assert "history.case_message = msg.id" in normalized
+    assert "msg.id = history.case_message" in normalized
 
 
 def test_agent_contexts_are_append_only_generations() -> None :

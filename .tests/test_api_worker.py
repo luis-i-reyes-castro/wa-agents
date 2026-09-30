@@ -10,9 +10,9 @@ from uuid import uuid4
 
 import pytest
 
-from wa_agents.queue_worker import (
-    AsyncQueueWorker,
-    QueueWorker,
+from wa_agents import api_worker
+from wa_agents.api_worker import (
+    WhatsAppAPIWorker,
     _job_and_message,
 )
 
@@ -42,25 +42,10 @@ def _queue_item() -> dict :
     }
 
 
-class _QueueStub :
-
-    def __init__(self) -> None :
-        self.item       = _queue_item()
-        self.done_ids   = []
-        self.error_ids  = []
-        self.claimed_keys = None
-
-    def claim_next( self, handler_keys) -> dict | None :
-        self.claimed_keys = handler_keys
-        item      = self.item
-        self.item = None
-        return item
-
-    def mark_done( self, row_id : int) -> None :
-        self.done_ids.append(row_id)
-
-    def mark_error( self, row_id : int) -> None :
-        self.error_ids.append(row_id)
+def test_legacy_worker_class_names_are_removed() -> None :
+    assert not hasattr( api_worker, "QueueWorker")
+    assert not hasattr( api_worker, "AsyncQueueWorker")
+    assert not hasattr( api_worker, "WhatsAppDatabaseQueueWorker")
 
 
 class _AsyncQueueStub :
@@ -171,12 +156,15 @@ def test_queue_row_reconstructs_job_and_message() -> None :
     assert message.text.body == "Hola"
 
 
-def test_queue_worker_releases_lease_after_ingest_reply() -> None :
+def test_api_worker_releases_lease_after_ingest_reply() -> None :
     _ImmediateReplyHandler.instances.clear()
-    queue  = _QueueStub()
-    worker = QueueWorker(queue, _ImmediateReplyHandler)
+    queue  = _AsyncQueueStub()
+    worker = WhatsAppAPIWorker(
+        handler_cls = _ImmediateReplyHandler,
+        queue       = queue,
+    )
 
-    assert worker._process_message() is True
+    assert asyncio.run(worker._process_message()) is True
     assert queue.done_ids == [ 1 ]
     assert queue.error_ids == []
     assert not worker._job_td
@@ -186,10 +174,13 @@ def test_queue_worker_releases_lease_after_ingest_reply() -> None :
     assert queue.claimed_keys == ( "default", )
 
 
-def test_async_queue_worker_releases_lease_after_ingest_reply() -> None :
+def test_api_worker_supports_async_handler_methods() -> None :
     _AsyncImmediateReplyHandler.instances.clear()
     queue  = _AsyncQueueStub()
-    worker = AsyncQueueWorker(queue, _AsyncImmediateReplyHandler)
+    worker = WhatsAppAPIWorker(
+        handler_cls = _AsyncImmediateReplyHandler,
+        queue       = queue,
+    )
 
     assert asyncio.run(worker._process_message()) is True
     assert queue.done_ids == [ 1 ]
@@ -200,19 +191,26 @@ def test_async_queue_worker_releases_lease_after_ingest_reply() -> None :
     assert queue.claimed_keys == ( "default", )
 
 
-def test_queue_worker_holds_lease_through_delayed_response() -> None :
+def test_api_worker_holds_lease_through_delayed_response() -> None :
     _DelayedReplyHandler.instances.clear()
-    queue  = _QueueStub()
-    worker = QueueWorker(queue, _DelayedReplyHandler)
+    queue  = _AsyncQueueStub()
+    worker = WhatsAppAPIWorker(
+        handler_cls = _DelayedReplyHandler,
+        queue       = queue,
+    )
 
-    assert worker._process_message() is True
+    async def run() -> tuple[ object, list] :
+        assert await worker._process_message() is True
+        ingest_handler = _DelayedReplyHandler.instances[0]
+        jobs           = list(worker._job_td)
 
-    ingest_handler = _DelayedReplyHandler.instances[0]
-    jobs           = list(worker._job_td)
+        assert ingest_handler.released is False
+        assert len(jobs) == 1
+        assert await worker._process_jobs(jobs) is True
 
-    assert ingest_handler.released is False
-    assert len(jobs) == 1
-    assert worker._process_jobs(jobs) is True
+        return ingest_handler, jobs
+
+    asyncio.run(run())
 
     response_handler = _DelayedReplyHandler.instances[1]
 
@@ -221,34 +219,34 @@ def test_queue_worker_holds_lease_through_delayed_response() -> None :
     assert not worker._job_td
 
 
-def test_queue_worker_claims_and_dispatches_registered_handler_keys() -> None :
+def test_api_worker_claims_and_dispatches_registered_handler_keys() -> None :
     _RetailReplyHandler.instances.clear()
-    queue                     = _QueueStub()
+    queue                     = _AsyncQueueStub()
     queue.item["handler_key"] = "retail"
-    worker                    = QueueWorker(
-        queue,
+    worker                    = WhatsAppAPIWorker(
+        queue           = queue,
         handler_classes = {
             "enterprise" : _EnterpriseReplyHandler,
             "retail"     : _RetailReplyHandler,
         },
     )
 
-    assert worker._process_message() is True
+    assert asyncio.run(worker._process_message()) is True
     assert queue.claimed_keys == ( "enterprise", "retail" )
     assert len(_RetailReplyHandler.instances) == 1
 
 
-def test_queue_worker_rejects_registry_key_mismatch() -> None :
+def test_api_worker_rejects_registry_key_mismatch() -> None :
     with pytest.raises( ValueError, match = "does not match") :
-        QueueWorker(
-            _QueueStub(),
+        WhatsAppAPIWorker(
+            queue           = _AsyncQueueStub(),
             handler_classes = { "wrong" : _RetailReplyHandler },
         )
 
 
 @pytest.mark.parametrize( "handler_key", [ "", "has whitespace", 1 ] )
 @pytest.mark.parametrize( "use_registry", [ False, True ] )
-def test_queue_worker_rejects_invalid_handler_key(
+def test_api_worker_rejects_invalid_handler_key(
     handler_key,
     use_registry : bool,
 ) -> None :
@@ -264,12 +262,15 @@ def test_queue_worker_rejects_invalid_handler_key(
     )
 
     with pytest.raises( ValueError, match = "Invalid handler registry key") :
-        QueueWorker( _QueueStub(), **kwargs)
+        WhatsAppAPIWorker( queue = _AsyncQueueStub(), **kwargs)
 
 
 def test_single_handler_shorthand_aligns_queue_fallback_key() -> None :
-    queue  = _QueueStub()
-    worker = QueueWorker( queue, _RetailReplyHandler)
+    queue  = _AsyncQueueStub()
+    worker = WhatsAppAPIWorker(
+        handler_cls = _RetailReplyHandler,
+        queue       = queue,
+    )
 
     assert queue.fallback_handler_key == "retail"
     assert worker.handler_keys == ( "retail", )

@@ -2,7 +2,7 @@ import pytest
 
 from pydantic import ValidationError
 
-from wa_agents.whatsapp_models import (
+from wa_agents.io_models import (
     WhatsAppInteractiveOption,
     WhatsApp_IB_Message,
     WhatsApp_IB_MessageEcho,

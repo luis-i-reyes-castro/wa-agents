@@ -3,8 +3,8 @@ from wa_agents.case_handler_models import (
     ServerMediaMsg,
     ServerInteractiveOptsMsg,
 )
-from wa_agents.whatsapp_functions import write_payload
-from wa_agents.whatsapp_models import (
+from wa_agents.io_functions import write_payload
+from wa_agents.io_models import (
     WhatsAppContactCard,
     WhatsAppContactCard_Name,
     WhatsAppContactCard_Phone,

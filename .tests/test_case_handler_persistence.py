@@ -21,14 +21,14 @@ from wa_agents.case_handler_models import (
     Message,
     ServerTextMsg,
 )
+from wa_agents.io_models import (
+    WhatsApp_IB_Message,
+    WhatsApp_IB_Profile,
+)
 from wa_agents.supabase import (
     SyncSupabaseStorage,
     WhatsAppDatabaseRecord_Business,
     WhatsAppDatabaseRecord_Contact,
-)
-from wa_agents.whatsapp_models import (
-    WhatsApp_IB_Message,
-    WhatsApp_IB_Profile,
 )
 
 
