@@ -446,6 +446,26 @@ class ServerTemplateMsg ( ServerMsg, StructuredDataMsg) :
             exclude_none = True,
         )
 
+class ServerFlowMsg ( ServerMsg, StructuredDataMsg) :
+    """
+    WhatsApp Flow launch message ( Server -> User ).
+    """
+    flow_id     : NE_str
+    flow_token  : NE_str
+    flow_cta    : Annotated[ str, Field( min_length = 1, max_length = 30)]
+    body        : WhatsAppInteractiveBody
+    header      : WhatsAppInteractiveHeaderFooter | None = None
+    footer      : WhatsAppInteractiveHeaderFooter | None = None
+    flow_mode   : Literal[ "draft", "published"]        = "published"
+    flow_action : Literal[ "navigate", "data_exchange"] = "navigate"
+    screen      : NE_str | None = None
+    data        : dict[str, Any] = Field( default_factory = dict)
+    
+    def as_text(self) -> str :
+        return self.model_dump_json(
+            include = { "flow_id", "flow_cta", "body" },
+        )
+
 class ServerMediaMsg ( MediaObject, ServerMsg) :
     """
     Server Media Message

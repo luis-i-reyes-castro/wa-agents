@@ -32,6 +32,49 @@ CREATE TYPE T_WHATSAPP_STATUS AS ENUM (
   'read',
   'sent'
 );
+CREATE TYPE T_WHATSAPP_FLOW_STATUS AS ENUM (
+  'DRAFT',
+  'PUBLISHED',
+  'DEPRECATED',
+  'BLOCKED',
+  'THROTTLED'
+);
+CREATE TYPE T_WHATSAPP_FLOW_SESSION_STATUS AS ENUM (
+  'created',
+  'sent',
+  'active',
+  'completed',
+  'failed',
+  'expired',
+  'superseded'
+);
+CREATE TYPE T_WHATSAPP_FLOW_EXCHANGE_STATUS AS ENUM (
+  'processing',
+  'succeeded',
+  'failed'
+);
+
+-- FUNCTIONS
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE OR REPLACE FUNCTION public.encrypt_text( data TEXT, key TEXT)
+RETURNS BYTEA
+LANGUAGE SQL
+AS $$
+  SELECT pgp_sym_encrypt(
+    data,
+    key,
+    'cipher-algo=aes256,compress-algo=0'::TEXT
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.decrypt_text( data BYTEA, key TEXT)
+RETURNS TEXT
+LANGUAGE SQL
+AS $$
+  SELECT pgp_sym_decrypt( data, key);
+$$;
 
 
 -- ========================================================================================
@@ -719,4 +762,254 @@ CREATE INDEX IF NOT EXISTS wa_case_handler_agent_contexts_message_idx
   WHERE ( case_message IS NOT NULL );
 
 ALTER TABLE public.wa_case_handler_agent_contexts
+  ENABLE ROW LEVEL SECURITY;
+
+
+/*
+  =========================================================================================
+  WHATSAPP FLOWS
+  =========================================================================================
+*/
+
+-- WABA ENCRYPTION KEYS
+
+CREATE TABLE IF NOT EXISTS public.wa_api_flow_wabas (
+  
+  id                      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  waba_id                 T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  public_key              TEXT        NOT NULL,
+  public_key_fingerprint  T_NO_WS_STR NOT NULL, -- '^[A-Fa-f0-9]{64}$'
+  private_key_encrypted   BYTEA       NOT NULL,
+  
+  CONSTRAINT wa_api_flow_wabas_waba_id_unique
+    UNIQUE (waba_id),
+  
+  CONSTRAINT wa_api_flow_wabas_public_key_fingerprint_unique
+    UNIQUE (public_key_fingerprint)
+
+);
+
+ALTER TABLE public.wa_api_flow_wabas
+  ENABLE ROW LEVEL SECURITY;
+
+-- FLOW DEFINITIONS
+
+CREATE TABLE IF NOT EXISTS public.wa_api_flows (
+  
+  id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at        TIMESTAMPTZ            NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ            NOT NULL DEFAULT now(),
+  
+  flow_waba         BIGINT                 NOT NULL,
+  flow_key          T_NO_WS_STR            NOT NULL,
+  flow_id           T_NO_WS_STR            NOT NULL, -- '^[0-9]+$'
+  flow_name         T_NO_WS_STR            NOT NULL,
+  handler_key       T_NO_WS_STR            NOT NULL,
+  flow_status       T_WHATSAPP_FLOW_STATUS NOT NULL DEFAULT 'DRAFT',
+  flow_json_version T_NO_WS_STR            NOT NULL DEFAULT '7.1',
+  data_api_version  T_NO_WS_STR            NOT NULL DEFAULT '3.0',
+  endpoint_uri      TEXT                   DEFAULT NULL,
+  is_active         BOOLEAN                NOT NULL DEFAULT TRUE,
+  
+  CONSTRAINT wa_api_flows_flow_waba_fkey
+    FOREIGN KEY (flow_waba)
+    REFERENCES public.wa_api_flow_wabas(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_flows_flow_id_unique
+    UNIQUE (flow_id)
+
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS wa_api_flows_waba_key_active_idx
+  ON public.wa_api_flows (
+    flow_waba,
+    flow_key
+  )
+  WHERE is_active;
+
+CREATE INDEX IF NOT EXISTS wa_api_flows_handler_key_idx
+  ON public.wa_api_flows (handler_key);
+
+ALTER TABLE public.wa_api_flows
+  ENABLE ROW LEVEL SECURITY;
+
+-- FLOW SESSIONS
+
+CREATE TABLE IF NOT EXISTS public.wa_api_flow_sessions (
+  
+  id                    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at            TIMESTAMPTZ                      NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ                      NOT NULL DEFAULT now(),
+  expires_at            TIMESTAMPTZ                      NOT NULL,
+  activated_at          TIMESTAMPTZ                      DEFAULT NULL,
+  completed_at          TIMESTAMPTZ                      DEFAULT NULL,
+  
+  flow                  BIGINT                           NOT NULL,
+  business              BIGINT                           NOT NULL,
+  contact               BIGINT                           NOT NULL,
+  case_handler_message  BIGINT                           DEFAULT NULL,
+  outbound_message      BIGINT                           DEFAULT NULL,
+  completion_message    BIGINT                           DEFAULT NULL,
+  flow_token_encrypted  BYTEA                            NOT NULL,
+  flow_token_hash       T_NO_WS_STR                      NOT NULL,
+  session_state         BYTEA                            DEFAULT NULL,
+  completion_data       BYTEA                            DEFAULT NULL,
+  session_status        T_WHATSAPP_FLOW_SESSION_STATUS   NOT NULL DEFAULT 'created',
+  last_error            JSONB                            DEFAULT NULL,
+  
+  CONSTRAINT wa_api_flow_sessions_flow_fkey
+    FOREIGN KEY (flow)
+    REFERENCES public.wa_api_flows(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_flow_sessions_business_fkey
+    FOREIGN KEY (business)
+    REFERENCES public.wa_api_businesses(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_flow_sessions_contact_fkey
+    FOREIGN KEY ( business, contact)
+    REFERENCES public.wa_api_contacts( business, id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_flow_sessions_case_handler_message_fkey
+    FOREIGN KEY (case_handler_message)
+    REFERENCES public.wa_case_handler_messages(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_flow_sessions_outbound_message_fkey
+    FOREIGN KEY (outbound_message)
+    REFERENCES public.wa_api_outbound_messages(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_flow_sessions_completion_message_fkey
+    FOREIGN KEY (completion_message)
+    REFERENCES public.wa_api_inbound_messages(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_flow_sessions_flow_token_hash_unique
+    UNIQUE (flow_token_hash),
+  
+  CONSTRAINT wa_api_flow_sessions_expiry_check
+    CHECK ( expires_at > created_at )
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_api_flow_sessions_contact_status_idx
+  ON public.wa_api_flow_sessions (
+    contact,
+    session_status,
+    created_at DESC,
+    id
+  );
+
+CREATE INDEX IF NOT EXISTS wa_api_flow_sessions_expiry_idx
+  ON public.wa_api_flow_sessions (expires_at)
+  WHERE session_status IN ( 'created', 'sent', 'active');
+
+ALTER TABLE public.wa_api_flow_sessions
+  ENABLE ROW LEVEL SECURITY;
+
+-- FLOW DATA EXCHANGES
+
+CREATE TABLE IF NOT EXISTS public.wa_api_flow_data_exchanges (
+  
+  id                  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at          TIMESTAMPTZ                       NOT NULL DEFAULT now(),
+  completed_at        TIMESTAMPTZ                       DEFAULT NULL,
+  
+  flow_waba           BIGINT                            NOT NULL,
+  session             BIGINT                            DEFAULT NULL,
+  request_hash        T_NO_WS_STR                       NOT NULL,
+  request_action      T_NO_WS_STR                       NOT NULL,
+  request_screen      T_NO_WS_STR                       DEFAULT NULL,
+  request_data        BYTEA                             NOT NULL,
+  response_data       BYTEA                             DEFAULT NULL,
+  exchange_status     T_WHATSAPP_FLOW_EXCHANGE_STATUS   NOT NULL DEFAULT 'processing',
+  http_status         SMALLINT                          DEFAULT NULL,
+  latency_ms          INT                               DEFAULT NULL,
+  error_code          T_NO_WS_STR                       DEFAULT NULL,
+  error_message       TEXT                              DEFAULT NULL,
+  
+  CONSTRAINT wa_api_flow_data_exchanges_flow_waba_fkey
+    FOREIGN KEY (flow_waba)
+    REFERENCES public.wa_api_flow_wabas(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_flow_data_exchanges_session_fkey
+    FOREIGN KEY (session)
+    REFERENCES public.wa_api_flow_sessions(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_flow_data_exchanges_latency_nonnegative
+    CHECK ( ( latency_ms IS NULL ) OR ( latency_ms >= 0 ) )
+
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS wa_api_flow_data_exchanges_session_request_idx
+  ON public.wa_api_flow_data_exchanges (
+    session,
+    request_hash
+  )
+  WHERE ( session IS NOT NULL );
+
+CREATE INDEX IF NOT EXISTS wa_api_flow_data_exchanges_waba_time_idx
+  ON public.wa_api_flow_data_exchanges (
+    flow_waba,
+    created_at DESC,
+    id
+  );
+
+ALTER TABLE public.wa_api_flow_data_exchanges
+  ENABLE ROW LEVEL SECURITY;
+
+-- FLOW WEBHOOK EVENTS
+
+CREATE TABLE IF NOT EXISTS public.wa_api_flow_events (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  event_at      TIMESTAMPTZ DEFAULT NULL,
+  
+  payload       BIGINT      NOT NULL,
+  flow_waba     BIGINT      DEFAULT NULL,
+  flow_id       T_NO_WS_STR DEFAULT NULL, -- '^[0-9]+$'
+  event_type    T_NO_WS_STR NOT NULL,
+  event_data    JSONB       NOT NULL,
+  
+  CONSTRAINT wa_api_flow_events_payload_fkey
+    FOREIGN KEY (payload)
+    REFERENCES public.wa_api_inbound_payloads(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_flow_events_flow_waba_fkey
+    FOREIGN KEY (flow_waba)
+    REFERENCES public.wa_api_flow_wabas(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_api_flow_events_flow_time_idx
+  ON public.wa_api_flow_events (
+    flow_id,
+    received_at DESC,
+    id
+  );
+
+ALTER TABLE public.wa_api_flow_events
   ENABLE ROW LEVEL SECURITY;

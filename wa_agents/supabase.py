@@ -40,6 +40,7 @@ from sofia_utils.pydantic import (
 from .case_handler_models import (
     CaseManifest,
     Message,
+    ServerFlowMsg,
 )
 from .io_models import (
     WhatsApp_IB_Contact,
@@ -141,6 +142,10 @@ SQL_GET_CASE_HANDLER_MESSAGES       = _load_sql("get_case_handler_messages.sql")
 SQL_GET_CASE_MANIFEST               = _load_sql("get_case_manifest.sql")
 SQL_GET_CASE_MESSAGE_IDS            = _load_sql("get_case_message_ids.sql")
 SQL_GET_CONTACT                     = _load_sql("get_contact.sql")
+SQL_GET_ACTIVE_FLOW                 = _load_sql("get_active_flow.sql")
+SQL_GET_FLOW_EXCHANGE               = _load_sql("get_flow_exchange.sql")
+SQL_GET_FLOW_SESSION                = _load_sql("get_flow_session.sql")
+SQL_GET_FLOW_WABA                   = _load_sql("get_flow_waba.sql")
 SQL_GET_INBOUND_MESSAGE             = _load_sql("get_inbound_message.sql")
 SQL_GET_INBOUND_PAYLOAD             = _load_sql("get_inbound_payload.sql")
 SQL_GET_OPEN_CASE_MANIFEST          = _load_sql("get_open_case_manifest.sql")
@@ -148,21 +153,30 @@ SQL_INSERT_CASE_HANDLER_MESSAGE     = _load_sql("insert_case_handler_message.sql
 SQL_INSERT_CASE_MANIFEST            = _load_sql("insert_case_manifest.sql")
 SQL_INSERT_INBOUND_MESSAGE          = _load_sql("insert_inbound_message.sql")
 SQL_INSERT_INBOUND_PAYLOAD          = _load_sql("insert_inbound_payload.sql")
+SQL_INSERT_FLOW_EVENT               = _load_sql("insert_flow_event.sql")
+SQL_INSERT_FLOW_EXCHANGE            = _load_sql("insert_flow_exchange.sql")
 SQL_INSERT_MEDIA                    = _load_sql("insert_media.sql")
 SQL_INSERT_OUTBOUND_MESSAGE         = _load_sql("insert_outbound_message.sql")
 SQL_INSERT_STATUS                   = _load_sql("insert_status.sql")
+SQL_COMPLETE_FLOW_SESSION           = _load_sql("complete_flow_session.sql")
+SQL_CREATE_FLOW_SESSION             = _load_sql("create_flow_session.sql")
+SQL_FINISH_FLOW_EXCHANGE            = _load_sql("finish_flow_exchange.sql")
 SQL_LINK_CASE_HANDLER_TO_API        = _load_sql("link_case_handler_to_api.sql")
+SQL_LINK_FLOW_SESSION_OUTBOUND      = _load_sql("link_flow_session_outbound.sql")
 SQL_MARK_INBOUND_PAYLOAD_INVALID    = _load_sql("mark_inbound_payload_invalid.sql")
 SQL_MARK_INBOUND_PAYLOAD_VALID      = _load_sql("mark_inbound_payload_valid.sql")
 SQL_RELEASE_CONTACT_LEASE           = _load_sql("release_contact_lease.sql")
 SQL_RENEW_CONTACT_LEASE             = _load_sql("renew_contact_lease.sql")
 SQL_UPDATE_CASE_MANIFEST            = _load_sql("update_case_manifest.sql")
+SQL_UPDATE_FLOW_SESSION             = _load_sql("update_flow_session.sql")
 SQL_UPDATE_INBOUND_PAYLOAD_METADATA = _load_sql(
     "update_inbound_payload_metadata.sql"
 )
 SQL_UPSERT_BUSINESS                 = _load_sql("upsert_business.sql")
 SQL_UPSERT_CONTACT                  = _load_sql("upsert_contact.sql")
 SQL_UPSERT_CONTACT_PROFILE          = _load_sql("upsert_contact_profile.sql")
+SQL_UPSERT_FLOW                     = _load_sql("upsert_flow.sql")
+SQL_UPSERT_FLOW_WABA                = _load_sql("upsert_flow_waba.sql")
 
 
 # =========================================================================================
@@ -171,6 +185,27 @@ SQL_UPSERT_CONTACT_PROFILE          = _load_sql("upsert_contact_profile.sql")
 def _json_param( value : Any) -> Jsonb | None :
     
     return None if value is None else Jsonb(value)
+
+
+def get_encryption_key() -> str :
+    """
+    Return the application-level key used by PostgreSQL encrypted columns.
+    """
+    key = os.getenv("ENCRYPTION_KEY")
+    if not key :
+        raise RuntimeError("Environment variable 'ENCRYPTION_KEY' was not found")
+    
+    return key
+
+
+def _canonical_json( value : Any) -> str :
+    
+    return json.dumps(
+        value,
+        ensure_ascii = False,
+        separators   = ( ",", ":"),
+        sort_keys    = True,
+    )
 
 
 def _json_compatible( value : dict[ str, Any] | BaseModel) -> dict[ str, Any] :
@@ -198,12 +233,15 @@ def _payload_hash( payload : dict[str, Any] | BaseModel) -> str :
 
 def _message_data( message : Message) -> Jsonb :
     
-    return Jsonb(
-        message.model_dump(
-            mode    = "json",
-            exclude = { "id", "message_index", "ts", "basemodel", "origin" },
-        )
+    data = message.model_dump(
+        mode    = "json",
+        exclude = { "id", "message_index", "ts", "basemodel", "origin" },
     )
+    
+    if isinstance( message, ServerFlowMsg) :
+        data["flow_token"] = "[REDACTED]"
+    
+    return Jsonb(data)
 
 
 def _message_from_row( row : dict[str, Any] | None) -> Message | None :
@@ -598,6 +636,267 @@ class SyncSupabaseStorage :
                 "outbound_msg_id" : outbound_msg_id,
                 "caption"         : caption,
                 "filename"        : filename,
+            },
+        )
+    
+    # -------------------------------------------------------------------------------------
+    # WHATSAPP FLOWS
+    
+    def upsert_flow_waba(
+        self,
+        waba_id                : str,
+        public_key             : str,
+        public_key_fingerprint : str,
+        private_key            : str,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_UPSERT_FLOW_WABA,
+            {
+                "waba_id"                : waba_id,
+                "public_key"             : public_key,
+                "public_key_fingerprint" : public_key_fingerprint,
+                "private_key"            : private_key,
+                "secret_key"             : get_encryption_key(),
+            },
+        )
+    
+    def get_flow_waba(
+        self,
+        waba_id : str,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_GET_FLOW_WABA,
+            { "waba_id" : waba_id, "secret_key" : get_encryption_key() },
+        )
+    
+    def upsert_flow(
+        self,
+        *,
+        waba_id          : str,
+        flow_key         : str,
+        flow_id          : str,
+        flow_name        : str,
+        handler_key      : str,
+        flow_status      : str = "DRAFT",
+        flow_json_version: str = "7.1",
+        data_api_version : str = "3.0",
+        endpoint_uri     : str | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one( SQL_UPSERT_FLOW, locals())
+    
+    def get_active_flow(
+        self,
+        waba_id  : str,
+        flow_key : str,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_GET_ACTIVE_FLOW,
+            { "waba_id" : waba_id, "flow_key" : flow_key },
+        )
+    
+    def create_flow_session(
+        self,
+        *,
+        flow                 : int,
+        business             : int,
+        contact              : int,
+        flow_token           : str,
+        flow_token_hash      : str,
+        case_handler_message : int | None = None,
+        session_state        : dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_CREATE_FLOW_SESSION,
+            {
+                "flow"                 : flow,
+                "business"             : business,
+                "contact"              : contact,
+                "case_handler_message" : case_handler_message,
+                "flow_token"           : flow_token,
+                "flow_token_hash"      : flow_token_hash,
+                "session_state"        : (
+                    _canonical_json(session_state)
+                    if ( session_state is not None ) else None
+                ),
+                "secret_key"            : get_encryption_key(),
+            },
+        )
+    
+    def get_flow_session(
+        self,
+        flow_token_hash : str,
+    ) -> dict[str, Any] | None :
+        
+        row = self._fetch_one(
+            SQL_GET_FLOW_SESSION,
+            {
+                "flow_token_hash" : flow_token_hash,
+                "secret_key"      : get_encryption_key(),
+            },
+        )
+        if row and row.get("session_state_data") :
+            row["session_state_data"] = json.loads(row["session_state_data"])
+        
+        return row
+    
+    def update_flow_session(
+        self,
+        session_id     : int,
+        session_status : str,
+        *,
+        session_state   : dict[str, Any] | None = None,
+        completion_data : dict[str, Any] | None = None,
+        last_error      : dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_UPDATE_FLOW_SESSION,
+            {
+                "session_id"      : session_id,
+                "session_status"  : session_status,
+                "session_state"   : (
+                    _canonical_json(session_state)
+                    if ( session_state is not None ) else None
+                ),
+                "completion_data" : (
+                    _canonical_json(completion_data)
+                    if ( completion_data is not None ) else None
+                ),
+                "last_error"      : _json_param(last_error),
+                "secret_key"      : get_encryption_key(),
+            },
+        )
+    
+    def link_flow_session_outbound(
+        self,
+        session_id       : int,
+        outbound_message : int,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_LINK_FLOW_SESSION_OUTBOUND,
+            {
+                "session_id"       : session_id,
+                "outbound_message" : outbound_message,
+            },
+        )
+    
+    def get_flow_exchange(
+        self,
+        session_id  : int,
+        request_hash: str,
+    ) -> dict[str, Any] | None :
+        
+        row = self._fetch_one(
+            SQL_GET_FLOW_EXCHANGE,
+            {
+                "session_id"   : session_id,
+                "request_hash" : request_hash,
+                "secret_key"   : get_encryption_key(),
+            },
+        )
+        if row and row.get("response_data_decrypted") :
+            row["response_data_decrypted"] = json.loads(
+                row["response_data_decrypted"]
+            )
+        
+        return row
+    
+    def insert_flow_exchange(
+        self,
+        *,
+        flow_waba     : int,
+        request_hash  : str,
+        request_action: str,
+        request_data  : dict[str, Any],
+        session_id    : int | None = None,
+        request_screen: str | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_INSERT_FLOW_EXCHANGE,
+            {
+                "flow_waba"      : flow_waba,
+                "session_id"     : session_id,
+                "request_hash"   : request_hash,
+                "request_action" : request_action,
+                "request_screen" : request_screen,
+                "request_data"   : _canonical_json(request_data),
+                "secret_key"     : get_encryption_key(),
+            },
+        )
+    
+    def finish_flow_exchange(
+        self,
+        exchange_id     : int,
+        *,
+        response_data   : dict[str, Any] | None,
+        exchange_status : str,
+        http_status     : int,
+        latency_ms      : int,
+        error_code      : str | None = None,
+        error_message   : str | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_FINISH_FLOW_EXCHANGE,
+            {
+                "exchange_id"     : exchange_id,
+                "response_data"   : (
+                    _canonical_json(response_data)
+                    if ( response_data is not None ) else None
+                ),
+                "exchange_status" : exchange_status,
+                "http_status"     : http_status,
+                "latency_ms"      : latency_ms,
+                "error_code"      : error_code,
+                "error_message"   : error_message,
+                "secret_key"      : get_encryption_key(),
+            },
+        )
+    
+    def complete_flow_session(
+        self,
+        flow_token_hash   : str,
+        completion_message: int,
+        completion_data   : dict[str, Any],
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_COMPLETE_FLOW_SESSION,
+            {
+                "flow_token_hash"   : flow_token_hash,
+                "completion_message" : completion_message,
+                "completion_data"   : _canonical_json(completion_data),
+                "secret_key"        : get_encryption_key(),
+            },
+        )
+    
+    def insert_flow_event(
+        self,
+        *,
+        payload    : int,
+        event_type : str,
+        event_data : dict[str, Any],
+        waba_id    : str | None = None,
+        flow_id    : str | None = None,
+        event_at   : datetime | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_INSERT_FLOW_EVENT,
+            {
+                "payload"    : payload,
+                "waba_id"    : waba_id,
+                "flow_id"    : flow_id,
+                "event_type" : event_type,
+                "event_data" : Jsonb(event_data),
+                "event_at"   : event_at,
             },
         )
     
@@ -1167,6 +1466,268 @@ class AsyncSupabaseStorage :
                 "outbound_msg_id" : outbound_msg_id,
                 "caption"         : caption,
                 "filename"        : filename,
+            },
+        )
+    
+    # -------------------------------------------------------------------------------------
+    # WHATSAPP FLOWS
+    
+    async def upsert_flow_waba(
+        self,
+        waba_id                : str,
+        public_key             : str,
+        public_key_fingerprint : str,
+        private_key            : str,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_UPSERT_FLOW_WABA,
+            {
+                "waba_id"                : waba_id,
+                "public_key"             : public_key,
+                "public_key_fingerprint" : public_key_fingerprint,
+                "private_key"            : private_key,
+                "secret_key"             : get_encryption_key(),
+            },
+        )
+    
+    async def get_flow_waba(
+        self,
+        waba_id : str,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_GET_FLOW_WABA,
+            { "waba_id" : waba_id, "secret_key" : get_encryption_key() },
+        )
+    
+    async def upsert_flow(
+        self,
+        **params : Any,
+    ) -> dict[str, Any] | None :
+        
+        defaults = {
+            "flow_status"       : "DRAFT",
+            "flow_json_version" : "7.1",
+            "data_api_version"  : "3.0",
+            "endpoint_uri"      : None,
+        }
+        
+        return await self._fetch_one(
+            SQL_UPSERT_FLOW,
+            { **defaults, **params },
+        )
+    
+    async def get_active_flow(
+        self,
+        waba_id  : str,
+        flow_key : str,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_GET_ACTIVE_FLOW,
+            { "waba_id" : waba_id, "flow_key" : flow_key },
+        )
+    
+    async def create_flow_session(
+        self,
+        *,
+        flow                 : int,
+        business             : int,
+        contact              : int,
+        flow_token           : str,
+        flow_token_hash      : str,
+        case_handler_message : int | None = None,
+        session_state        : dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_CREATE_FLOW_SESSION,
+            {
+                "flow"                 : flow,
+                "business"             : business,
+                "contact"              : contact,
+                "case_handler_message" : case_handler_message,
+                "flow_token"           : flow_token,
+                "flow_token_hash"      : flow_token_hash,
+                "session_state"        : (
+                    _canonical_json(session_state)
+                    if ( session_state is not None ) else None
+                ),
+                "secret_key"            : get_encryption_key(),
+            },
+        )
+    
+    async def get_flow_session(
+        self,
+        flow_token_hash : str,
+    ) -> dict[str, Any] | None :
+        
+        row = await self._fetch_one(
+            SQL_GET_FLOW_SESSION,
+            {
+                "flow_token_hash" : flow_token_hash,
+                "secret_key"      : get_encryption_key(),
+            },
+        )
+        if row and row.get("session_state_data") :
+            row["session_state_data"] = json.loads(row["session_state_data"])
+        
+        return row
+    
+    async def update_flow_session(
+        self,
+        session_id     : int,
+        session_status : str,
+        *,
+        session_state   : dict[str, Any] | None = None,
+        completion_data : dict[str, Any] | None = None,
+        last_error      : dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_UPDATE_FLOW_SESSION,
+            {
+                "session_id"      : session_id,
+                "session_status"  : session_status,
+                "session_state"   : (
+                    _canonical_json(session_state)
+                    if ( session_state is not None ) else None
+                ),
+                "completion_data" : (
+                    _canonical_json(completion_data)
+                    if ( completion_data is not None ) else None
+                ),
+                "last_error"      : _json_param(last_error),
+                "secret_key"      : get_encryption_key(),
+            },
+        )
+    
+    async def link_flow_session_outbound(
+        self,
+        session_id       : int,
+        outbound_message : int,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_LINK_FLOW_SESSION_OUTBOUND,
+            {
+                "session_id"       : session_id,
+                "outbound_message" : outbound_message,
+            },
+        )
+    
+    async def get_flow_exchange(
+        self,
+        session_id  : int,
+        request_hash: str,
+    ) -> dict[str, Any] | None :
+        
+        row = await self._fetch_one(
+            SQL_GET_FLOW_EXCHANGE,
+            {
+                "session_id"   : session_id,
+                "request_hash" : request_hash,
+                "secret_key"   : get_encryption_key(),
+            },
+        )
+        if row and row.get("response_data_decrypted") :
+            row["response_data_decrypted"] = json.loads(
+                row["response_data_decrypted"]
+            )
+        
+        return row
+    
+    async def insert_flow_exchange(
+        self,
+        *,
+        flow_waba     : int,
+        request_hash  : str,
+        request_action: str,
+        request_data  : dict[str, Any],
+        session_id    : int | None = None,
+        request_screen: str | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_INSERT_FLOW_EXCHANGE,
+            {
+                "flow_waba"      : flow_waba,
+                "session_id"     : session_id,
+                "request_hash"   : request_hash,
+                "request_action" : request_action,
+                "request_screen" : request_screen,
+                "request_data"   : _canonical_json(request_data),
+                "secret_key"     : get_encryption_key(),
+            },
+        )
+    
+    async def finish_flow_exchange(
+        self,
+        exchange_id     : int,
+        *,
+        response_data   : dict[str, Any] | None,
+        exchange_status : str,
+        http_status     : int,
+        latency_ms      : int,
+        error_code      : str | None = None,
+        error_message   : str | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_FINISH_FLOW_EXCHANGE,
+            {
+                "exchange_id"     : exchange_id,
+                "response_data"   : (
+                    _canonical_json(response_data)
+                    if ( response_data is not None ) else None
+                ),
+                "exchange_status" : exchange_status,
+                "http_status"     : http_status,
+                "latency_ms"      : latency_ms,
+                "error_code"      : error_code,
+                "error_message"   : error_message,
+                "secret_key"      : get_encryption_key(),
+            },
+        )
+    
+    async def complete_flow_session(
+        self,
+        flow_token_hash   : str,
+        completion_message: int,
+        completion_data   : dict[str, Any],
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_COMPLETE_FLOW_SESSION,
+            {
+                "flow_token_hash"    : flow_token_hash,
+                "completion_message" : completion_message,
+                "completion_data"    : _canonical_json(completion_data),
+                "secret_key"         : get_encryption_key(),
+            },
+        )
+    
+    async def insert_flow_event(
+        self,
+        *,
+        payload    : int,
+        event_type : str,
+        event_data : dict[str, Any],
+        waba_id    : str | None = None,
+        flow_id    : str | None = None,
+        event_at   : datetime | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_INSERT_FLOW_EVENT,
+            {
+                "payload"    : payload,
+                "waba_id"    : waba_id,
+                "flow_id"    : flow_id,
+                "event_type" : event_type,
+                "event_data" : Jsonb(event_data),
+                "event_at"   : event_at,
             },
         )
     
