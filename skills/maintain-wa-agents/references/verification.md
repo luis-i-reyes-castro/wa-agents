@@ -38,8 +38,9 @@ docker exec -i wa-agents-review-pg \
 ```
 
 Obtain the assigned port with `docker port wa-agents-review-pg 5432/tcp`. Exercise
-SQL through `SyncSupabaseStorage`, `AsyncSupabaseStorage`, `QueueDB`, or
-`AsyncQueueDB`, supplying the disposable connection URL explicitly. This validates
+SQL through `SyncSupabaseStorage`, `AsyncSupabaseStorage`,
+`WhatsAppDatabaseQueue`, or `AsyncWhatsAppDatabaseQueue`, supplying the disposable
+connection URL explicitly. This validates
 the placeholder conversion and returned row aliases in addition to SQL syntax.
 
 Remove only the named disposable container after testing:

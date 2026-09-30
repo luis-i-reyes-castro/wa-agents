@@ -16,7 +16,7 @@ from wa_agents.supabase import (
     WhatsAppDatabaseRecord_Contact,
 )
 from wa_agents.case_handler_models import HumanServerMsg
-from wa_agents.whatsapp_models import WhatsApp_IB_Message
+from wa_agents.io_models import WhatsApp_IB_Message
 
 
 class CaseHandler (AsyncWhatsAppCaseHandler) :

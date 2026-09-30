@@ -13,7 +13,7 @@ from wa_agents.case_handler_models import (
     HumanUserContentMsg,
     ServerTextMsg,
 )
-from wa_agents.whatsapp_models import (
+from wa_agents.io_models import (
     WhatsApp_IB_Message,
 )
 

@@ -5,6 +5,7 @@ Supabase-backed queue for normalized inbound WhatsApp messages.
 import json
 
 from collections.abc import Collection
+from contextlib import asynccontextmanager
 from datetime import (
     UTC,
     datetime,
@@ -16,6 +17,7 @@ from pydantic import (
 )
 from typing import (
     Any,
+    AsyncIterator,
     TypedDict,
 )
 from uuid import (
@@ -26,22 +28,24 @@ from uuid import (
 from sofia_utils.printing import get_qualname as here
 from sofia_utils.psycopg import (
     async_pooled_connection,
+    close_async_database_connection_pool,
     load_sql_script,
+    open_async_database_connection_pool,
     sync_pooled_conection,
 )
 from sofia_utils.pydantic import NO_WS_str
 
-from .supabase import (
-    AsyncSupabaseStorage,
-    SyncSupabaseStorage,
-    get_database_url,
-)
-from .whatsapp_models import (
+from .io_models import (
     WhatsApp_IB_Contact,
     WhatsApp_IB_Message,
     WhatsApp_IB_MessageEcho,
     WhatsApp_IB_Payload,
     WhatsApp_IB_Value,
+)
+from .supabase import (
+    AsyncSupabaseStorage,
+    SyncSupabaseStorage,
+    get_database_url,
 )
 
 
@@ -113,7 +117,7 @@ def _validation_errors( ex : ValidationError) -> list[dict[str, Any]] :
     return json.loads(ex.json(include_url = False))
 
 
-class QueueDB :
+class WhatsAppDatabaseQueue :
     """
     Sequential inbound-message queue.
     """
@@ -373,7 +377,7 @@ class QueueDB :
         return self.storage.release_contact_lease( contact, owner_token)
 
 
-class AsyncQueueDB :
+class AsyncWhatsAppDatabaseQueue :
     """
     Asynchronous inbound-message queue.
     """
@@ -396,6 +400,21 @@ class AsyncQueueDB :
                 f"In {here()}: Invalid argument 'fallback_handler_key'"
             )
         
+        return
+
+    @asynccontextmanager
+    async def connection_pool(self) -> AsyncIterator[None] :
+        """
+        Open the async database pool for the queue's lifetime.
+        """
+        await open_async_database_connection_pool(self.database_url)
+
+        try :
+            yield
+
+        finally :
+            await close_async_database_connection_pool()
+
         return
     
     async def _fetch_one(

@@ -41,7 +41,7 @@ from .case_handler_models import (
     CaseManifest,
     Message,
 )
-from .whatsapp_models import (
+from .io_models import (
     WhatsApp_IB_Contact,
     WhatsApp_IB_MetaData,
     WhatsApp_IB_Profile,

@@ -5,14 +5,16 @@ before editing. The schema and APIs may evolve after this reference is written.
 
 ## Runtime Flow
 
-1. `WhatsAppAPIServer.webhook()` receives a raw dictionary and passes it to
-   `AsyncQueueDB.enqueue()`.
-2. `QueueDB` or `AsyncQueueDB` inserts the raw payload before Pydantic validation.
+1. `WhatsAppAPIListener.webhook()` receives a raw dictionary and passes it to
+   `AsyncWhatsAppDatabaseQueue.enqueue()`.
+2. `WhatsAppDatabaseQueue` or `AsyncWhatsAppDatabaseQueue` inserts the raw payload
+   before Pydantic validation.
 3. Successful validation resolves the business and contact, attaches payload
    metadata, writes inbound messages or statuses, and enqueues new message IDs.
-4. `QueueDB.claim_next()` atomically claims a pending row and a 90-second contact
-   lease. This prevents concurrent work for the same contact across processes.
-5. `QueueWorker` reconstructs `WhatsAppDatabaseRecord_Business`,
+4. `WhatsAppDatabaseQueue.claim_next()` atomically claims a pending row and a
+   90-second contact lease. This prevents concurrent work for the same contact
+   across processes.
+5. `WhatsAppAPIWorker` reconstructs `WhatsAppDatabaseRecord_Business`,
    `WhatsAppDatabaseRecord_Contact`, and the Meta message, then creates the consumer's
    case handler as a child of `WhatsAppCaseHandler` or
    `AsyncWhatsAppCaseHandler`.

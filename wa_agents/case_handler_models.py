@@ -40,8 +40,7 @@ from sofia_utils.stamps import (
     get_sha256,
 )
 
-from .phone_numbers import get_country_and_language
-from .whatsapp_models import (
+from .io_models import (
     WhatsAppInteractiveBody,
     WhatsAppInteractiveButtonLabel,
     WhatsAppInteractiveHeaderFooter,
@@ -49,6 +48,7 @@ from .whatsapp_models import (
     WhatsAppTemplateLanguageCode,
     WhatsAppUsername,
 )
+from .phone_numbers import get_country_and_language
 
 
 # -----------------------------------------------------------------------------------------

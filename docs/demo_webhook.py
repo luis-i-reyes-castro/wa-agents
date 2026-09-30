@@ -15,7 +15,7 @@ from sofia_utils.printing import (
     print_recursively,
     print_sep,
 )
-from wa_agents.whatsapp_models import WhatsApp_IB_Payload
+from wa_agents.io_models import WhatsApp_IB_Payload
 
 
 load_dotenv()

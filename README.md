@@ -45,12 +45,13 @@ pip install -r requirements.txt
 
 `wa-agents` is designed around this flow:
 
-1. `WhatsAppAPIServer` receives webhook payload dictionaries and passes them to `QueueDB`.
-2. `QueueDB` audits and validates each payload, normalizes its messages in Supabase
-    Postgres, resolves the normalized business/contact to a handler route, and enqueues
-    newly persisted message IDs.
-3. `QueueWorker` runs inside the FastAPI lifespan, drains queue items, and
-    calls your `WhatsAppCaseHandler`.
+1. `WhatsAppAPIListener` receives webhook payload dictionaries and passes them to
+   `AsyncWhatsAppDatabaseQueue`.
+2. `AsyncWhatsAppDatabaseQueue` audits and validates each payload, normalizes its
+   messages in Supabase Postgres, resolves the normalized business/contact to a
+   handler route, and enqueues newly persisted message IDs.
+3. `WhatsAppAPIWorker` runs inside its FastAPI lifespan, drains queue
+   items, and calls your `WhatsAppCaseHandler`.
 4. `CaseHandlerBase` (parent of `WhatsAppCaseHandler`) resolves the persisted
     business/contact identity and handles case open/close logic, context persistence, 
     FSM state, and S3 media access without depending on a messaging transport.
@@ -75,8 +76,9 @@ pip install -r requirements.txt
 | `SUPABASE_DB_CONNECTION_URL_IPv4` | Dashboard<br>➡️ Connect<br>➡️ Connection String<br>✅ Type: URI<br>✅ **Method: Session Pooler (IPv4)** |
 | `SUPABASE_DB_CONNECTION_URL_IPv6` | Optional fallback Supabase connection URI for IPv6. |
 
-Supabase credentials are mandatory because webhook audit storage and `QueueDB`
-always use Postgres. Apply the schema in `wa_agents/sql/abc_DDL.sql` before running.
+Supabase credentials are mandatory because webhook audit storage and
+`WhatsAppDatabaseQueue` always use Postgres. Apply the schema in
+`wa_agents/sql/abc_DDL.sql` before running.
 
 ### S3-compatible bucket storage (required for media and legacy `s3` mode)
 
@@ -129,7 +131,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from wa_agents.whatsapp_api_server import WhatsAppAPIServer
+from wa_agents.api_server import WhatsAppAPIServer
 from casehandler import CaseHandler
 
 
@@ -147,9 +149,29 @@ uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
 The server registers `GET /webhook` for Meta verification, `POST /webhook` for
-payload ingestion, and `GET /healthz` for container health checks. `QueueDB`
-performs payload auditing, validation, normalization, and enqueueing in the request
-path; the async queue worker starts and stops with the FastAPI lifespan.
+payload ingestion, and `GET /healthz` for container health checks.
+`AsyncWhatsAppDatabaseQueue` performs payload auditing, validation, normalization,
+and enqueueing in the request path; the queue worker starts and stops with the
+FastAPI lifespan.
+
+The listener and worker can also run as separate FastAPI processes while sharing
+the same PostgreSQL queue:
+
+```python
+from wa_agents.api_listener import WhatsAppAPIListener
+from wa_agents.api_worker import WhatsAppAPIWorker
+
+listener = WhatsAppAPIListener(title = "WhatsApp Listener")
+worker   = WhatsAppAPIWorker(
+    title       = "WhatsApp Worker",
+    handler_cls = CaseHandler,
+)
+```
+
+Each app exposes `GET /`, `GET /healthz`, and `GET /debugz`. The listener manages
+its database-pool lifetime, while the worker manages both the pool and its background
+processing task. `WhatsAppAPIServer` combines both roles with one shared queue and
+one lifespan.
 
 An example container recipe is available at
 [`docs/Dockerfile.fastapi`](docs/Dockerfile.fastapi).
@@ -162,8 +184,8 @@ business default. Queue rows store the selected route ID; rows without a route u
 the queue's configured fallback key.
 
 ```python
-from wa_agents.queue_db import AsyncQueueDB
-from wa_agents.whatsapp_api_server import WhatsAppAPIServer
+from wa_agents.api_server import WhatsAppAPIServer
+from wa_agents.database_queue import AsyncWhatsAppDatabaseQueue
 
 from casehandlers import FallbackCaseHandler, RetailCaseHandler
 
@@ -175,7 +197,9 @@ handlers = {
 
 app = WhatsAppAPIServer(
     handler_classes = handlers,
-    queue_db        = AsyncQueueDB( fallback_handler_key = "fallback"),
+    queue           = AsyncWhatsAppDatabaseQueue(
+        fallback_handler_key = "fallback",
+    ),
 )
 ```
 

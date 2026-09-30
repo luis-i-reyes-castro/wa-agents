@@ -22,7 +22,7 @@ from .case_handler_models import (
     ServerTemplateMsg,
     ServerTextMsg,
 )
-from .whatsapp_models import (
+from .io_models import (
     WhatsAppContactCard,
     WhatsAppLocation,
     WhatsAppText,

@@ -1,18 +1,14 @@
 """
-FastAPI app that receives WhatsApp webhooks and runs the async queue worker.
+FastAPI app that receives and enqueues WhatsApp webhooks.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 
-from contextlib import (
-    asynccontextmanager,
-    suppress,
-)
+from contextlib import asynccontextmanager
 from fastapi import (
     FastAPI,
     Request,
@@ -26,8 +22,6 @@ from pydantic import ValidationError
 from typing import (
     Any,
     AsyncIterator,
-    TYPE_CHECKING,
-    Type,
 )
 
 from sofia_utils.io import JSON_INDENT
@@ -35,17 +29,9 @@ from sofia_utils.printing import (
     get_qualname as here,
     print_sep,
 )
-from sofia_utils.psycopg import (
-    close_async_database_connection_pool,
-    open_async_database_connection_pool,
-)
 
-from .whatsapp_functions import verify_app_secret
-
-
-if TYPE_CHECKING :
-    from .case_handler_base import AsyncWhatsAppCaseHandler
-    from .queue_db import AsyncQueueDB
+from .database_queue import AsyncWhatsAppDatabaseQueue
+from .io_functions import verify_app_secret
 
 
 def _load_app_secrets() -> tuple[ str, ...] :
@@ -86,129 +72,87 @@ def _load_app_secrets() -> tuple[ str, ...] :
     return tuple( dict.fromkeys( app["secret"] for app in apps) )
 
 
-class WhatsAppAPIServer(FastAPI) :
+class WhatsAppAPIListener (FastAPI) :
     """
-    FastAPI app with webhook routes and an in-process async queue worker.
+    FastAPI app with WhatsApp webhook routes and database enqueueing.
     """
     
     def __init__(
         self,
-        handler_cls  : Type["AsyncWhatsAppCaseHandler"] | None = None,
-        queue_db     : "AsyncQueueDB | None" = None,
-        webhook_path : str                   = "/webhook",
         *,
-        handler_classes : dict[
-            str,
-            Type["AsyncWhatsAppCaseHandler"],
-        ] | None = None,
-        verify_app_secret : bool = False,
-        **kwargs     : Any,
+        queue             : AsyncWhatsAppDatabaseQueue | None = None,
+        verify_app_secret : bool = True,
+        webhook_path      : str  = "/webhook",
+        **kwargs          : Any,
     ) -> None :
         """
-        Initialize the WhatsApp API server. \\
+        Initialize the WhatsApp API listener. \\
         Args:
-            handler_cls       : Case handler class invoked by the worker
-            handler_classes   : Case handler classes keyed by their `HANDLER_KEY`
-            queue_db          : Optional AsyncQueueDB instance
+            queue             : Optional async WhatsApp database queue
             webhook_path      : Webhook route path
-            verify_app_secret : Whether to verify the payload signature against the
-                                configured Meta App Secret
+            verify_app_secret : Whether to verify payload signatures
             kwargs            : Forwarded to FastAPI
         """
-        from .queue_db import AsyncQueueDB
-        from .queue_worker import AsyncQueueWorker
-        
-        self.queue_db     = queue_db or AsyncQueueDB()
-        self.queue_worker = AsyncQueueWorker(
-            queue_db        = self.queue_db,
-            handler_cls     = handler_cls,
-            handler_classes = handler_classes,
+        self._init_listener(
+            queue            = queue or AsyncWhatsAppDatabaseQueue(),
+            webhook_path     = webhook_path,
+            verify_signature = verify_app_secret,
         )
-        self.webhook_path = webhook_path
-        self.worker_task  : asyncio.Task[None] | None = None
+        kwargs.setdefault( "lifespan", self.listener_lifespan)
+        FastAPI.__init__( self, **kwargs)
+        self.register_listener_routes( include_diagnostics = True)
         
-        self.verify_app_secret = verify_app_secret
-        self._app_secrets = (
-            _load_app_secrets() if verify_app_secret else ()
-        )
+        return
+    
+    def _init_listener(
+        self,
+        *,
+        queue            : AsyncWhatsAppDatabaseQueue,
+        verify_signature : bool,
+        webhook_path     : str,
+    ) -> None :
+        """
+        Initialize listener state without initializing FastAPI.
+        """
+        self.queue             = queue
+        self.verify_app_secret = verify_signature
+        self.webhook_path      = webhook_path
         
-        kwargs.setdefault( "lifespan", self.lifespan)
-        super().__init__(**kwargs)
-        self.register_routes()
+        self._app_secrets = _load_app_secrets() if verify_signature else ()
         
         return
     
     @asynccontextmanager
-    async def lifespan( self, _app : FastAPI) -> AsyncIterator[None] :
+    async def listener_lifespan( self, _app : FastAPI) -> AsyncIterator[None] :
         """
-        Open the async DB pool and run the queue worker for the app lifetime.
+        Keep the queue's async database pool open for the app lifetime.
         """
-        from .supabase import get_database_url
-        
-        logging.info(
-            "WhatsApp API server lifespan starting, handler keys = %s",
-            ", ".join(self.queue_worker.handler_keys),
-        )
-        
-        await open_async_database_connection_pool(get_database_url())
-        
-        self.worker_task = asyncio.create_task(self.queue_worker.serve_forever())
-        self.worker_task.add_done_callback(self._log_worker_task_result)
-        
-        try :
+        async with self.queue.connection_pool() :
             yield
         
-        finally :
-            self.queue_worker.stop()
-            if self.worker_task :
-                self.worker_task.cancel()
-                with suppress(asyncio.CancelledError) :
-                    await self.worker_task
-                self.worker_task = None
-            
-            await close_async_database_connection_pool()
-            
-            logging.info("WhatsApp API server lifespan stopped")
-        
         return
     
-    def _log_worker_task_result( self, task : asyncio.Task[None]) -> None :
+    def register_listener_routes( self, *, include_diagnostics : bool) -> None :
         """
-        Log unexpected background worker termination.
+        Register listener routes and optional standalone diagnostics.
         """
-        if task.cancelled() :
-            return
-        
-        exc = task.exception()
-        if exc :
-            logging.error(
-                f"In {here()}: Async queue worker task stopped with an exception",
-                exc_info = ( type(exc), exc, exc.__traceback__ ),
+        if include_diagnostics :
+            self.add_api_route(
+                path     = "/",
+                endpoint = self.root,
+                methods  = ["GET"],
             )
-        else :
-            logging.info("Async queue worker task stopped")
+            self.add_api_route(
+                path     = "/healthz",
+                endpoint = self.healthz,
+                methods  = ["GET"],
+            )
+            self.add_api_route(
+                path     = "/debugz",
+                endpoint = self.listener_debugz,
+                methods  = ["GET"],
+            )
         
-        return
-    
-    def register_routes(self) -> None :
-        """
-        Register health, verification, and webhook endpoints.
-        """
-        self.add_api_route(
-            path     = "/",
-            endpoint = self.root,
-            methods  = ["GET"],
-        )
-        self.add_api_route(
-            path     = "/healthz",
-            endpoint = self.healthz,
-            methods  = ["GET"],
-        )
-        self.add_api_route(
-            path     = "/debugz",
-            endpoint = self.debugz,
-            methods  = ["GET"],
-        )
         self.add_api_route(
             path           = self.webhook_path,
             endpoint       = self.verify,
@@ -241,38 +185,25 @@ class WhatsAppAPIServer(FastAPI) :
             status_code = status.HTTP_200_OK,
         )
     
-    async def debugz(self) -> JSONResponse :
+    def _listener_debug_data(self) -> dict[str, Any] :
         """
         Return masked webhook verification configuration.
         """
         expected = os.getenv( "WA_VERIFY_TOKEN", default = "")
         masked   = ("*"*(len(expected)-4) + expected[-4:] ) if expected else ""
         
-        worker_task_exception = None
-        if (
-            self.worker_task and
-            self.worker_task.done() and
-            not self.worker_task.cancelled()
-        ) :
-            exc = self.worker_task.exception()
-            worker_task_exception = str(exc) if exc else None
-        
+        return {
+            "verify_token_set"       : bool(expected),
+            "verify_token_tail"      : masked,
+            "verify_meta_app_secret" : self.verify_app_secret,
+        }
+    
+    async def listener_debugz(self) -> JSONResponse :
+        """
+        Return listener diagnostics.
+        """
         return JSONResponse(
-            content = {
-                "verify_token_set"         : bool(expected),
-                "verify_token_tail"        : masked,
-                "verify_meta_app_secret"   : self.verify_app_secret,
-                "worker_handler_keys"      : self.queue_worker.handler_keys,
-                "worker_task_created"      : bool(self.worker_task),
-                "worker_task_done"         : (
-                    self.worker_task.done() if self.worker_task else None
-                ),
-                "worker_task_cancelled"    : (
-                    self.worker_task.cancelled() if self.worker_task else None
-                ),
-                "worker_task_exception"    : worker_task_exception,
-                "worker_stop_flag"         : self.queue_worker._stop_flag,
-            },
+            content     = self._listener_debug_data(),
             status_code = status.HTTP_200_OK,
         )
     
@@ -331,7 +262,7 @@ class WhatsAppAPIServer(FastAPI) :
         print(json.dumps( data, indent = JSON_INDENT))
         
         try :
-            enqueue_result = await self.queue_db.enqueue(data)
+            enqueue_result = await self.queue.enqueue(data)
         except ValidationError as ve :
             logging.error(f"In {here()}: Malformed payload: {str(ve)}")
             return JSONResponse(

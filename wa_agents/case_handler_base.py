@@ -25,6 +25,7 @@ from uuid import (
 )
 
 from sofia_utils.printing import get_qualname as here
+
 from .case_handler_models import (
     AssistantMsg,
     CaseManifest,
@@ -44,13 +45,7 @@ from .case_handler_models import (
     UserData,
     llm_context_truncate,
 )
-from .supabase import (
-    AsyncSupabaseStorage,
-    SyncSupabaseStorage,
-    WhatsAppDatabaseRecord_Business,
-    WhatsAppDatabaseRecord_Contact,
-)
-from .whatsapp_functions import (
+from .io_functions import (
     WhatsAppSendResult,
     async_send_whatsapp_interactive,
     async_send_whatsapp_template,
@@ -59,10 +54,16 @@ from .whatsapp_functions import (
     send_whatsapp_template,
     send_whatsapp_text,
 )
-from .whatsapp_models import (
+from .io_models import (
     WhatsAppContactCard,
     WhatsApp_IB_Message,
     WhatsApp_IB_MessageEcho,
+)
+from .supabase import (
+    AsyncSupabaseStorage,
+    SyncSupabaseStorage,
+    WhatsAppDatabaseRecord_Business,
+    WhatsAppDatabaseRecord_Contact,
 )
 
 
