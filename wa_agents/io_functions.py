@@ -7,6 +7,7 @@ import json
 import os
 import re
 
+from copy import deepcopy
 from typing import (
     Any,
     TypedDict,
@@ -17,6 +18,7 @@ from sofia_utils.printing import print_sep
 
 from .case_handler_models import (
     ServerDocumentMsg,
+    ServerFlowMsg,
     ServerInteractiveOptsMsg,
     ServerMediaMsg,
     ServerTemplateMsg,
@@ -77,12 +79,20 @@ def _collect_send_results(
     response.raise_for_status()
     
     msg_type = str(payload["type"])
-    msg_data = { msg_type : payload[msg_type] }
+    msg_body = deepcopy(payload[msg_type])
+    if (
+        ( msg_type             == "interactive" ) and
+        ( msg_body.get("type") == "flow"        )
+    ) :
+        parameters = msg_body.get( "action", {}).get( "parameters", {})
+        if "flow_token" in parameters :
+            parameters["flow_token"] = "[REDACTED]"
+    
     results  = [
         WhatsAppSendResult(
             msg_id   = str(message["id"]),
             msg_type = msg_type,
-            msg_data = msg_data,
+            msg_data = { msg_type : msg_body },
         )
         for message in response_data.get( "messages", [])
         if message.get("id")
@@ -277,6 +287,43 @@ async def async_send_whatsapp_interactive(
     async with httpx.AsyncClient() as client :
         response = await client.post( msg_url, headers = msg_headers, json = payload)
     
+    return _collect_send_results( payload, response)
+
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Flow Messages
+
+def send_whatsapp_flow(
+    operator_id : str,
+    to_number   : str,
+    message     : ServerFlowMsg,
+) -> list[WhatsAppSendResult] :
+    """
+    Send a WhatsApp Flow launch message.
+    """
+    payload  = write_payload( to_number, message)
+    response = httpx.post(
+        url     = f"{API_URL}{operator_id}/messages",
+        headers = write_headers( content_type = True),
+        json    = payload,
+    )
+    return _collect_send_results( payload, response)
+
+async def async_send_whatsapp_flow(
+    operator_id : str,
+    to_number   : str,
+    message     : ServerFlowMsg,
+) -> list[WhatsAppSendResult] :
+    """
+    Send a WhatsApp Flow launch message asynchronously.
+    """
+    payload = write_payload( to_number, message)
+    async with httpx.AsyncClient() as client :
+        response = await client.post(
+            url     = f"{API_URL}{operator_id}/messages",
+            headers = write_headers( content_type = True),
+            json    = payload,
+        )
     return _collect_send_results( payload, response)
 
 
@@ -554,6 +601,7 @@ def write_payload(
     content   : str
               | ServerTextMsg
               | ServerInteractiveOptsMsg
+              | ServerFlowMsg
               | ServerTemplateMsg
               | ServerMediaMsg
               | WhatsAppContactCard
@@ -625,6 +673,46 @@ def write_payload(
                 action = action,
             ),
         ).model_dump()
+    
+    elif isinstance( content, ServerFlowMsg) :
+        
+        action_parameters : dict[str, Any] = {
+            "flow_message_version" : "3",
+            "flow_id"              : content.flow_id,
+            "flow_token"           : content.flow_token,
+            "flow_cta"             : content.flow_cta,
+            "mode"                 : content.flow_mode,
+            "flow_action"          : content.flow_action,
+        }
+        if content.screen or content.data :
+            action_parameters["flow_action_payload"] = {
+                **( { "screen" : content.screen } if content.screen else {} ),
+                **( { "data"   : content.data   } if content.data   else {} ),
+            }
+        
+        interactive : dict[str, Any] = {
+            "type"   : "flow",
+            "body"   : { "text" : content.body },
+            "action" : {
+                "name"       : "flow",
+                "parameters" : action_parameters,
+            },
+        }
+        if content.header :
+            interactive["header"] = {
+                "type" : "text",
+                "text" : content.header,
+            }
+        if content.footer :
+            interactive["footer"] = { "text" : content.footer }
+        
+        return {
+            "messaging_product" : "whatsapp",
+            "recipient_type"    : "individual",
+            "to"                : to_number,
+            "type"              : "interactive",
+            "interactive"       : interactive,
+        }
     
     elif isinstance( content, ServerTemplateMsg) :
         

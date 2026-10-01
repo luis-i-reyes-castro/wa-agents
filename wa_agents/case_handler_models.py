@@ -32,6 +32,8 @@ from sofia_utils.pydantic import (
     MIME_Type,
     NE_str,
     NE_var_name,
+    NO_WS_str,
+    NumericID,
     SHA256_Hex,
     UnixTS,
 )
@@ -333,6 +335,16 @@ class HumanUserInteractiveReplyMsg ( HumanUserMsg, HumanInteractiveReplyMsg) :
     """
     pass
 
+class HumanUserFlowReplyMsg ( HumanUserMsg, StructuredDataMsg) :
+    """
+    Terminal Flow completion reply ( Human User -> Server ).
+    """
+    flow_token : NO_WS_str
+    response   : dict[ str, Any]
+    
+    def as_text(self) -> str :
+        return self.model_dump_json( include = { "response" })
+
 class HumanServerMsg (HumanMsg) :
     """
     Human-server-generated Message
@@ -450,15 +462,15 @@ class ServerFlowMsg ( ServerMsg, StructuredDataMsg) :
     """
     WhatsApp Flow launch message ( Server -> User ).
     """
-    flow_id     : NE_str
-    flow_token  : NE_str
+    flow_id     : NumericID
+    flow_token  : NO_WS_str
     flow_cta    : Annotated[ str, Field( min_length = 1, max_length = 30)]
     body        : WhatsAppInteractiveBody
     header      : WhatsAppInteractiveHeaderFooter | None = None
     footer      : WhatsAppInteractiveHeaderFooter | None = None
     flow_mode   : Literal[ "draft", "published"]        = "published"
     flow_action : Literal[ "navigate", "data_exchange"] = "navigate"
-    screen      : NE_str | None = None
+    screen      : NO_WS_str | None = None
     data        : dict[str, Any] = Field( default_factory = dict)
     
     def as_text(self) -> str :

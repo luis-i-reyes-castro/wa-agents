@@ -34,10 +34,12 @@ from .case_handler_models import (
     HumanServerContentMsg,
     HumanServerInteractiveReplyMsg,
     HumanUserContentMsg,
+    HumanUserFlowReplyMsg,
     HumanUserInteractiveReplyMsg,
     LanguageRegionData,
     MediaObject,
     Message,
+    ServerFlowMsg,
     ServerInteractiveOptsMsg,
     ServerTemplateMsg,
     ServerTextMsg,
@@ -47,15 +49,22 @@ from .case_handler_models import (
 )
 from .io_functions import (
     WhatsAppSendResult,
+    async_send_whatsapp_flow,
     async_send_whatsapp_interactive,
     async_send_whatsapp_template,
     async_send_whatsapp_text,
     send_whatsapp_interactive,
+    send_whatsapp_flow,
     send_whatsapp_template,
     send_whatsapp_text,
 )
+from .flows import (
+    WhatsApp_Local_FlowContext,
+    WhatsApp_Local_FlowHandlerResult,
+)
 from .io_models import (
     WhatsAppContactCard,
+    WhatsApp_IB_Decrypted_FlowRequest,
     WhatsApp_IB_Message,
     WhatsApp_IB_MessageEcho,
 )
@@ -340,10 +349,11 @@ class CaseHandlerBase (ABC) :
         self.hydrate_media = hydrate_media
         self.owner_token   = owner_token or uuid4()
         
-        self.operator_num = business_record.display_phone_number
-        self.operator_id  = business_record.api_id
-        self.user_id      = contact_record.api_id
-        self.user_name    = (
+        self.operator_waba = business_record.waba_id
+        self.operator_num  = business_record.display_phone_number
+        self.operator_id   = business_record.api_id
+        self.user_id       = contact_record.api_id
+        self.user_name     = (
             contact_record.profile.name if contact_record.profile else None
         )
         
@@ -789,6 +799,19 @@ class CaseHandlerBase (ABC) :
             `True` if additional response generation is required; otherwise `False`.
         """
         raise NotImplementedError
+    
+    @classmethod
+    def handle_flow_request(
+        cls,
+        context : WhatsApp_Local_FlowContext,
+        request : WhatsApp_IB_Decrypted_FlowRequest,
+    ) -> WhatsApp_Local_FlowHandlerResult :
+        """
+        Override in handlers registered for a WhatsApp Flow definition.
+        """
+        raise NotImplementedError(
+            f"{cls.__name__} does not implement WhatsApp Flow data exchange"
+        )
 
     @abstractmethod
     def run_while_in_action(
@@ -800,7 +823,7 @@ class CaseHandlerBase (ABC) :
         Args:
             max_tokens : Optional response-token limit.
         Returns:
-            `True` if another action should run immediately; otherwise `False`.
+            `True` if another `while_in` action should run immediately; otherwise `False`.
         """
         raise NotImplementedError
 
@@ -920,17 +943,36 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             )
 
         elif message.interactive :
-            choice = message.interactive.choice
-            if not choice :
+            
+            flow_reply = message.interactive.nfm_reply
+            choice     = message.interactive.choice
+            if (
+                flow_reply and
+                ( not isinstance( message, WhatsApp_IB_MessageEcho) )
+            ) :
+                response   = flow_reply.response
+                flow_token = response.get("flow_token")
+                if not isinstance( flow_token, str) or not flow_token :
+                    raise ValueError(f"In {here()}: Flow reply has no flow token")
+                
+                msg = HumanUserFlowReplyMsg(
+                    origin     = here(),
+                    ts         = message.timestamp,
+                    flow_token = flow_token,
+                    response   = response,
+                )
+            
+            elif not choice :
                 raise ValueError(
                     f"In {here()}: Interactive message has no selected option"
                 )
-
-            msg = InteractiveMsgBM(
-                origin = here(),
-                ts     = message.timestamp,
-                choice = choice,
-            )
+            
+            else :
+                msg = InteractiveMsgBM(
+                    origin = here(),
+                    ts     = message.timestamp,
+                    choice = choice,
+                )
 
         elif message.contacts :
             msg = ContentMsgBM(
@@ -1000,7 +1042,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         self,
         case_handler_msg_id : int,
         results             : list[WhatsAppSendResult],
-    ) -> None :
+    ) -> list[int] :
         
         outbound_ids : list[int] = []
         
@@ -1028,7 +1070,40 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                     f"In {here()}: Unable to link case-handler and outbound messages"
                 )
         
-        return
+        return outbound_ids
+    
+    def send_flow( self, message : ServerFlowMsg, session_id : int) -> bool :
+        """
+        Send one persisted Flow launch and link its session.
+        """
+        if message.id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
+        try :
+            results = send_whatsapp_flow(
+                self.operator_id,
+                self.user_id,
+                message,
+            )
+            outbound_ids = self._persist_outbound_messages( message.id, results)
+            
+            if len(outbound_ids) != 1 :
+                raise RuntimeError("A Flow launch must create one outbound message")
+            
+            if not self.storage.link_flow_session_outbound(
+                session_id,
+                outbound_ids[0],
+            ) :
+                raise RuntimeError("Unable to link Flow session to outbound message")
+            
+            return True
+        
+        except Exception as ex :
+            print(f"In {here()}: {str(ex)}")
+        
+        return False
     
     def send_template( self, message : ServerTemplateMsg) -> bool :
         """
@@ -1184,10 +1259,11 @@ class AsyncCaseHandlerBase (ABC) :
         self.hydrate_media = hydrate_media
         self.owner_token   = owner_token or uuid4()
         
-        self.operator_num = business_record.display_phone_number
-        self.operator_id  = business_record.api_id
-        self.user_id      = contact_record.api_id
-        self.user_name    = (
+        self.operator_waba = business_record.waba_id
+        self.operator_num  = business_record.display_phone_number
+        self.operator_id   = business_record.api_id
+        self.user_id       = contact_record.api_id
+        self.user_name     = (
             contact_record.profile.name if contact_record.profile else None
         )
         
@@ -1631,7 +1707,20 @@ class AsyncCaseHandlerBase (ABC) :
             `True` if additional response generation is required; otherwise `False`.
         """
         raise NotImplementedError
-
+    
+    @classmethod
+    async def handle_flow_request(
+        cls,
+        context : WhatsApp_Local_FlowContext,
+        request : WhatsApp_IB_Decrypted_FlowRequest,
+    ) -> WhatsApp_Local_FlowHandlerResult :
+        """
+        Override in handlers registered for a WhatsApp Flow definition.
+        """
+        raise NotImplementedError(
+            f"{cls.__name__} does not implement WhatsApp Flow data exchange"
+        )
+    
     @abstractmethod
     async def run_while_in_action(
         self,
@@ -1642,7 +1731,7 @@ class AsyncCaseHandlerBase (ABC) :
         Args:
             max_tokens : Optional response-token limit.
         Returns:
-            `True` if another action should run immediately; otherwise `False`.
+            `True` if another `while_in` action should run immediately; otherwise `False`.
         """
         raise NotImplementedError
 
@@ -1762,17 +1851,36 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             )
 
         elif message.interactive :
-            choice = message.interactive.choice
-            if not choice :
+            
+            flow_reply = message.interactive.nfm_reply
+            choice     = message.interactive.choice
+            if (
+                flow_reply and
+                ( not isinstance( message, WhatsApp_IB_MessageEcho) )
+            ) :
+                response   = flow_reply.response
+                flow_token = response.get("flow_token")
+                if not isinstance( flow_token, str) or not flow_token :
+                    raise ValueError(f"In {here()}: Flow reply has no flow token")
+                
+                msg = HumanUserFlowReplyMsg(
+                    origin     = here(),
+                    ts         = message.timestamp,
+                    flow_token = flow_token,
+                    response   = response,
+                )
+            
+            elif not choice :
                 raise ValueError(
                     f"In {here()}: Interactive message has no selected option"
                 )
-
-            msg = InteractiveMsgBM(
-                origin = here(),
-                ts     = message.timestamp,
-                choice = choice,
-            )
+            
+            else :
+                msg = InteractiveMsgBM(
+                    origin = here(),
+                    ts     = message.timestamp,
+                    choice = choice,
+                )
 
         elif message.contacts :
             msg = ContentMsgBM(
@@ -1842,7 +1950,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         self,
         case_handler_msg_id : int,
         results             : list[WhatsAppSendResult],
-    ) -> None :
+    ) -> list[int] :
         
         outbound_ids : list[int] = []
         
@@ -1870,7 +1978,43 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                     f"In {here()}: Unable to link case-handler and outbound messages"
                 )
         
-        return
+        return outbound_ids
+    
+    async def send_flow( self, message : ServerFlowMsg, session_id : int) -> bool :
+        """
+        Send one persisted Flow launch and link its session asynchronously.
+        """
+        if message.id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
+        try :
+            results = await async_send_whatsapp_flow(
+                self.operator_id,
+                self.user_id,
+                message,
+            )
+            outbound_ids = await self._persist_outbound_messages(
+                message.id,
+                results,
+            )
+            
+            if len(outbound_ids) != 1 :
+                raise RuntimeError("A Flow launch must create one outbound message")
+            
+            if not await self.storage.link_flow_session_outbound(
+                session_id,
+                outbound_ids[0],
+            ) :
+                raise RuntimeError("Unable to link Flow session to outbound message")
+            
+            return True
+        
+        except Exception as ex :
+            print(f"In {here()}: {str(ex)}")
+        
+        return False
     
     async def send_template( self, message : ServerTemplateMsg) -> bool :
         """

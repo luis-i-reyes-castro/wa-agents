@@ -41,6 +41,8 @@ pip install -r requirements.txt
 
 ## Runtime Architecture
 
+**TODO: Update diagram**
+
 ![Runtime Architecture](./architecture.png)
 
 `wa-agents` is designed around this flow:
@@ -51,7 +53,8 @@ pip install -r requirements.txt
    messages in Supabase Postgres, resolves the normalized business/contact to a
    handler route, and enqueues newly persisted message IDs.
 3. `WhatsAppAPIWorker` runs inside its FastAPI lifespan, drains queue
-   items, and calls your `WhatsAppCaseHandler`.
+   items, calls your `WhatsAppCaseHandler`, and serves synchronous Flow data
+   exchanges without passing them through the message queue.
 4. `CaseHandlerBase` (parent of `WhatsAppCaseHandler`) resolves the persisted
     business/contact identity and handles case open/close logic, context persistence, 
     FSM state, and S3 media access without depending on a messaging transport.
@@ -149,7 +152,8 @@ uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
 The server registers `GET /webhook` for Meta verification, `POST /webhook` for
-payload ingestion, and `GET /healthz` for container health checks.
+payload ingestion, `POST /webhook/flows/{waba_id}` for synchronous Flow data
+exchange, and `GET /healthz` for container health checks.
 `AsyncWhatsAppDatabaseQueue` performs payload auditing, validation, normalization,
 and enqueueing in the request path; the queue worker starts and stops with the
 FastAPI lifespan.
@@ -170,8 +174,9 @@ worker   = WhatsAppAPIWorker(
 
 Each app exposes `GET /`, `GET /healthz`, and `GET /debugz`. The listener manages
 its database-pool lifetime, while the worker manages both the pool and its background
-processing task. `WhatsAppAPIServer` combines both roles with one shared queue and
-one lifespan.
+processing task and exposes `POST /webhook/flows/{waba_id}`. `WhatsAppAPIServer`
+combines both roles with one shared queue and one lifespan; its Flow route uses the
+configured `webhook_path`.
 
 An example container recipe is available at
 [`docs/Dockerfile.fastapi`](docs/Dockerfile.fastapi).
@@ -573,3 +578,42 @@ For payload exploration only, see:
 - [`docs/demo_webhook.py`](docs/demo_webhook.py)
 
 These are useful when mapping incoming WhatsApp JSON to your bot routing logic.
+
+## WhatsApp Flows
+
+The worker exposes an encrypted data endpoint at
+`<webhook_path>/flows/{waba_id}`. E.g., with Sofia's `/whatsapp` webhook path, the
+endpoint is `/whatsapp/flows/{waba_id}`. Flow requests are routed to the class
+registered under the Flow definition's `handler_key`; the class implements method
+`handle_flow_request()` with a `WhatsApp_Local_FlowContext` and
+`WhatsApp_IB_Decrypted_FlowRequest`, and returns a
+`WhatsApp_Local_FlowHandlerResult`.
+
+Apply `wa_agents/sql/abc_DDL.sql` before provisioning. The schema stores:
+
+- one RSA key pair per WABA, with the private key encrypted by `ENCRYPTION_KEY`;
+- manually registered Flow definitions;
+- expiring, single-user launch sessions and encrypted application state;
+- encrypted endpoint request/response audits with idempotent retry replay; and
+- Meta Flow lifecycle, health, and error webhook events.
+
+Generate a key pair, persist it, upload its public key to every phone number in
+the WABA, and verify Meta's `VALID` signature status with:
+
+```bash
+python -m wa_agents.flows \
+  --waba-id 123456789 \
+  --phone-number-id 111111111 \
+  --phone-number-id 222222222
+```
+
+This command uses `ENCRYPTION_KEY`, `WA_TOKEN`, and the configured Supabase
+connection URL. Subscribe the Meta app to both the `messages` and `flows`
+webhook fields. Flow JSON publication remains a manual Meta Flow Builder step;
+after publication, register its ID and handler with
+`AsyncSupabaseStorage.upsert_flow()` (or the synchronous equivalent).
+
+Flow launch tokens are encrypted in session storage and redacted from ordinary
+outbound-message JSON. Decrypted endpoint payloads, application state, and
+responses are encrypted at rest. The endpoint returns HTTP 421 for transport
+decryption failures and HTTP 432 for invalid, expired, or superseded sessions.

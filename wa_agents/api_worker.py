@@ -17,9 +17,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from fastapi import (
     FastAPI,
+    Request,
     status,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import (
+    JSONResponse,
+    PlainTextResponse,
+)
 from inspect import iscoroutinefunction
 from pydantic import (
     TypeAdapter,
@@ -37,6 +41,7 @@ from sofia_utils.printing import get_qualname as here
 from sofia_utils.pydantic import NO_WS_str
 
 from .database_queue import AsyncWhatsAppDatabaseQueue
+from .flows import WhatsAppFlowEndpoint
 from .io_functions import async_fetch_media
 from .io_models import (
     WhatsApp_IB_Message,
@@ -142,29 +147,32 @@ def _job_and_message(
 
 class WhatsAppAPIWorker (FastAPI) :
     """
-    Asynchronous worker for persisted inbound messages.
+    Asynchronous message worker and synchronous Flow data endpoint.
     """
     
     def __init__(
         self,
         *,
-        handler_cls     : Type[Any]                  | None = None,
-        handler_classes : dict[ str, Type[Any]]      | None = None,
-        queue           : AsyncWhatsAppDatabaseQueue | None = None,
-        **kwargs        : Any,
+        handler_cls        : Type[Any]                  | None = None,
+        handler_classes    : dict[ str, Type[Any]]      | None = None,
+        queue              : AsyncWhatsAppDatabaseQueue | None = None,
+        flow_endpoint_path : str = "/webhook/flows/{waba_id}",
+        **kwargs           : Any,
     ) -> None :
         """
         Initialize the WhatsApp database queue worker app. \\
         Args:
-            handler_cls     : Case handler class invoked by the worker
-            queue           : Optional async WhatsApp database queue
-            handler_classes : Case handler classes keyed by their `HANDLER_KEY`
-            kwargs          : Forwarded to FastAPI
+            handler_cls        : Case handler class invoked by the worker
+            queue              : Optional async WhatsApp database queue
+            handler_classes    : Case handler classes keyed by their `HANDLER_KEY`
+            flow_endpoint_path : Route for synchronous Flow data exchange
+            kwargs             : Forwarded to FastAPI
         """
         self._init_worker(
-            queue           = queue or AsyncWhatsAppDatabaseQueue(),
-            handler_cls     = handler_cls,
-            handler_classes = handler_classes,
+            queue              = queue or AsyncWhatsAppDatabaseQueue(),
+            handler_cls        = handler_cls,
+            handler_classes    = handler_classes,
+            flow_endpoint_path = flow_endpoint_path,
         )
         kwargs.setdefault( "lifespan", self.worker_lifespan)
         FastAPI.__init__( self, **kwargs)
@@ -229,9 +237,10 @@ class WhatsAppAPIWorker (FastAPI) :
     def _init_worker(
         self,
         *,
-        queue           : AsyncWhatsAppDatabaseQueue,
-        handler_cls     : Type[Any]             | None,
-        handler_classes : dict[ str, Type[Any]] | None,
+        queue              : AsyncWhatsAppDatabaseQueue,
+        handler_cls        : Type[Any]             | None,
+        handler_classes    : dict[ str, Type[Any]] | None,
+        flow_endpoint_path : str,
     ) -> None :
         """
         Initialize worker state without initializing FastAPI.
@@ -240,6 +249,11 @@ class WhatsAppAPIWorker (FastAPI) :
         self.handler_keys = self._build_handler_registry(
             handler_cls,
             handler_classes,
+        )
+        self.flow_endpoint_path = flow_endpoint_path
+        self.flow_service       = WhatsAppFlowEndpoint(
+            self.queue.storage,
+            self.handler_classes,
         )
         self.worker_task : asyncio.Task[None] | None = None
         
@@ -298,8 +312,14 @@ class WhatsAppAPIWorker (FastAPI) :
     
     def register_worker_routes( self, *, include_diagnostics : bool) -> None :
         """
-        Register standalone worker diagnostics.
+        Register the Flow endpoint and optional standalone worker diagnostics.
         """
+        self.add_api_route(
+            path     = self.flow_endpoint_path,
+            endpoint = self.flow_endpoint,
+            methods  = ["POST"],
+        )
+
         if not include_diagnostics :
             return
         
@@ -320,6 +340,25 @@ class WhatsAppAPIWorker (FastAPI) :
         )
         
         return
+    
+    async def flow_endpoint(
+        self,
+        waba_id : str,
+        request : Request,
+    ) -> PlainTextResponse :
+        """
+        Receive and synchronously process one encrypted Flow request.
+        """
+        try :
+            payload = await request.json()
+        
+        except Exception :
+            return PlainTextResponse(
+                "Invalid JSON",
+                status_code = status.HTTP_400_BAD_REQUEST,
+            )
+        
+        return await self.flow_service.handle( waba_id, payload)
     
     async def worker_root(self) -> JSONResponse :
         """

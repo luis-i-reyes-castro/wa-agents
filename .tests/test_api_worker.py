@@ -55,6 +55,7 @@ class _AsyncQueueStub :
         self.done_ids   = []
         self.error_ids  = []
         self.claimed_keys = None
+        self.storage      = object()
 
     async def claim_next( self, handler_keys) -> dict | None :
         self.claimed_keys = handler_keys

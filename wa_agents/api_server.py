@@ -61,9 +61,10 @@ class WhatsAppAPIServer (
             webhook_path     = webhook_path,
         )
         self._init_worker(
-            queue           = queue,
-            handler_cls     = handler_cls,
-            handler_classes = handler_classes,
+            queue              = queue,
+            handler_cls        = handler_cls,
+            handler_classes    = handler_classes,
+            flow_endpoint_path = f"{webhook_path}/flows/{{waba_id}}",
         )
         kwargs.setdefault( "lifespan", self.worker_lifespan)
         FastAPI.__init__( self, **kwargs)

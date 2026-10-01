@@ -37,11 +37,13 @@ from sofia_utils.pydantic import NO_WS_str
 
 from .io_models import (
     WhatsApp_IB_Contact,
+    WhatsApp_IB_FlowEvent,
     WhatsApp_IB_Message,
     WhatsApp_IB_MessageEcho,
     WhatsApp_IB_Payload,
     WhatsApp_IB_Value,
 )
+from .flows import flow_token_hash
 from .supabase import (
     AsyncSupabaseStorage,
     SyncSupabaseStorage,
@@ -179,7 +181,25 @@ class WhatsAppDatabaseQueue :
             for change_index, change in enumerate(item.changes) :
                 
                 value = change.value
-                if not isinstance( value, WhatsApp_IB_Value) :
+                
+                if (
+                    ( change.field == "flows"               ) and
+                    isinstance( value, WhatsApp_IB_FlowEvent)
+                ) :
+                    event_data = value.model_dump( mode = "json")
+                    self.storage.insert_flow_event(
+                        payload    = payload_id,
+                        waba_id    = item.id,
+                        flow_id    = value.flow_id,
+                        event_type = value.event,
+                        event_data = event_data,
+                    )
+                    continue
+                
+                elif not (
+                    ( change.field in { "messages", "smb_message_echoes" } ) and
+                    isinstance( value, WhatsApp_IB_Value) 
+                ) :
                     continue
                 
                 business = self.storage.upsert_business(
@@ -236,6 +256,19 @@ class WhatsAppDatabaseQueue :
                         msg_data = _message_data(message),
                     )
                     if message_row :
+                        flow_reply = (
+                            message.interactive.nfm_reply
+                            if message.interactive else None
+                        )
+                        if flow_reply :
+                            response   = flow_reply.response
+                            flow_token = response.get("flow_token")
+                            if isinstance( flow_token, str) and flow_token :
+                                self.storage.complete_flow_session(
+                                    flow_token_hash(flow_token),
+                                    message_row["id"],
+                                    response,
+                                )
                         enqueued = self._enqueue_message(message.id) or enqueued
                 
                 for message_status in value.statuses :
@@ -455,7 +488,25 @@ class AsyncWhatsAppDatabaseQueue :
             for change_index, change in enumerate(item.changes) :
                 
                 value = change.value
-                if not isinstance( value, WhatsApp_IB_Value) :
+                
+                if (
+                    ( change.field == "flows"               ) and
+                    isinstance( value, WhatsApp_IB_FlowEvent)
+                ) :
+                    event_data = value.model_dump( mode = "json")
+                    await self.storage.insert_flow_event(
+                        payload    = payload_id,
+                        waba_id    = item.id,
+                        flow_id    = value.flow_id,
+                        event_type = value.event,
+                        event_data = event_data,
+                    )
+                    continue
+                
+                elif not (
+                    ( change.field in { "messages", "smb_message_echoes" } ) and
+                    isinstance( value, WhatsApp_IB_Value) 
+                ) :
                     continue
                 
                 business = await self.storage.upsert_business(
@@ -512,6 +563,19 @@ class AsyncWhatsAppDatabaseQueue :
                         msg_data = _message_data(message),
                     )
                     if message_row :
+                        flow_reply = (
+                            message.interactive.nfm_reply
+                            if message.interactive else None
+                        )
+                        if flow_reply :
+                            response   = flow_reply.response
+                            flow_token = response.get("flow_token")
+                            if isinstance( flow_token, str) and flow_token :
+                                await self.storage.complete_flow_session(
+                                    flow_token_hash(flow_token),
+                                    message_row["id"],
+                                    response,
+                                )
                         enqueued = await self._enqueue_message(message.id) or enqueued
                 
                 for message_status in value.statuses :

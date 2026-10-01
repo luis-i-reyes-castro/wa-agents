@@ -5,6 +5,8 @@ References:
 * https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/
 """
 
+import json
+
 from abc import ABC
 from pydantic import (
     BaseModel,
@@ -22,9 +24,11 @@ from typing import (
 )
 
 from sofia_utils.pydantic import (
+    Base64_str,
     MIME_Type,
     NE_str,
     NE_var_name,
+    NO_WS_str,
     NumericID,
     UnixTS,
     serialize_without_nones,
@@ -33,6 +37,8 @@ from sofia_utils.pydantic import (
 
 # =========================================================================================
 # BASE TYPES
+
+# Strings constrained by regex pattern and/or length specs
 
 type WhatsAppBSUID                = Annotated[
     str, Field( pattern = r"^[A-Z]{2}\.[A-Za-z0-9]{1,128}$"),
@@ -79,6 +85,16 @@ type WhatsAppInteractiveBody         = Annotated[ str, Field( min_length = 1,
 type WhatsAppInteractiveButtonLabel  = Annotated[ str, Field( min_length = 1,
                                                               max_length = 20), ]
 """ WhatsApp interactive button label """
+
+# Literal-constrained strings
+
+type WhatsAppFlowAction = Literal[
+    "ping",
+    "INIT",
+    "BACK",
+    "data_exchange",
+]
+""" WhatsApp Flow endpoint request action """
 
 type WhatsAppMediaSHA256 = Annotated[
     str, Field( pattern = r"^[A-Za-z0-9+/]{43}=$"),
@@ -361,18 +377,44 @@ class WhatsApp_IB_Context (BaseModel) :
     # Field below present only if message refers to a catalog product
     referred_product : dict[ str, str] | None = None
 
-class WhatsApp_IB_InteractiveReply (BaseModel) :
+class WhatsApp_IB_FlowReply (BaseModel) :
     """
-    WhatsApp interactive reply
-        `type`         : "button_reply" | "list_reply"
-        `button_reply` : InteractiveOption | null
-        `list_reply`   : InteractiveOption | null
+    Terminal Flow reply delivered through the messages webhook
+        `name`          : "flow"
+        `body`          : Meta's human-readable completion status | null
+        `response_json` : JSON-encoded completion payload defined by the Flow
     """
     model_config = ConfigDict( frozen = True)
     
-    type         : Literal[ "button_reply", "list_reply"]
+    name          : Literal["flow"] = "flow"
+    body          : str | None      = None
+    response_json : str
+    
+    @property
+    def response(self) -> dict[str, Any] :
+        """
+        Parse and return the Flow-defined completion payload
+        """
+        data = json.loads(self.response_json)
+        if not isinstance( data, dict) :
+            raise ValueError("Flow response_json must contain an object")
+        
+        return data
+
+class WhatsApp_IB_InteractiveReply (BaseModel) :
+    """
+    WhatsApp interactive reply
+        `type`         : "button_reply" | "list_reply" | "nfm_reply"
+        `button_reply` : InteractiveOption | null
+        `list_reply`   : InteractiveOption | null
+        `nfm_reply`    : WhatsApp_IB_FlowReply | null
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    type         : Literal[ "button_reply", "list_reply", "nfm_reply"]
     button_reply : WhatsAppInteractiveOption | None = None
     list_reply   : WhatsAppInteractiveOption | None = None
+    nfm_reply    : WhatsApp_IB_FlowReply     | None = None
     
     @model_validator( mode = "after")
     def check_content(self) -> Self :
@@ -670,6 +712,50 @@ class WhatsApp_IB_Status (BaseModel) :
 # =========================================================================================
 # INBOUND: PAYLOADS
 
+class WhatsApp_IB_FlowEvent (BaseModel) :
+    """
+    Lifecycle, endpoint-health, or client-error event for a Meta Flow
+        `event`   : Meta Flow event name
+        `flow_id` : Meta Flow ID | null
+    Event-specific fields are preserved as extra model fields.
+    """
+    model_config = ConfigDict( extra = "allow", frozen = True)
+    
+    event   : NE_str
+    flow_id : NumericID | None = None
+
+class WhatsApp_IB_PartnerWABAInfo (BaseModel) :
+    """
+    WhatsApp Business Account data included in partner updates
+        `waba_id`           : "<WhatsApp Business Account ID>"
+        `owner_business_id` : "<owner Meta Business Account ID>"
+        `partner_app_id`    : "<partner app ID>" | null
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    waba_id           : NumericID
+    owner_business_id : NumericID
+    partner_app_id    : NumericID | None = None
+
+class WhatsApp_IB_PartnerUpdate (BaseModel) :
+    """
+    WhatsApp partner account update
+        `event`     : "PARTNER_ADDED"   | "PARTNER_APP_INSTALLED" |
+                      "PARTNER_REMOVED" | "PARTNER_APP_UNINSTALLED"
+        `waba_info` : WhatsApp_IB_PartnerWABAInfo
+    """
+    
+    model_config = ConfigDict( frozen = True)
+    
+    event : Literal[
+        "PARTNER_ADDED",
+        "PARTNER_APP_INSTALLED",
+        "PARTNER_REMOVED",
+        "PARTNER_APP_UNINSTALLED",
+    ]
+    waba_info : WhatsApp_IB_PartnerWABAInfo
+
 class WhatsApp_IB_Value (BaseModel) :
     """
     WhatsApp change value payload
@@ -710,54 +796,30 @@ class WhatsApp_IB_Value (BaseModel) :
         
         return serialize_without_nones( self, handler)
 
-class WhatsApp_IB_PartnerWABAInfo (BaseModel) :
-    """
-    WhatsApp Business Account data included in partner updates
-        `waba_id`           : "<WhatsApp Business Account ID>"
-        `owner_business_id` : "<owner Meta Business Account ID>"
-        `partner_app_id`    : "<partner app ID>" | null
-    """
-    
-    model_config = ConfigDict( frozen = True)
-    
-    waba_id           : NumericID
-    owner_business_id : NumericID
-    partner_app_id    : NumericID | None = None
-
-class WhatsApp_IB_PartnerUpdate (BaseModel) :
-    """
-    WhatsApp partner account update
-        `event`     : "PARTNER_ADDED"   | "PARTNER_APP_INSTALLED" |
-                      "PARTNER_REMOVED" | "PARTNER_APP_UNINSTALLED"
-        `waba_info` : WhatsApp_IB_PartnerWABAInfo
-    """
-    
-    model_config = ConfigDict( frozen = True)
-    
-    event : Literal[
-        "PARTNER_ADDED",
-        "PARTNER_APP_INSTALLED",
-        "PARTNER_REMOVED",
-        "PARTNER_APP_UNINSTALLED",
-    ]
-    waba_info : WhatsApp_IB_PartnerWABAInfo
-
 class WhatsApp_IB_Change (BaseModel) :
     """
     WhatsApp change item
-        `value` : WhatsApp_IB_Value | WhatsApp_IB_PartnerUpdate
-        `field` : "<webhook_field>"
-    Currently supported fields:
-        `account_update`     : Partner account and app updates
-        `messages`           : Regular inbound messages
-        `smb_message_echoes` : Human-originated outbound messages (mobile app)
+        `value` :
+            `WhatsApp_IB_FlowEvent`     |
+            `WhatsApp_IB_PartnerUpdate` |
+            `WhatsApp_IB_Value`
+        `field` :
+            `account_update`     : Partner account and app updates
+            `flows`              : Flow status, endpoint-health, and client-error events
+            `messages`           : Regular inbound messages
+            `smb_message_echoes` : Human-originated outbound messages (mobile app)
     """
     
     model_config = ConfigDict( frozen = True)
     
-    value : WhatsApp_IB_Value | WhatsApp_IB_PartnerUpdate
+    value : (
+        WhatsApp_IB_FlowEvent     |
+        WhatsApp_IB_PartnerUpdate |
+        WhatsApp_IB_Value
+    )
     field : Literal[
                 "account_update",
+                "flows",
                 "messages",
                 "smb_message_echoes",
             ]
@@ -839,6 +901,47 @@ class WhatsApp_IB_Payload (BaseModel) :
             for entry in self.entry
             for change in entry.changes
         )
+
+
+# =========================================================================================
+# INBOUND: FLOW DATA ENDPOINT
+
+class WhatsApp_IB_Encrypted_FlowRequest (BaseModel) :
+    """
+    Encrypted request envelope posted by Meta to a Flow data endpoint
+        `encrypted_flow_data` : Base64-encoded AES-GCM ciphertext and authentication tag
+        `encrypted_aes_key`   : Base64-encoded RSA-OAEP encrypted AES key
+        `initial_vector`      : Base64-encoded AES-GCM initialization vector
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    encrypted_flow_data : Base64_str
+    encrypted_aes_key   : Base64_str
+    initial_vector      : Base64_str
+
+class WhatsApp_IB_Decrypted_FlowRequest (BaseModel) :
+    """
+    Decrypted request received from the Flow client
+        `version`    : Data-channel protocol version
+        `action`     : Requested endpoint operation
+        `flow_token` : Application-issued Flow session token | null
+        `screen`     : Screen that initiated the exchange | null
+        `data`       : Flow-defined request payload
+    """
+    model_config = ConfigDict( extra = "allow", frozen = True)
+    
+    version    : NO_WS_str
+    action     : WhatsAppFlowAction
+    flow_token : NO_WS_str | None = None
+    screen     : NO_WS_str | None = None
+    data       : dict[ str, Any] = Field( default_factory = dict)
+
+    @property
+    def is_client_error(self) -> bool :
+        """
+        Return whether the Flow client reported an execution error
+        """
+        return bool(self.data.get("error"))
 
 
 # =========================================================================================
@@ -1054,7 +1157,6 @@ class WhatsApp_OB_TemplateMessage (WhatsApp_OB_PayloadHeader) :
     type     : Literal["template"] = "template"
     template : WhatsApp_OB_TemplateData
 
-
 # -----------------------------------------------------------------------------------------
 # OUTBOUND: Media
 
@@ -1124,7 +1226,6 @@ class WhatsApp_OB_MediaMessage (WhatsApp_OB_PayloadHeader) :
         
         return getattr( self, self.type, None)
 
-
 # -----------------------------------------------------------------------------------------
 # OUTBOUND: Contacts & Locations
 
@@ -1137,3 +1238,82 @@ class WhatsApp_OB_LocationMessage (WhatsApp_OB_PayloadHeader) :
     
     type     : Literal["location"] = "location"
     location : WhatsAppLocation
+
+# -----------------------------------------------------------------------------------------
+# OUTBOUND: Flow Data Endpoint
+
+class WhatsApp_OB_FlowCompletionParams (BaseModel) :
+    """
+    Values returned through the terminal Flow reply webhook
+        `flow_token` : Application-issued Flow session token
+    NOTE:
+        Flow-specific completion values are preserved as extra model fields.
+    """
+    model_config = ConfigDict( extra = "allow", frozen = True)
+    
+    flow_token : NO_WS_str
+
+class WhatsApp_OB_FlowResponse (BaseModel) :
+    """
+    Logical endpoint response to encrypt and return to the Flow client
+        `version` : Data-channel protocol version
+        `screen`  : Next screen to display | null
+        `data`    : Flow-defined response payload
+    """
+    model_config = ConfigDict( extra = "allow", frozen = True)
+    
+    version : NO_WS_str        = "3.0"
+    screen  : NO_WS_str | None = None
+    data    : dict[ str, Any]  = Field( default_factory = dict)
+    
+    @classmethod
+    def health_check(cls) -> Self :
+        """
+        Return the response expected by Meta's Flow endpoint health check
+        """
+        return cls( data = { "status" : "active" })
+    
+    @classmethod
+    def acknowledge_error(cls) -> Self :
+        """
+        Acknowledge an execution error reported by the Flow client
+        """
+        return cls( data = { "acknowledged" : True })
+    
+    @classmethod
+    def next_screen(
+        cls,
+        screen : NO_WS_str,
+        data   : dict[ str, Any] | None = None,
+    ) -> Self :
+        """
+        Return the data required to render the next Flow screen \\
+        Args:
+            screen : Destination screen ID
+            data   : Flow-defined data for the destination screen
+        """
+        return cls( screen = screen, data = data or {})
+    
+    @classmethod
+    def complete(
+        cls,
+        flow_token : NO_WS_str,
+        **params   : Any,
+    ) -> Self :
+        """
+        Complete the Flow and return values through the reply webhook \\
+        Args:
+            flow_token : Application-issued Flow session token
+            **params   : Flow-specific completion values
+        """
+        completion_params = WhatsApp_OB_FlowCompletionParams.model_validate(
+            { **params, "flow_token" : flow_token}
+        )
+        return cls(
+            screen = "SUCCESS",
+            data   = {
+                "extension_message_response" : {
+                    "params" : completion_params.model_dump( mode = "json"),
+                },
+            },
+        )

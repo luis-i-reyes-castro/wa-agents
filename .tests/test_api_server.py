@@ -29,11 +29,15 @@ class StubRequest :
     async def body(self) -> bytes :
         return self.payload
 
+    async def json(self) -> dict[str, Any] :
+        return self.data
+
 
 class StubQueue :
     def __init__( self, error : Exception | None = None) -> None :
         self.error   = error
         self.payload : dict[str, Any] | None = None
+        self.storage = object()
 
     async def enqueue( self, payload : dict[str, Any]) -> dict[str, bool] :
         self.payload = payload
@@ -244,8 +248,11 @@ def test_apps_register_role_specific_routes_once() -> None :
     server_paths   = [ route.path for route in server.routes ]
 
     assert listener_paths.count("/webhook") == 2
+    assert "/webhook/flows/{waba_id}" not in listener_paths
     assert "/webhook" not in worker_paths
+    assert worker_paths.count("/webhook/flows/{waba_id}") == 1
     assert server_paths.count("/webhook") == 2
+    assert server_paths.count("/webhook/flows/{waba_id}") == 1
     for path in ( "/", "/healthz", "/debugz" ) :
         assert listener_paths.count(path) == 1
         assert worker_paths.count(path) == 1
