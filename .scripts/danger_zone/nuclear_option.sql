@@ -3,8 +3,14 @@
 -- Run manually only when you intentionally want to drop all tables.
 
 DROP TABLE IF EXISTS
+  public.wa_api_flow_events,
+  public.wa_api_flow_data_exchanges,
+  public.wa_api_flow_sessions,
+  public.wa_api_flows,
+  public.wa_api_flow_wabas,
   public.wa_case_handler_agent_contexts,
   public.wa_case_handler_to_api,
+  public.wa_case_handler_state_histories,
   public.wa_case_handler_messages,
   public.wa_case_handler_case_manifests,
   public.wa_case_handler_contact_leases,
@@ -26,4 +32,7 @@ DROP DOMAIN IF EXISTS T_NO_WS_STR CASCADE;
 -- Drop ENUM types
 DROP TYPE IF EXISTS T_WHATSAPP_MESSAGE CASCADE;
 DROP TYPE IF EXISTS T_WHATSAPP_STATUS CASCADE;
+DROP TYPE IF EXISTS T_WHATSAPP_FLOW_STATUS CASCADE;
+DROP TYPE IF EXISTS T_WHATSAPP_FLOW_SESSION_STATUS CASCADE;
+DROP TYPE IF EXISTS T_WHATSAPP_FLOW_EXCHANGE_STATUS CASCADE;
 DROP TYPE IF EXISTS T_ENQUEUED_MESSAGE_STATUS CASCADE;

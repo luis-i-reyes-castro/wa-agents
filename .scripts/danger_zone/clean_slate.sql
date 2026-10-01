@@ -3,8 +3,14 @@
 -- Run manually only when you intentionally want to reset the database.
 
 TRUNCATE TABLE
+  public.wa_api_flow_events,
+  public.wa_api_flow_data_exchanges,
+  public.wa_api_flow_sessions,
+  public.wa_api_flows,
+  public.wa_api_flow_wabas,
   public.wa_case_handler_agent_contexts,
   public.wa_case_handler_to_api,
+  public.wa_case_handler_state_histories,
   public.wa_case_handler_messages,
   public.wa_case_handler_case_manifests,
   public.wa_case_handler_contact_leases,
