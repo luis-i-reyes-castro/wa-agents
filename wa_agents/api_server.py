@@ -34,6 +34,7 @@ class WhatsAppAPIServer (
     def __init__(
         self,
         *,
+        debug           : bool = False,
         handler_cls     : Type["AsyncWhatsAppCaseHandler"] | None = None,
         handler_classes : dict[
             str,
@@ -47,6 +48,7 @@ class WhatsAppAPIServer (
         """
         Initialize the combined WhatsApp API server. \\
         Args:
+            debug             : Whether to emit debug output
             handler_cls       : Case handler class invoked by the worker
             handler_classes   : Case handler classes keyed by their `HANDLER_KEY`
             queue             : Optional async WhatsApp database queue
@@ -56,16 +58,19 @@ class WhatsAppAPIServer (
         """
         queue = queue or AsyncWhatsAppDatabaseQueue()
         self._init_listener(
+            debug            = debug,
             queue            = queue,
             verify_signature = verify_app_secret,
             webhook_path     = webhook_path,
         )
         self._init_worker(
+            debug              = debug,
             queue              = queue,
             handler_cls        = handler_cls,
             handler_classes    = handler_classes,
             flow_endpoint_path = f"{webhook_path}/flows/{{waba_id}}",
         )
+        kwargs.setdefault( "debug", debug)
         kwargs.setdefault( "lifespan", self.worker_lifespan)
         FastAPI.__init__( self, **kwargs)
         self.register_listener_routes( include_diagnostics = False)

@@ -899,6 +899,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             raise ValueError(
                 f"In {here()}: api_inbound_msg_id is required for message ingestion"
             )
+
         if self.storage.case_handler_message_exists(inbound_msg_id) :
             return None
 
@@ -915,7 +916,9 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             HumanServerInteractiveReplyMsg
         )
         msg : HumanMsg | None = None
+
         if message.text or message.media_data :
+
             text  = message.text.body if message.text else None
             media = None
 
@@ -994,7 +997,6 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         if not msg :
             return None
 
-        msg.print()
         stored = self.apply_and_persist_message(msg)
         if (
             ( not isinstance( stored, HumanMsg) ) or
@@ -1032,6 +1034,9 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                 caption        = stored.text,
                 filename       = stored.media.name,
             )
+
+        if self.debug :
+            stored.print()
 
         return stored
 
@@ -1086,6 +1091,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                 self.operator_id,
                 self.user_id,
                 message,
+                debug = self.debug,
             )
             outbound_ids = self._persist_outbound_messages( message.id, results)
             
@@ -1120,6 +1126,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                 self.operator_id,
                 self.user_id,
                 message,
+                debug = self.debug,
             )
             self._persist_outbound_messages( case_handler_msg_id, results)
             return True
@@ -1151,6 +1158,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                         self.operator_id,
                         self.user_id,
                         message.text,
+                        debug = self.debug,
                     )
                 )
             self._persist_outbound_messages( case_handler_msg_id, results)
@@ -1176,6 +1184,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                 self.operator_id,
                 self.user_id,
                 message,
+                debug = self.debug,
             )
             self._persist_outbound_messages( case_handler_msg_id, results)
             return True
@@ -1807,6 +1816,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             raise ValueError(
                 f"In {here()}: api_inbound_msg_id is required for message ingestion"
             )
+
         if await self.storage.case_handler_message_exists(inbound_msg_id) :
             return None
 
@@ -1823,7 +1833,9 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             HumanServerInteractiveReplyMsg
         )
         msg : HumanMsg | None = None
+
         if message.text or message.media_data :
+
             text  = message.text.body if message.text else None
             media = None
 
@@ -1902,7 +1914,6 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         if not msg :
             return None
 
-        msg.print()
         stored = await self.apply_and_persist_message(msg)
         if (
             ( not isinstance( stored, HumanMsg) ) or
@@ -1940,6 +1951,9 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                 caption        = stored.text,
                 filename       = stored.media.name,
             )
+
+        if self.debug :
+            stored.print()
 
         return stored
 
@@ -1994,6 +2008,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                 self.operator_id,
                 self.user_id,
                 message,
+                debug = self.debug,
             )
             outbound_ids = await self._persist_outbound_messages(
                 message.id,
@@ -2031,6 +2046,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                 self.operator_id,
                 self.user_id,
                 message,
+                debug = self.debug,
             )
             await self._persist_outbound_messages( case_handler_msg_id, results)
             return True
@@ -2062,6 +2078,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                         self.operator_id,
                         self.user_id,
                         message.text,
+                        debug = self.debug,
                     )
                 )
             await self._persist_outbound_messages( case_handler_msg_id, results)
@@ -2087,6 +2104,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                 self.operator_id,
                 self.user_id,
                 message,
+                debug = self.debug,
             )
             await self._persist_outbound_messages( case_handler_msg_id, results)
             return True

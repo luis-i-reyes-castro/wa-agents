@@ -85,7 +85,7 @@ def test_flow_endpoint_encryption_round_trip() -> None :
     }
 
 
-def test_flow_launch_payload_and_persisted_token_redaction() -> None :
+def test_flow_launch_payload_and_persisted_token_redaction(capsys) -> None :
     message = ServerFlowMsg(
         flow_id    = "123456",
         flow_token = "secret-token",
@@ -107,6 +107,11 @@ def test_flow_launch_payload_and_persisted_token_redaction() -> None :
     
     results = _collect_send_results( payload, Response())
     stored  = results[0]["msg_data"]["interactive"]
+    assert capsys.readouterr().out == ""
+
+    _collect_send_results( payload, Response(), debug = True)
+    assert "WhatsApp API response to sent message" in capsys.readouterr().out
+
     assert stored["action"]["parameters"]["flow_token"] == "[REDACTED]"
     assert _message_data(message).obj["flow_token"] == "[REDACTED]"
 

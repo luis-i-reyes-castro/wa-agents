@@ -636,6 +636,7 @@ def test_whatsapp_media_write_uses_contact_and_message_ordinals() -> None :
     handler               = object.__new__(_InboundMediaHandler)
     handler.storage       = _InboundMediaStorage()
     handler.media_storage = _MediaWriteStorage()
+    handler.debug         = False
     handler.operator_num  = "15551234567"
     handler.user_id       = "593995341161"
 
@@ -664,6 +665,7 @@ def test_async_whatsapp_media_write_uses_contact_and_message_ordinals() -> None 
     handler               = object.__new__(_AsyncInboundMediaHandler)
     handler.storage       = _AsyncInboundMediaStorage()
     handler.media_storage = _AsyncMediaWriteStorage()
+    handler.debug         = False
     handler.operator_num  = "15551234567"
     handler.user_id       = "593995341161"
 

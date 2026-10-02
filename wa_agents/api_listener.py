@@ -24,7 +24,7 @@ from typing import (
     AsyncIterator,
 )
 
-from sofia_utils.io import JSON_INDENT
+from sofia_utils.io import write_to_json_string
 from sofia_utils.printing import (
     get_qualname as here,
     print_sep,
@@ -80,6 +80,7 @@ class WhatsAppAPIListener (FastAPI) :
     def __init__(
         self,
         *,
+        debug             : bool = False,
         queue             : AsyncWhatsAppDatabaseQueue | None = None,
         verify_app_secret : bool = True,
         webhook_path      : str  = "/webhook",
@@ -88,16 +89,19 @@ class WhatsAppAPIListener (FastAPI) :
         """
         Initialize the WhatsApp API listener. \\
         Args:
+            debug             : Whether to emit debug output
             queue             : Optional async WhatsApp database queue
             webhook_path      : Webhook route path
             verify_app_secret : Whether to verify payload signatures
             kwargs            : Forwarded to FastAPI
         """
         self._init_listener(
+            debug            = debug,
             queue            = queue or AsyncWhatsAppDatabaseQueue(),
             webhook_path     = webhook_path,
             verify_signature = verify_app_secret,
         )
+        kwargs.setdefault( "debug", debug)
         kwargs.setdefault( "lifespan", self.listener_lifespan)
         FastAPI.__init__( self, **kwargs)
         self.register_listener_routes( include_diagnostics = True)
@@ -107,6 +111,7 @@ class WhatsAppAPIListener (FastAPI) :
     def _init_listener(
         self,
         *,
+        debug            : bool,
         queue            : AsyncWhatsAppDatabaseQueue,
         verify_signature : bool,
         webhook_path     : str,
@@ -114,6 +119,7 @@ class WhatsAppAPIListener (FastAPI) :
         """
         Initialize listener state without initializing FastAPI.
         """
+        self.debug             = debug
         self.queue             = queue
         self.verify_app_secret = verify_signature
         self.webhook_path      = webhook_path
@@ -257,9 +263,10 @@ class WhatsAppAPIListener (FastAPI) :
             logging.error(f"In {here()}: Unable to parse request JSON: {str(ex)}")
             data = {}
         
-        print_sep()
-        print("[INFO] WhatsApp API incoming payload:")
-        print(json.dumps( data, indent = JSON_INDENT))
+        if self.debug :
+            print_sep()
+            print("[INFO] WhatsApp API incoming payload:")
+            print(write_to_json_string(data))
         
         try :
             enqueue_result = await self.queue.enqueue(data)

@@ -66,15 +66,17 @@ class WhatsAppSendResult (TypedDict) :
 def _collect_send_results(
     payload  : dict[str, Any],
     response : httpx.Response,
+    debug    : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Validate a Graph send response and pair its message IDs with the request data.
     """
     response_data = response.json()
     
-    print_sep()
-    print("[INFO] WhatsApp API response to sent message:")
-    print(json.dumps( response_data, indent = JSON_INDENT))
+    if debug :
+        print_sep()
+        print("[INFO] WhatsApp API response to sent message:")
+        print(json.dumps( response_data, indent = JSON_INDENT))
     
     response.raise_for_status()
     
@@ -186,6 +188,7 @@ def send_whatsapp_text(
     operator_id : str,
     to_number   : str,
     text        : str,
+    debug       : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Send a text-only WhatsApp message \\
@@ -193,6 +196,7 @@ def send_whatsapp_text(
         operator_id : Business phone-number id
         to_number   : Recipient phone number
         text        : Message body
+        debug       : Whether to emit response diagnostics
     """
     
     # 1) Declare message URL and headers
@@ -207,7 +211,7 @@ def send_whatsapp_text(
         payload  = write_payload( to_number, _text_)
         response = httpx.post( msg_url, headers = msg_headers, json = payload)
         
-        results.extend( _collect_send_results( payload, response) )
+        results.extend( _collect_send_results( payload, response, debug) )
     
     return results
 
@@ -215,6 +219,7 @@ async def async_send_whatsapp_text(
     operator_id : str,
     to_number   : str,
     text        : str,
+    debug       : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Send a text-only WhatsApp message asynchronously \\
@@ -222,6 +227,7 @@ async def async_send_whatsapp_text(
         operator_id : Business phone-number id
         to_number   : Recipient phone number
         text        : Message body
+        debug       : Whether to emit response diagnostics
     """
     
     msg_url     = f"{API_URL}{operator_id}/messages"
@@ -237,7 +243,7 @@ async def async_send_whatsapp_text(
                 headers = msg_headers,
                 json    = payload,
             )
-            results.extend( _collect_send_results( payload, response) )
+            results.extend( _collect_send_results( payload, response, debug) )
     
     return results
 
@@ -249,6 +255,7 @@ def send_whatsapp_interactive(
     operator_id : str,
     to_number   : str,
     message     : ServerInteractiveOptsMsg,
+    debug       : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp interactive responses (buttons/lists) \\
@@ -256,6 +263,7 @@ def send_whatsapp_interactive(
         operator_id : Business phone-number id
         to_number   : Recipient phone number
         message     : Interactive options payload
+        debug       : Whether to emit response diagnostics
     """
     
     # 1) Declare message URL and headers
@@ -265,12 +273,13 @@ def send_whatsapp_interactive(
     payload  = write_payload( to_number, message)
     response = httpx.post( msg_url, headers = msg_headers, json = payload)
     
-    return _collect_send_results( payload, response)
+    return _collect_send_results( payload, response, debug)
 
 async def async_send_whatsapp_interactive(
     operator_id : str,
     to_number   : str,
     message     : ServerInteractiveOptsMsg,
+    debug       : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp interactive responses asynchronously \\
@@ -278,6 +287,7 @@ async def async_send_whatsapp_interactive(
         operator_id : Business phone-number id
         to_number   : Recipient phone number
         message     : Interactive options payload
+        debug       : Whether to emit response diagnostics
     """
     
     msg_url     = f"{API_URL}{operator_id}/messages"
@@ -287,7 +297,7 @@ async def async_send_whatsapp_interactive(
     async with httpx.AsyncClient() as client :
         response = await client.post( msg_url, headers = msg_headers, json = payload)
     
-    return _collect_send_results( payload, response)
+    return _collect_send_results( payload, response, debug)
 
 
 # -----------------------------------------------------------------------------------------
@@ -297,6 +307,7 @@ def send_whatsapp_flow(
     operator_id : str,
     to_number   : str,
     message     : ServerFlowMsg,
+    debug       : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp Flow launch message.
@@ -307,12 +318,13 @@ def send_whatsapp_flow(
         headers = write_headers( content_type = True),
         json    = payload,
     )
-    return _collect_send_results( payload, response)
+    return _collect_send_results( payload, response, debug)
 
 async def async_send_whatsapp_flow(
     operator_id : str,
     to_number   : str,
     message     : ServerFlowMsg,
+    debug       : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp Flow launch message asynchronously.
@@ -324,7 +336,7 @@ async def async_send_whatsapp_flow(
             headers = write_headers( content_type = True),
             json    = payload,
         )
-    return _collect_send_results( payload, response)
+    return _collect_send_results( payload, response, debug)
 
 
 # =========================================================================================
@@ -334,6 +346,7 @@ def send_whatsapp_template(
     operator_id : str,
     to_number   : str,
     message     : ServerTemplateMsg,
+    debug       : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp template messages \\
@@ -341,6 +354,7 @@ def send_whatsapp_template(
         operator_id : Business phone-number id
         to_number   : Recipient phone number
         message     : Approved template payload
+        debug       : Whether to emit response diagnostics
     """
     
     msg_url     = f"{API_URL}{operator_id}/messages"
@@ -348,12 +362,13 @@ def send_whatsapp_template(
     payload     = write_payload( to_number, message)
     response    = httpx.post( msg_url, headers = msg_headers, json = payload)
     
-    return _collect_send_results( payload, response)
+    return _collect_send_results( payload, response, debug)
 
 async def async_send_whatsapp_template(
     operator_id : str,
     to_number   : str,
     message     : ServerTemplateMsg,
+    debug       : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp template messages asynchronously \\
@@ -361,6 +376,7 @@ async def async_send_whatsapp_template(
         operator_id : Business phone-number id
         to_number   : Recipient phone number
         message     : Approved template payload
+        debug       : Whether to emit response diagnostics
     """
     
     msg_url     = f"{API_URL}{operator_id}/messages"
@@ -370,7 +386,7 @@ async def async_send_whatsapp_template(
     async with httpx.AsyncClient() as client :
         response = await client.post( msg_url, headers = msg_headers, json = payload)
     
-    return _collect_send_results( payload, response)
+    return _collect_send_results( payload, response, debug)
 
 
 # -----------------------------------------------------------------------------------------
@@ -380,6 +396,7 @@ def send_whatsapp_content(
     operator_id : str,
     to_number   : str,
     content     : WhatsAppContactCard | WhatsAppLocation,
+    debug       : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp content message \\
@@ -387,6 +404,7 @@ def send_whatsapp_content(
         operator_id : Business phone-number id
         to_number   : Recipient phone number
         content     : WhatsApp contact or location
+        debug       : Whether to emit response diagnostics
     """
     
     # 1) Declare message URL and headers
@@ -397,12 +415,13 @@ def send_whatsapp_content(
     payload  = write_payload( to_number, content)
     response = httpx.post( msg_url, headers = msg_headers, json = payload)
     
-    return _collect_send_results( payload, response)
+    return _collect_send_results( payload, response, debug)
 
 async def async_send_whatsapp_content(
     operator_id : str,
     to_number   : str,
     content     : WhatsAppContactCard | WhatsAppLocation,
+    debug       : bool = False,
 ) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp content message asynchronously \\
@@ -410,6 +429,7 @@ async def async_send_whatsapp_content(
         operator_id : Business phone-number id
         to_number   : Recipient phone number
         content     : WhatsApp contact or location
+        debug       : Whether to emit response diagnostics
     """
     
     msg_url     = f"{API_URL}{operator_id}/messages"
@@ -419,7 +439,7 @@ async def async_send_whatsapp_content(
     async with httpx.AsyncClient() as client :
         response = await client.post( msg_url, headers = msg_headers, json = payload)
     
-    return _collect_send_results( payload, response)
+    return _collect_send_results( payload, response, debug)
 
 
 # -----------------------------------------------------------------------------------------
@@ -429,6 +449,7 @@ def send_whatsapp_media(
     operator_id : str,
     to_number   : str,
     media       : ServerMediaMsg,
+    debug       : bool = False,
 ) -> bool :
     """
     Upload media and send it to the given WhatsApp number \\
@@ -436,6 +457,7 @@ def send_whatsapp_media(
         operator_id : Business phone-number id
         to_number   : Recipient phone number
         media       : ServerMediaMsg describing the file to send
+        debug       : Whether to emit response diagnostics
     Returns:
         True if upload/send succeeded; else False.
     """
@@ -447,8 +469,9 @@ def send_whatsapp_media(
             raise ValueError("Missing media content")
         
         # 1) UPLOAD THE MEDIA TO GET A MEDIA ID
-        print_sep()
-        print(f"Uploading media: {media.filepath}")
+        if debug :
+            print_sep()
+            print(f"Uploading media: {media.filepath}")
         
         # Post upload
         upload_url  = f"{API_URL}{operator_id}/media"
@@ -463,8 +486,9 @@ def send_whatsapp_media(
         )
         
         # Print response
-        print(f"Upload response status: {upload_response.status_code}")
-        print(f"Upload response: {upload_response.text}")
+        if debug :
+            print(f"Upload response status: {upload_response.status_code}")
+            print(f"Upload response: {upload_response.text}")
         
         # Handle response status failure
         if upload_response.status_code != 200 :
@@ -479,10 +503,12 @@ def send_whatsapp_media(
         
         # Upload succeded so copy media ID
         media.upload_id = upload_data["id"]
-        print(f"Uploaded media with ID: {media.upload_id}")
+        if debug :
+            print(f"Uploaded media with ID: {media.upload_id}")
         
         # 2) SEND THE MEDIA MESSAGE WITH THE CORRESPONDING MEDIA ID
-        print("Sending media message...")
+        if debug :
+            print("Sending media message...")
         
         # Declare message URL and headers
         msg_url     = f"{API_URL}{operator_id}/messages"
@@ -493,8 +519,9 @@ def send_whatsapp_media(
         response = httpx.post( msg_url, headers = msg_headers, json = payload)
         
         # Print response
-        print(f"Media message response status: {response.status_code}")
-        print(f"Media reply response: {response.json()}")
+        if debug :
+            print(f"Media message response status: {response.status_code}")
+            print(f"Media reply response: {response.json()}")
         
         return True
     
@@ -507,6 +534,7 @@ async def async_send_whatsapp_media(
     operator_id : str,
     to_number   : str,
     media       : ServerMediaMsg,
+    debug       : bool = False,
 ) -> bool :
     """
     Upload media and send it to the given WhatsApp number asynchronously \\
@@ -514,6 +542,7 @@ async def async_send_whatsapp_media(
         operator_id : Business phone-number id
         to_number   : Recipient phone number
         media       : ServerMediaMsg describing the file to send
+        debug       : Whether to emit response diagnostics
     Returns:
         True if upload/send succeeded; else False.
     """
@@ -522,8 +551,9 @@ async def async_send_whatsapp_media(
         if not media.content :
             raise ValueError("Missing media content")
         
-        print_sep()
-        print(f"Uploading media: {media.filepath}")
+        if debug :
+            print_sep()
+            print(f"Uploading media: {media.filepath}")
         
         upload_url  = f"{API_URL}{operator_id}/media"
         upload_head = write_headers()
@@ -539,8 +569,9 @@ async def async_send_whatsapp_media(
                 data    = data,
             )
             
-            print(f"Upload response status: {upload_response.status_code}")
-            print(f"Upload response: {upload_response.text}")
+            if debug :
+                print(f"Upload response status: {upload_response.status_code}")
+                print(f"Upload response: {upload_response.text}")
             
             if upload_response.status_code != 200 :
                 print(f"Upload failed with status {upload_response.status_code}")
@@ -552,8 +583,9 @@ async def async_send_whatsapp_media(
                 return False
             
             media.upload_id = upload_data["id"]
-            print(f"Uploaded media with ID: {media.upload_id}")
-            print("Sending media message...")
+            if debug :
+                print(f"Uploaded media with ID: {media.upload_id}")
+                print("Sending media message...")
             
             msg_url     = f"{API_URL}{operator_id}/messages"
             msg_headers = write_headers( content_type = True)
@@ -564,8 +596,9 @@ async def async_send_whatsapp_media(
                 json    = payload,
             )
         
-        print(f"Media message response status: {response.status_code}")
-        print(f"Media reply response: {response.json()}")
+        if debug :
+            print(f"Media message response status: {response.status_code}")
+            print(f"Media reply response: {response.json()}")
         
         return True
     

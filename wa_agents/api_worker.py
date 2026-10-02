@@ -153,6 +153,7 @@ class WhatsAppAPIWorker (FastAPI) :
     def __init__(
         self,
         *,
+        debug              : bool                              = False,
         handler_cls        : Type[Any]                  | None = None,
         handler_classes    : dict[ str, Type[Any]]      | None = None,
         queue              : AsyncWhatsAppDatabaseQueue | None = None,
@@ -162,6 +163,7 @@ class WhatsAppAPIWorker (FastAPI) :
         """
         Initialize the WhatsApp database queue worker app. \\
         Args:
+            debug              : Whether to emit debug output
             handler_cls        : Case handler class invoked by the worker
             queue              : Optional async WhatsApp database queue
             handler_classes    : Case handler classes keyed by their `HANDLER_KEY`
@@ -169,11 +171,13 @@ class WhatsAppAPIWorker (FastAPI) :
             kwargs             : Forwarded to FastAPI
         """
         self._init_worker(
+            debug              = debug,
             queue              = queue or AsyncWhatsAppDatabaseQueue(),
             handler_cls        = handler_cls,
             handler_classes    = handler_classes,
             flow_endpoint_path = flow_endpoint_path,
         )
+        kwargs.setdefault( "debug", debug)
         kwargs.setdefault( "lifespan", self.worker_lifespan)
         FastAPI.__init__( self, **kwargs)
         self.register_worker_routes( include_diagnostics = True)
@@ -237,6 +241,7 @@ class WhatsAppAPIWorker (FastAPI) :
     def _init_worker(
         self,
         *,
+        debug              : bool,
         queue              : AsyncWhatsAppDatabaseQueue,
         handler_cls        : Type[Any]             | None,
         handler_classes    : dict[ str, Type[Any]] | None,
@@ -245,6 +250,7 @@ class WhatsAppAPIWorker (FastAPI) :
         """
         Initialize worker state without initializing FastAPI.
         """
+        self.debug        = debug
         self.queue        = queue
         self.handler_keys = self._build_handler_registry(
             handler_cls,
@@ -420,6 +426,7 @@ class WhatsAppAPIWorker (FastAPI) :
             job.operator,
             job.user,
             api_inbound_msg_id = job.api_inbound_msg_id,
+            debug              = self.debug,
             handler_id         = job.handler_id,
             owner_token        = job.owner_token,
         )

@@ -104,6 +104,54 @@ def test_webhook_passes_payload_dict_to_queue() -> None :
     }
 
 
+def test_webhook_prints_unicode_payload_only_in_debug_mode(capsys) -> None :
+    data = { "name" : "José" }
+
+    quiet_server = WhatsAppAPIListener(
+        queue             = StubQueue(),
+        verify_app_secret = False,
+    )
+    asyncio.run(quiet_server.webhook(StubRequest(data)))
+
+    assert capsys.readouterr().out == ""
+
+    debug_server = WhatsAppAPIListener(
+        debug             = True,
+        queue             = StubQueue(),
+        verify_app_secret = False,
+    )
+    asyncio.run(debug_server.webhook(StubRequest(data)))
+    output = capsys.readouterr().out
+
+    assert "WhatsApp API incoming payload" in output
+    assert "José" in output
+    assert "\\u00e9" not in output
+
+
+@pytest.mark.parametrize(
+    "app",
+    [
+        WhatsAppAPIListener(
+            debug             = True,
+            queue             = StubQueue(),
+            verify_app_secret = False,
+        ),
+        WhatsAppAPIWorker(
+            debug       = True,
+            handler_cls = StubHandler,
+            queue       = StubQueue(),
+        ),
+        WhatsAppAPIServer(
+            debug       = True,
+            handler_cls = StubHandler,
+            queue       = StubQueue(),
+        ),
+    ],
+)
+def test_apps_preserve_debug_flag( app : FastAPI) -> None :
+    assert app.debug is True
+
+
 def test_combined_server_preserves_webhook_behavior() -> None :
     data   = { "object" : "whatsapp_business_account", "entry" : [] }
     queue  = StubQueue()

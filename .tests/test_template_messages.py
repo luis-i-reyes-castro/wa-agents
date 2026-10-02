@@ -170,8 +170,9 @@ def test_case_handler_send_template_dispatches_helper( monkeypatch ) -> None :
         operator_id : str,
         user_id     : str,
         message     : ServerTemplateMsg,
+        debug       : bool,
     ) -> list :
-        sent.append(( operator_id, user_id, message ))
+        sent.append(( operator_id, user_id, message, debug ))
         return []
     
     monkeypatch.setattr( "wa_agents.case_handler_base.send_whatsapp_template", _send )
@@ -189,7 +190,7 @@ def test_case_handler_send_template_dispatches_helper( monkeypatch ) -> None :
     )
     
     assert handler.send_template(message) is True
-    assert sent == [ ( "op-1", "user-1", message ) ]
+    assert sent == [ ( "op-1", "user-1", message, False ) ]
 
 
 def test_async_case_handler_send_template_dispatches_helper( monkeypatch ) -> None :
@@ -200,8 +201,9 @@ def test_async_case_handler_send_template_dispatches_helper( monkeypatch ) -> No
         operator_id : str,
         user_id     : str,
         message     : ServerTemplateMsg,
+        debug       : bool,
     ) -> list :
-        sent.append(( operator_id, user_id, message ))
+        sent.append(( operator_id, user_id, message, debug ))
         return []
     
     monkeypatch.setattr(
@@ -222,4 +224,4 @@ def test_async_case_handler_send_template_dispatches_helper( monkeypatch ) -> No
     )
     
     assert asyncio.run( handler.send_template(message) ) is True
-    assert sent == [ ( "op-1", "user-1", message ) ]
+    assert sent == [ ( "op-1", "user-1", message, True ) ]
