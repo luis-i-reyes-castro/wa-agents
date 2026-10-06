@@ -220,6 +220,35 @@ SET
   updated_at  = now();
 ```
 
+Message echoes put the selected handler into silence mode. Configure a handler-specific
+timeout in minutes with:
+
+```sql
+INSERT INTO public.wa_case_handler_settings (
+  handler_key,
+  silence_timeout_minutes
+)
+VALUES (
+  'retail',
+  30
+)
+ON CONFLICT (handler_key)
+DO UPDATE
+SET
+  silence_timeout_minutes = EXCLUDED.silence_timeout_minutes,
+  updated_at              = now();
+```
+
+Handlers without a settings row use the worker's 30-minute fallback. Repeated echoes
+add one full timeout to the active deadline. Customer messages received during silence
+are persisted for audit without advancing the state machine or agent contexts and do
+not receive a response. The open case is closed lazily on the first message after the
+deadline, and that message starts a fresh case and context.
+
+The canonical DDL defines these objects for new or rebuilt databases. It does not
+migrate an already provisioned database; add the table and manifest column there
+before deploying this worker version.
+
 `handler_url` is reserved for future remote-handler dispatch. Changing a route affects
 its pending jobs; deleting it clears their nullable route reference and sends them
 through the configured fallback. A route whose key is not served by any worker stays
@@ -410,8 +439,10 @@ The parsed payload model is `WhatsApp_IB_Payload`.
 
 `dedup_and_ingest_message()` maps normal inbound messages to `HumanUserMsg`
 subclasses and WhatsApp Business message echoes to `HumanServerMsg` subclasses.
-Persist both in context, but generally return `False` for `HumanServerMsg` so an
-operator's message does not trigger a chatbot reply.
+An echo starts or extends durable silence for the open case. Always check for a falsey
+result or `HumanServerMsg` before sending unsupported-message replies or doing other
+ingestion-time work. A falsey result can mean a duplicate or a customer message that
+was persisted while silence was active.
 
 Most routing happens in `WhatsApp_IB_Message` fields:
 - `message.type`: `text`, `interactive`, `image`, `video`, `audio`, `sticker`, etc.
@@ -429,10 +460,14 @@ Example branch logic in `process_message`:
 
 ```python
 from wa_agents.case_handler_models import HumanServerMsg
+from wa_agents.io_models import (
+    WhatsApp_IB_Message,
+    WhatsApp_IB_MessageEcho,
+)
 
 def process_message(
   self,
-  message       : WhatsApp_IB_Message,
+  message       : WhatsApp_IB_Message | WhatsApp_IB_MessageEcho,
   media_content : MediaContent | None = None,
 ) -> bool:
     msg = self.dedup_and_ingest_message( message, media_content)

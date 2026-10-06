@@ -3,6 +3,7 @@ import asyncio
 from datetime import (
     UTC,
     datetime,
+    timedelta,
 )
 
 import pytest
@@ -18,11 +19,13 @@ from wa_agents.case_handler_base import (
 )
 from wa_agents.case_handler_models import (
     CaseManifest,
+    HumanServerMsg,
     Message,
     ServerTextMsg,
 )
 from wa_agents.io_models import (
     WhatsApp_IB_Message,
+    WhatsApp_IB_MessageEcho,
     WhatsApp_IB_Profile,
 )
 from wa_agents.supabase import (
@@ -53,6 +56,17 @@ class _StorageStub :
     def get_agent_contexts( self, _case_id : int) -> dict[str, list[int]] :
         return self.agent_contexts
 
+    def case_handler_message_exists( self, _inbound_msg_id : int) -> bool :
+        return False
+
+    def link_case_handler_to_api(
+        self,
+        _case_handler_msg_id : int,
+        *,
+        api_inbound_msg_id : int,
+    ) -> bool :
+        return bool(api_inbound_msg_id)
+
     def insert_case_handler_message(
         self,
         _case_id       : int,
@@ -60,6 +74,7 @@ class _StorageStub :
         machine_state  : str | None,
         agent_contexts_to_clear  : list[str] | None = None,
         agent_contexts_to_append : list[str] | None = None,
+        silenced_until : datetime | None = None,
     ) -> Message :
         self.insert_states.append(machine_state)
         self.inserted_texts.append(message.text)
@@ -69,7 +84,13 @@ class _StorageStub :
                 agent_contexts_to_append or [],
             )
         )
-        return message.model_copy( update = { "id" : 51 })
+        self.manifest.silenced_until = silenced_until
+        return message.model_copy(
+            update = {
+                "id"            : 50 + len(self.inserted_texts),
+                "message_index" : len(self.inserted_texts),
+            }
+        )
 
     def insert_case_manifest(
         self,
@@ -80,10 +101,12 @@ class _StorageStub :
     ) -> CaseManifest :
         self.inserted_handler_ids.append(handler_id)
         self.inserted_agent_names.append(agent_names or [])
+        next_case_index = self.manifest.case_index + 1
         self.manifest = CaseManifest(
             id            = 12,
             contact       = contact,
             handler_id    = handler_id,
+            case_index    = next_case_index,
             machine_state = machine_state,
         )
         return self.manifest
@@ -145,6 +168,106 @@ class _AgentContextHandler (_StateHandler) :
         self.agent_context_append( "image", message)
         self.agent_context_append( "main", message)
         self.state = "ready"
+
+
+class _SilenceHandler (WhatsAppCaseHandler) :
+
+    AGENT_NAMES = ( "main", )
+
+    @classmethod
+    def define_state_machine_config(cls) :
+        return [ CaseHandlerState("start"), CaseHandlerState("ready") ], "start", []
+
+    def __init__( self, manifest : CaseManifest) -> None :
+        business = WhatsAppDatabaseRecord_Business(
+            row_id               = 41,
+            waba_id              = "123456789012345",
+            phone_number_id      = "1234567890",
+            display_phone_number = "15551234567",
+        )
+        contact = WhatsAppDatabaseRecord_Contact(
+            row_id  = 31,
+            profile = WhatsApp_IB_Profile( name = "Test User"),
+            wa_id   = "593995341161",
+        )
+        super().__init__( business, contact, database_url = "postgresql://test")
+        self.storage        = _StorageStub(manifest)
+        self.silence_timeout = timedelta( minutes = 30)
+        self.ingested       = []
+        self.init_machine()
+
+    def apply_message_to_state_machine( self, message : Message) -> None :
+        self.ingested.append(message)
+        self.agent_context_append( "main", message)
+        self.state = "ready"
+
+    def process_message( self, _message, _media_content = None) -> bool :
+        return False
+
+    def run_while_in_action( self, _max_tokens = None) -> bool :
+        return False
+
+
+class _AsyncStorageStub (_StorageStub) :
+
+    async def get_open_case_manifest( self, contact_id : int) -> CaseManifest :
+        return super().get_open_case_manifest(contact_id)
+
+    async def case_handler_message_exists( self, inbound_msg_id : int) -> bool :
+        return super().case_handler_message_exists(inbound_msg_id)
+
+    async def insert_case_handler_message( self, *args, **kwargs) -> Message :
+        return super().insert_case_handler_message( *args, **kwargs)
+
+    async def link_case_handler_to_api( self, *args, **kwargs) -> bool :
+        return super().link_case_handler_to_api( *args, **kwargs)
+
+    async def update_case_manifest(
+        self,
+        manifest : CaseManifest,
+    ) -> CaseManifest :
+        return super().update_case_manifest(manifest)
+
+    async def insert_case_manifest( self, *args, **kwargs) -> CaseManifest :
+        return super().insert_case_manifest( *args, **kwargs)
+
+
+class _AsyncSilenceHandler (AsyncWhatsAppCaseHandler) :
+
+    AGENT_NAMES = ( "main", )
+
+    @classmethod
+    def define_state_machine_config(cls) :
+        return [ CaseHandlerState("start"), CaseHandlerState("ready") ], "start", []
+
+    def __init__( self, manifest : CaseManifest) -> None :
+        business = WhatsAppDatabaseRecord_Business(
+            row_id               = 41,
+            waba_id              = "123456789012345",
+            phone_number_id      = "1234567890",
+            display_phone_number = "15551234567",
+        )
+        contact = WhatsAppDatabaseRecord_Contact(
+            row_id  = 31,
+            profile = WhatsApp_IB_Profile( name = "Test User"),
+            wa_id   = "593995341161",
+        )
+        super().__init__( business, contact, database_url = "postgresql://test")
+        self.storage         = _AsyncStorageStub(manifest)
+        self.silence_timeout = timedelta( minutes = 30)
+        self.ingested        = []
+        self.init_machine()
+
+    async def apply_message_to_state_machine( self, message : Message) -> None :
+        self.ingested.append(message)
+        self.agent_context_append( "main", message)
+        self.state = "ready"
+
+    async def process_message( self, _message, _media_content = None) -> bool :
+        return False
+
+    async def run_while_in_action( self, _max_tokens = None) -> bool :
+        return False
 
 
 class _CallbackHandler (_StateHandler) :
@@ -341,7 +464,12 @@ class _InboundMediaHandler (WhatsAppCaseHandler) :
         )
         return manifest.id, manifest
 
-    def apply_and_persist_message( self, message : Message) -> Message :
+    def apply_and_persist_message(
+        self,
+        message : Message,
+        *,
+        apply_to_state_machine : bool = True,
+    ) -> Message :
         return message.model_copy(
             update = {
                 "id"            : 51,
@@ -396,7 +524,12 @@ class _AsyncInboundMediaHandler (AsyncWhatsAppCaseHandler) :
         )
         return manifest.id, manifest
 
-    async def apply_and_persist_message( self, message : Message) -> Message :
+    async def apply_and_persist_message(
+        self,
+        message : Message,
+        *,
+        apply_to_state_machine : bool = True,
+    ) -> Message :
         return message.model_copy(
             update = {
                 "id"            : 51,
@@ -436,6 +569,36 @@ def _media_message() -> WhatsApp_IB_Message :
     })
 
 
+def _text_message( msg_id : str = "wamid.user") -> WhatsApp_IB_Message :
+    return WhatsApp_IB_Message.model_validate({
+        "from"      : "593995341161",
+        "id"        : msg_id,
+        "timestamp" : "1788724265",
+        "type"      : "text",
+        "text"      : { "body" : "Hello" },
+    })
+
+
+def _message_echo( msg_id : str = "wamid.echo") -> WhatsApp_IB_MessageEcho :
+    return WhatsApp_IB_MessageEcho.model_validate({
+        "from"      : "15551234567",
+        "to"        : "593995341161",
+        "id"        : msg_id,
+        "timestamp" : "1788724265",
+        "type"      : "text",
+        "text"      : { "body" : "Human reply" },
+    })
+
+
+def _unsupported_message() -> WhatsApp_IB_Message :
+    return WhatsApp_IB_Message.model_validate({
+        "from"      : "593995341161",
+        "id"        : "wamid.unsupported",
+        "timestamp" : "1788724265",
+        "type"      : "unsupported",
+    })
+
+
 def test_context_build_restores_fsm_without_replay() -> None :
     handler                  = _StateHandler(_manifest())
     handler.storage.messages = [ ServerTextMsg( id = 50, text = "old") ]
@@ -445,6 +608,144 @@ def test_context_build_restores_fsm_without_replay() -> None :
     assert handler.state == "ready"
     assert handler.ingested == []
     assert len(handler.case_context) == 1
+
+
+def test_message_echo_starts_and_extends_silence_without_advancing_state() -> None :
+    handler = _SilenceHandler(_manifest("start"))
+    before  = datetime.now(UTC)
+
+    first = handler.dedup_and_ingest_message(
+        _message_echo("wamid.echo1"),
+        api_inbound_msg_id = 81,
+    )
+    first_deadline = handler.case_manifest.silenced_until
+    second = handler.dedup_and_ingest_message(
+        _message_echo("wamid.echo2"),
+        api_inbound_msg_id = 82,
+    )
+
+    assert isinstance( first, HumanServerMsg)
+    assert isinstance( second, HumanServerMsg)
+    assert first_deadline
+    assert before + timedelta( minutes = 30) <= first_deadline
+    assert handler.case_manifest.silenced_until == (
+        first_deadline + timedelta( minutes = 30)
+    )
+    assert handler.ingested == []
+    assert handler.agent_contexts["main"] == []
+    assert handler.state == "start"
+
+
+def test_customer_message_during_silence_is_persisted_without_state_change() -> None :
+    manifest = _manifest("start")
+    manifest.silenced_until = datetime.now(UTC) + timedelta( minutes = 30)
+    handler = _SilenceHandler(manifest)
+
+    stored = handler.dedup_and_ingest_message(
+        _text_message(),
+        api_inbound_msg_id = 81,
+    )
+
+    assert stored is None
+    assert handler.storage.inserted_texts == [ "Hello" ]
+    assert handler.ingested == []
+    assert handler.agent_contexts["main"] == []
+    assert handler.state == "start"
+
+
+def test_async_customer_message_during_silence_preserves_state() -> None :
+    manifest = _manifest("start")
+    manifest.silenced_until = datetime.now(UTC) + timedelta( minutes = 30)
+    handler = _AsyncSilenceHandler(manifest)
+
+    stored = asyncio.run(
+        handler.dedup_and_ingest_message(
+            _text_message(),
+            api_inbound_msg_id = 81,
+        )
+    )
+
+    assert stored is None
+    assert handler.storage.inserted_texts == [ "Hello" ]
+    assert handler.ingested == []
+    assert handler.agent_contexts["main"] == []
+    assert handler.state == "start"
+
+
+def test_unsupported_customer_message_is_audited_during_silence() -> None :
+    manifest = _manifest("start")
+    manifest.silenced_until = datetime.now(UTC) + timedelta( minutes = 30)
+    handler = _SilenceHandler(manifest)
+
+    stored = handler.dedup_and_ingest_message(
+        _unsupported_message(),
+        api_inbound_msg_id = 81,
+    )
+
+    assert stored is None
+    assert len(handler.storage.inserted_texts) == 1
+    assert '"type":"unsupported"' in handler.storage.inserted_texts[0]
+    assert handler.ingested == []
+
+
+def test_expired_silence_rolls_over_before_customer_message() -> None :
+    old_manifest = _manifest("ready")
+    old_manifest.case_index     = 4
+    old_manifest.silenced_until = datetime.now(UTC) - timedelta( seconds = 1)
+    handler = _SilenceHandler(old_manifest)
+
+    stored = handler.dedup_and_ingest_message(
+        _text_message(),
+        api_inbound_msg_id = 81,
+    )
+
+    assert stored
+    assert old_manifest.is_open is False
+    assert handler.case_manifest.id == 12
+    assert handler.case_manifest.case_index == 5
+    assert handler.case_manifest.silenced_until is None
+    assert handler.state == "ready"
+    assert len(handler.ingested) == 1
+    assert handler.ingested[0].text == stored.text
+    assert handler.agent_contexts["main"] == [ stored ]
+
+
+def test_async_expired_silence_rolls_over_before_customer_message() -> None :
+    old_manifest = _manifest("ready")
+    old_manifest.case_index     = 4
+    old_manifest.silenced_until = datetime.now(UTC) - timedelta( seconds = 1)
+    handler = _AsyncSilenceHandler(old_manifest)
+
+    stored = asyncio.run(
+        handler.dedup_and_ingest_message(
+            _text_message(),
+            api_inbound_msg_id = 81,
+        )
+    )
+
+    assert stored
+    assert old_manifest.is_open is False
+    assert handler.case_manifest.id == 12
+    assert handler.case_manifest.case_index == 5
+    assert handler.case_manifest.silenced_until is None
+    assert handler.state == "ready"
+    assert len(handler.ingested) == 1
+    assert handler.ingested[0].text == stored.text
+    assert handler.agent_contexts["main"] == [ stored ]
+
+
+def test_active_silence_takes_precedence_over_stale_case_timeout() -> None :
+    manifest = _manifest("start")
+    manifest.created_at     = datetime.now(UTC) - timedelta( hours = 49)
+    manifest.silenced_until = datetime.now(UTC) + timedelta( hours = 1)
+    handler = _SilenceHandler(manifest)
+
+    case_id, current = handler.case_decide()
+
+    assert case_id == manifest.id
+    assert current is manifest
+    assert current.is_open is True
+    assert handler.storage.inserted_handler_ids == []
 
 
 def test_state_callbacks_run_after_triggering_message_is_persisted() -> None :

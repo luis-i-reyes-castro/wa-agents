@@ -198,6 +198,7 @@ def test_case_handler_message_round_trip_and_state_update( monkeypatch) -> None 
         case_id       = 9,
         message       = message,
         machine_state = "awaiting_photo",
+        silenced_until = message.ts,
     )
 
     assert isinstance( stored, ServerTextMsg)
@@ -206,6 +207,7 @@ def test_case_handler_message_round_trip_and_state_update( monkeypatch) -> None 
     assert stored.text == "hello"
     assert calls[0][0] == supabase.SQL_INSERT_CASE_HANDLER_MESSAGE
     assert calls[0][1]["machine_state"] == "awaiting_photo"
+    assert calls[0][1]["silenced_until"] == message.ts
 
 
 def test_llm_model_is_stored_with_assistant_message( monkeypatch) -> None :
@@ -244,6 +246,7 @@ def test_manifest_loads_ordered_message_ids( monkeypatch) -> None :
             "is_open"       : True,
             "handler_id"    : 7,
             "machine_state" : "confirm_model",
+            "silenced_until": now,
         },
     )
     monkeypatch.setattr(
@@ -258,6 +261,7 @@ def test_manifest_loads_ordered_message_ids( monkeypatch) -> None :
     assert manifest.machine_state == "confirm_model"
     assert manifest.handler_id == 7
     assert manifest.case_index == 2
+    assert manifest.silenced_until == now
     assert manifest.message_ids == [ 11, 12 ]
 
 

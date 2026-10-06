@@ -37,7 +37,8 @@ manifest AS (
     contact,
     case_index,
     is_open,
-    machine_state
+    machine_state,
+    silenced_until
 ),
 initial_state AS (
   INSERT INTO public.wa_case_handler_state_histories (
@@ -81,7 +82,8 @@ SELECT
   manifest.contact,
   manifest.case_index,
   manifest.is_open,
-  manifest.machine_state
+  manifest.machine_state,
+  manifest.silenced_until
 FROM
   manifest
 JOIN

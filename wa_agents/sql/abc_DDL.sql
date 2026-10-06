@@ -376,7 +376,7 @@ ALTER TABLE public.wa_api_statuses
 
 /*
   =========================================================================================
-  CASE HANDLER ROUTING
+  CASE HANDLER ROUTING & SETTINGS
   =========================================================================================
 */
 
@@ -412,6 +412,21 @@ CREATE INDEX IF NOT EXISTS wa_case_handler_routes_handler_key_idx
   ON public.wa_case_handler_routes (handler_key);
 
 ALTER TABLE public.wa_case_handler_routes
+  ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.wa_case_handler_settings (
+  
+  handler_key             T_NO_WS_STR PRIMARY KEY,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  silence_timeout_minutes INTEGER     NOT NULL,
+  
+  CONSTRAINT wa_case_handler_settings_silence_timeout_positive
+    CHECK ( silence_timeout_minutes > 0 )
+
+);
+
+ALTER TABLE public.wa_case_handler_settings
   ENABLE ROW LEVEL SECURITY;
 
 
@@ -531,6 +546,7 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_case_manifests (
   next_message_index INT          NOT NULL DEFAULT 1,
   is_open            BOOLEAN      NOT NULL DEFAULT TRUE,
   machine_state      T_NO_WS_STR  DEFAULT NULL,
+  silenced_until     TIMESTAMPTZ  DEFAULT NULL,
   
   CONSTRAINT wa_case_handler_case_manifests_handler_id_fkey
     FOREIGN KEY (handler_id)

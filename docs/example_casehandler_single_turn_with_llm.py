@@ -5,6 +5,7 @@ Example CaseHandler: single-turn chatbot with one LLM call.
 Use this when each incoming user message should produce one model-generated reply.
 """
 
+from datetime import timedelta
 from uuid import UUID
 
 from sofia_utils.printing import get_qualname as here
@@ -32,17 +33,21 @@ class CaseHandler (AsyncWhatsAppCaseHandler) :
         user     : WhatsAppDatabaseRecord_Contact,
         *,
         api_inbound_msg_id : int | None        = None,
-        owner_token        : UUID | str | None = None,
-        debug              : bool              = False,
         database_url       : str | None        = None,
+        debug              : bool              = False,
+        handler_id         : int | None        = None,
+        owner_token        : UUID | str | None = None,
+        silence_timeout    : timedelta | None  = None,
     ) -> None :
         super().__init__(
             operator,
             user,
             api_inbound_msg_id = api_inbound_msg_id,
-            owner_token        = owner_token,
-            debug              = debug,
             database_url       = database_url,
+            debug              = debug,
+            handler_id         = handler_id,
+            owner_token        = owner_token,
+            silence_timeout    = silence_timeout,
         )
         self.main_agent : AsyncAgent | None = None
         return

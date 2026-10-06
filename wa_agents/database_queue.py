@@ -53,10 +53,11 @@ from .supabase import (
 
 SQL_DIR = Path(__file__).parent / "sql"
 
-SQL_CLAIM_NEXT = load_sql_script( SQL_DIR / "claim_next_case_handler_message.sql")
-SQL_ENQUEUE    = load_sql_script( SQL_DIR / "enqueue_case_handler_message.sql")
-SQL_MARK_DONE  = load_sql_script( SQL_DIR / "mark_case_handler_message_done.sql")
-SQL_MARK_ERROR = load_sql_script( SQL_DIR / "mark_case_handler_message_error.sql")
+SQL_CLAIM_NEXT       = load_sql_script( SQL_DIR / "claim_next_case_handler_message.sql")
+SQL_ENQUEUE          = load_sql_script( SQL_DIR / "enqueue_case_handler_message.sql")
+SQL_HAS_PENDING_ECHO = load_sql_script( SQL_DIR / "has_pending_message_echo.sql")
+SQL_MARK_DONE        = load_sql_script( SQL_DIR / "mark_case_handler_message_done.sql")
+SQL_MARK_ERROR       = load_sql_script( SQL_DIR / "mark_case_handler_message_error.sql")
 
 
 class PayloadEnqueueResult (TypedDict) :
@@ -380,12 +381,24 @@ class WhatsAppDatabaseQueue :
         
         return {
             **message_row,
-            "row_id"      : queue_row["row_id"],
-            "handler_id"  : queue_row["handler_id"],
-            "handler_key" : queue_row["handler_key"],
-            "msg_status"  : queue_row["msg_status"],
-            "owner_token" : owner_token,
+            "row_id"                  : queue_row["row_id"],
+            "handler_id"              : queue_row["handler_id"],
+            "handler_key"             : queue_row["handler_key"],
+            "msg_status"              : queue_row["msg_status"],
+            "owner_token"             : owner_token,
+            "silence_timeout_minutes" : queue_row.get("silence_timeout_minutes"),
         }
+    
+    def has_pending_echo( self, contact : int, after_row_id : int) -> bool :
+        """
+        Return whether a newer message echo is waiting for this contact.
+        """
+        return bool(
+            self._fetch_one(
+                SQL_HAS_PENDING_ECHO,
+                { "contact" : contact, "after_row_id" : after_row_id },
+            )
+        )
     
     def mark_done( self, row_id : int) -> bool :
         """
@@ -687,12 +700,27 @@ class AsyncWhatsAppDatabaseQueue :
         
         return {
             **message_row,
-            "row_id"      : queue_row["row_id"],
-            "handler_id"  : queue_row["handler_id"],
-            "handler_key" : queue_row["handler_key"],
-            "msg_status"  : queue_row["msg_status"],
-            "owner_token" : owner_token,
+            "row_id"                  : queue_row["row_id"],
+            "handler_id"              : queue_row["handler_id"],
+            "handler_key"             : queue_row["handler_key"],
+            "msg_status"              : queue_row["msg_status"],
+            "owner_token"             : owner_token,
+            "silence_timeout_minutes" : queue_row.get("silence_timeout_minutes"),
         }
+    
+    async def has_pending_echo(
+        self,
+        contact      : int,
+        after_row_id : int,
+    ) -> bool :
+        """
+        Return whether a newer message echo is waiting for this contact.
+        """
+        row = await self._fetch_one(
+            SQL_HAS_PENDING_ECHO,
+            { "contact" : contact, "after_row_id" : after_row_id },
+        )
+        return bool(row)
     
     async def mark_done( self, row_id : int) -> bool :
         """

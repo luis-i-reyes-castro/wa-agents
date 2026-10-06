@@ -8,13 +8,19 @@ import logging
 import os
 import time
 
-from collections.abc import Callable
+from collections.abc import (
+    Callable,
+    Mapping,
+)
 from contextlib import (
     asynccontextmanager,
     suppress,
 )
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import (
+    datetime,
+    timedelta,
+)
 from fastapi import (
     FastAPI,
     Request,
@@ -33,13 +39,16 @@ from traceback import format_exc
 from typing import (
     Any,
     AsyncIterator,
-    Type,
 )
 from uuid import UUID
 
 from sofia_utils.printing import get_qualname as here
 from sofia_utils.pydantic import NO_WS_str
 
+from .case_handler_base import (
+    WhatsAppCaseHandlerClass,
+    WhatsAppCaseHandlerObject,
+)
 from .database_queue import AsyncWhatsAppDatabaseQueue
 from .flows import WhatsAppFlowEndpoint
 from .io_functions import async_fetch_media
@@ -55,8 +64,16 @@ from .supabase import (
 
 
 POLL_INTERVAL_BUSY = float( os.getenv( "QUEUE_POLL_INTERVAL_BUSY", 0.2))
+""" Poll interval to use while the worker has pending jobs. """
 POLL_INTERVAL_IDLE = float( os.getenv( "QUEUE_POLL_INTERVAL_IDLE", 1.0))
+""" Poll interval to use while the worker does not have pending jobs. """
 RESPONSE_DELAY     = float( os.getenv( "QUEUE_RESPONSE_DELAY",     1.0))
+"""
+Response delay for handler. This delay is meant to try attenuate some of the various issues
+caused by users that communicate via single-word messages (emphasis in the word "try").
+"""
+SILENCE_TIMEOUT    = timedelta( minutes = 30)
+""" Fallback message-echo silence timeout when the handler has no setting. """
 
 
 @dataclass( frozen = True)
@@ -64,12 +81,14 @@ class HandlerJob :
     """
     Everything required to reconstruct a contact-bound handler.
     """
+    queue_row_id       : int
     handler_id         : int | None
     handler_key        : str
     operator           : WhatsAppDatabaseRecord_Business
     user               : WhatsAppDatabaseRecord_Contact
     api_inbound_msg_id : int
     owner_token        : UUID | str
+    silence_timeout    : timedelta
 
 
 class JobTimeDict ( dict[ HandlerJob, float] ) :
@@ -133,13 +152,22 @@ def _job_and_message(
     MsgBM   = WhatsApp_IB_MessageEcho if item["is_echo"] else WhatsApp_IB_Message
     message = MsgBM.model_validate(msg_data)
     
+    configured_timeout = item.get("silence_timeout_minutes")
+    silence_timeout    = (
+        timedelta( minutes = configured_timeout)
+        if ( configured_timeout is not None ) else
+        SILENCE_TIMEOUT
+    )
+    
     job = HandlerJob(
+        queue_row_id       = item["row_id"],
         handler_id         = item.get("handler_id"),
         handler_key        = item["handler_key"],
         operator           = operator,
         user               = user,
         api_inbound_msg_id = item["id"],
         owner_token        = item["owner_token"],
+        silence_timeout    = silence_timeout,
     )
     
     return job, message
@@ -153,9 +181,9 @@ class WhatsAppAPIWorker (FastAPI) :
     def __init__(
         self,
         *,
-        debug              : bool                              = False,
-        handler_cls        : Type[Any]                  | None = None,
-        handler_classes    : dict[ str, Type[Any]]      | None = None,
+        debug              : bool = False,
+        handler_cls        : WhatsAppCaseHandlerClass | None = None,
+        handler_classes    : Mapping[ str, WhatsAppCaseHandlerClass] | None = None,
         queue              : AsyncWhatsAppDatabaseQueue | None = None,
         flow_endpoint_path : str = "/webhook/flows/{waba_id}",
         **kwargs           : Any,
@@ -186,8 +214,8 @@ class WhatsAppAPIWorker (FastAPI) :
     
     def _build_handler_registry(
         self,
-        handler_cls     : Type[Any]             | None,
-        handler_classes : dict[ str, Type[Any]] | None,
+        handler_cls     : WhatsAppCaseHandlerClass | None,
+        handler_classes : Mapping[ str, WhatsAppCaseHandlerClass] | None,
     ) -> tuple[str, ...] :
         """
         Validate and store handler classes, then return their sorted keys.
@@ -243,8 +271,8 @@ class WhatsAppAPIWorker (FastAPI) :
         *,
         debug              : bool,
         queue              : AsyncWhatsAppDatabaseQueue,
-        handler_cls        : Type[Any]             | None,
-        handler_classes    : dict[ str, Type[Any]] | None,
+        handler_cls        : WhatsAppCaseHandlerClass | None,
+        handler_classes    : Mapping[ str, WhatsAppCaseHandlerClass] | None,
         flow_endpoint_path : str,
     ) -> None :
         """
@@ -419,9 +447,10 @@ class WhatsAppAPIWorker (FastAPI) :
             status_code = status.HTTP_200_OK,
         )
     
-    def _handler( self, job : HandlerJob) -> Any :
+    def _handler( self, job : HandlerJob) -> WhatsAppCaseHandlerObject :
         
         Handler = self.handler_classes[job.handler_key]
+        
         return Handler(
             job.operator,
             job.user,
@@ -429,6 +458,7 @@ class WhatsAppAPIWorker (FastAPI) :
             debug              = self.debug,
             handler_id         = job.handler_id,
             owner_token        = job.owner_token,
+            silence_timeout    = job.silence_timeout,
         )
     
     def stop( self, *_ : object) -> None :
@@ -544,6 +574,13 @@ class WhatsAppAPIWorker (FastAPI) :
             handler = self._handler(job)
             
             try :
+                if await self.queue.has_pending_echo(
+                    job.user.row_id,
+                    job.queue_row_id,
+                ) :
+                    processed_jobs = True
+                    continue
+                
                 renewed = await self._call_handler_method(
                     handler.renew_contact_lease
                 )

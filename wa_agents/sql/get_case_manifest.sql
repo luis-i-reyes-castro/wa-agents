@@ -10,7 +10,8 @@ SELECT
   cas.contact,
   cas.case_index,
   cas.is_open,
-  cas.machine_state
+  cas.machine_state,
+  cas.silenced_until
 FROM
   public.wa_case_handler_case_manifests AS cas
 WHERE

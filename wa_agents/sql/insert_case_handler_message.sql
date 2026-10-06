@@ -5,6 +5,7 @@
   -- origin        : str | None
   -- data          : dict
   -- machine_state : str | None
+  -- silenced_until : datetime | None
   -- agent_contexts_to_clear  : list[str]
   -- agent_contexts_to_append : list[str]
 
@@ -14,13 +15,15 @@ WITH case_manifest AS (
   SET
     updated_at         = now(),
     next_message_index = next_message_index + 1,
-    machine_state      = @machine_state
+    machine_state      = @machine_state,
+    silenced_until     = @silenced_until
   WHERE
     ( id = @case_id )
   RETURNING
     id                      AS id,
     next_message_index - 1  AS message_index,
-    machine_state           AS machine_state
+    machine_state           AS machine_state,
+    silenced_until          AS silenced_until
 ),
 inserted_message AS (
   INSERT INTO public.wa_case_handler_messages (
@@ -145,7 +148,8 @@ SELECT
   msg.basemodel,
   msg.origin,
   msg.data,
-  manifest.machine_state
+  manifest.machine_state,
+  manifest.silenced_until
 FROM
   inserted_message  AS msg
 JOIN

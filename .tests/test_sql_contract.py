@@ -162,6 +162,31 @@ def test_queue_claim_acquires_contact_lease_atomically() -> None :
     assert "msg_status = 'processing'" in normalized
 
 
+def test_queue_claim_returns_handler_silence_timeout() -> None :
+    claim = ( SQL_DIR / "claim_next_case_handler_message.sql").read_text(
+        encoding = "utf-8"
+    )
+
+    assert "CREATE TABLE IF NOT EXISTS public.wa_case_handler_settings" in DDL
+    assert "handler_key             T_NO_WS_STR PRIMARY KEY" in DDL
+    assert "silence_timeout_minutes INTEGER     NOT NULL" in DDL
+    assert "CHECK ( silence_timeout_minutes > 0 )" in DDL
+    assert "public.wa_case_handler_settings" in claim
+    assert "settings.silence_timeout_minutes" in claim
+
+
+def test_pending_echo_query_is_contact_scoped_and_newer_than_job() -> None :
+    sql = ( SQL_DIR / "has_pending_message_echo.sql").read_text(
+        encoding = "utf-8"
+    )
+    normalized = " ".join(sql.split())
+
+    assert "pay.contact = @contact" in normalized
+    assert "msg.is_echo" in normalized
+    assert "que.id > @after_row_id" in normalized
+    assert "que.msg_status = 'pending'" in normalized
+
+
 def test_queue_route_is_resolved_and_persisted_at_enqueue() -> None :
     enqueue = ( SQL_DIR / "enqueue_case_handler_message.sql").read_text(
         encoding = "utf-8"
@@ -230,6 +255,22 @@ def test_case_message_insert_persists_machine_state_atomically() -> None :
     assert "INSERT INTO public.wa_case_handler_messages" in normalized
     assert "UPDATE public.wa_case_handler_case_manifests" in normalized
     assert "machine_state = @machine_state" in normalized
+    assert "silenced_until = @silenced_until" in normalized
+
+
+def test_case_manifest_round_trips_silence_deadline() -> None :
+    manifest_queries = [
+        ( SQL_DIR / name).read_text(encoding = "utf-8")
+        for name in (
+            "get_case_manifest.sql",
+            "get_open_case_manifest.sql",
+            "insert_case_manifest.sql",
+            "update_case_manifest.sql",
+        )
+    ]
+
+    assert "silenced_until     TIMESTAMPTZ  DEFAULT NULL" in DDL
+    assert all( "silenced_until" in sql for sql in manifest_queries)
 
 
 def test_case_handler_state_history_schema_contract() -> None :

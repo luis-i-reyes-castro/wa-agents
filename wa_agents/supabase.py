@@ -286,15 +286,16 @@ def _manifest_from_row(
         return None
     
     return CaseManifest(
-        id            = row["id"],
-        handler_id    = row.get("handler_id"),
-        contact       = row["contact"],
-        case_index    = row.get( "case_index", 1),
-        created_at    = row["created_at"],
-        updated_at    = row.get("updated_at"),
-        is_open       = row["is_open"],
-        machine_state = row.get("machine_state"),
-        message_ids   = message_ids or [],
+        id             = row["id"],
+        handler_id     = row.get("handler_id"),
+        contact        = row["contact"],
+        case_index     = row.get( "case_index", 1),
+        created_at     = row["created_at"],
+        updated_at     = row.get("updated_at"),
+        is_open        = row["is_open"],
+        machine_state  = row.get("machine_state"),
+        silenced_until = row.get("silenced_until"),
+        message_ids    = message_ids or [],
     )
 
 
@@ -1020,10 +1021,11 @@ class SyncSupabaseStorage :
         row = self._fetch_one(
             SQL_UPDATE_CASE_MANIFEST,
             {
-                "case_id"       : manifest.id,
-                "contact"       : manifest.contact,
-                "is_open"       : manifest.is_open,
-                "machine_state" : manifest.machine_state,
+                "case_id"        : manifest.id,
+                "contact"        : manifest.contact,
+                "is_open"        : manifest.is_open,
+                "machine_state"  : manifest.machine_state,
+                "silenced_until" : manifest.silenced_until,
             },
         )
         return _manifest_from_row( row, manifest.message_ids)
@@ -1046,17 +1048,19 @@ class SyncSupabaseStorage :
         machine_state : str | None,
         agent_contexts_to_clear  : list[str] | None = None,
         agent_contexts_to_append : list[str] | None = None,
+        silenced_until           : datetime  | None = None,
     ) -> Message | None :
         
         row = self._fetch_one(
             SQL_INSERT_CASE_HANDLER_MESSAGE,
             {
-                "case_id"       : case_id,
-                "ts"            : message.ts,
-                "basemodel"     : message.basemodel,
-                "origin"        : message.origin,
-                "data"          : _message_data(message),
-                "machine_state" : machine_state,
+                "case_id"        : case_id,
+                "ts"             : message.ts,
+                "basemodel"      : message.basemodel,
+                "origin"         : message.origin,
+                "data"           : _message_data(message),
+                "machine_state"  : machine_state,
+                "silenced_until" : silenced_until,
                 "agent_contexts_to_clear"  : agent_contexts_to_clear or [],
                 "agent_contexts_to_append" : agent_contexts_to_append or [],
             },
@@ -1854,10 +1858,11 @@ class AsyncSupabaseStorage :
         row = await self._fetch_one(
             SQL_UPDATE_CASE_MANIFEST,
             {
-                "case_id"       : manifest.id,
-                "contact"       : manifest.contact,
-                "is_open"       : manifest.is_open,
-                "machine_state" : manifest.machine_state,
+                "case_id"        : manifest.id,
+                "contact"        : manifest.contact,
+                "is_open"        : manifest.is_open,
+                "machine_state"  : manifest.machine_state,
+                "silenced_until" : manifest.silenced_until,
             },
         )
         return _manifest_from_row( row, manifest.message_ids)
@@ -1880,17 +1885,19 @@ class AsyncSupabaseStorage :
         machine_state : str | None,
         agent_contexts_to_clear  : list[str] | None = None,
         agent_contexts_to_append : list[str] | None = None,
+        silenced_until           : datetime  | None = None,
     ) -> Message | None :
         
         row = await self._fetch_one(
             SQL_INSERT_CASE_HANDLER_MESSAGE,
             {
-                "case_id"       : case_id,
-                "ts"            : message.ts,
-                "basemodel"     : message.basemodel,
-                "origin"        : message.origin,
-                "data"          : _message_data(message),
-                "machine_state" : machine_state,
+                "case_id"        : case_id,
+                "ts"             : message.ts,
+                "basemodel"      : message.basemodel,
+                "origin"         : message.origin,
+                "data"           : _message_data(message),
+                "machine_state"  : machine_state,
+                "silenced_until" : silenced_until,
                 "agent_contexts_to_clear"  : agent_contexts_to_clear or [],
                 "agent_contexts_to_append" : agent_contexts_to_append or [],
             },

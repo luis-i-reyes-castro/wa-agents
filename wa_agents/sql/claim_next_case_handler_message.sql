@@ -9,7 +9,8 @@ WITH candidate AS MATERIALIZED (
     que.id,
     que.handler_id,
     que.msg_id,
-    COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key
+    COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key,
+    settings.silence_timeout_minutes
   FROM
     public.wa_api_businesses            AS bus
   JOIN
@@ -22,6 +23,9 @@ WITH candidate AS MATERIALIZED (
     public.wa_api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
   LEFT JOIN
     public.wa_case_handler_routes       AS rou ON rou.id = que.handler_id
+  LEFT JOIN
+    public.wa_case_handler_settings     AS settings ON
+      settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key )
   WHERE
     ( que.msg_status = 'pending' ) AND
     (
@@ -85,10 +89,11 @@ JOIN
 WHERE
   ( que.id = can.id )
 RETURNING
-  can.contact     AS contact,
-  lea.owner_token AS owner_token,
-  que.id          AS row_id,
-  can.handler_id  AS handler_id,
-  can.handler_key AS handler_key,
-  que.msg_id      AS msg_id,
-  que.msg_status  AS msg_status;
+  can.contact                 AS contact,
+  lea.owner_token             AS owner_token,
+  que.id                      AS row_id,
+  can.handler_id              AS handler_id,
+  can.handler_key             AS handler_key,
+  can.silence_timeout_minutes AS silence_timeout_minutes,
+  que.msg_id                  AS msg_id,
+  que.msg_status              AS msg_status;

@@ -18,6 +18,7 @@ from typing import (
     Any,
     Callable,
     TypedDict,
+    Type,
 )
 from uuid import (
     UUID,
@@ -318,11 +319,12 @@ class CaseHandlerBase (ABC) :
         business : int | WhatsAppDatabaseRecord_Business,
         contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
-        database_url  : str | None        = None,
-        debug         : bool              = False,
-        handler_id    : int | None        = None,
-        hydrate_media : bool              = True,
-        owner_token   : UUID | str | None = None,
+        database_url    : str | None        = None,
+        debug           : bool              = False,
+        handler_id      : int | None        = None,
+        hydrate_media   : bool              = True,
+        owner_token     : UUID | str | None = None,
+        silence_timeout : timedelta | None  = None,
     ) -> None :
         """
         Initialize a transport-neutral handler for one persisted contact. \\
@@ -334,6 +336,7 @@ class CaseHandlerBase (ABC) :
             handler_id    : Optional `wa_case_handler_routes.id`.
             hydrate_media : Whether to hydrate media during `context_build()`.
             owner_token   : Token owning the contact lease.
+            silence_timeout : Duration of message-echo silence mode.
         """
         self.storage = SyncSupabaseStorage(database_url)
         
@@ -344,10 +347,11 @@ class CaseHandlerBase (ABC) :
         self.business_id = business_record.row_id
         self.contact_id  = contact_record.row_id
         
-        self.debug         = debug
-        self.handler_id    = handler_id
-        self.hydrate_media = hydrate_media
-        self.owner_token   = owner_token or uuid4()
+        self.debug           = debug
+        self.handler_id      = handler_id
+        self.hydrate_media   = hydrate_media
+        self.owner_token     = owner_token or uuid4()
+        self.silence_timeout = silence_timeout
         
         self.operator_waba = business_record.waba_id
         self.operator_num  = business_record.display_phone_number
@@ -545,19 +549,30 @@ class CaseHandlerBase (ABC) :
         Continue the open case when current; otherwise create a new case.
         """
         manifest = self.storage.get_open_case_manifest(self.contact_id)
-
-        if manifest and ( manifest.handler_id != self.handler_id ) :
-            manifest.is_open = False
-            self.storage.update_case_manifest(manifest)
+        if (
+            manifest and
+            ( manifest.handler_id != self.handler_id )
+        ) :
+            self.case_close(manifest)
             manifest = None
-
-        if manifest and self.TIME_LIMIT_STALE :
+        
+        now = datetime.now(UTC)
+        if (
+            manifest                and
+            manifest.silenced_until and
+            ( manifest.silenced_until <= now )
+        ) :
+            self.case_close(manifest)
+            manifest = None
+        if (
+            manifest              and
+            self.TIME_LIMIT_STALE and
+            ( not manifest.silenced_until )
+        ) :
             last = manifest.updated_at or manifest.created_at
-            age  = datetime.now(UTC) - last
-
+            age  = now - last
             if age > timedelta( hours = self.TIME_LIMIT_STALE) :
-                manifest.is_open = False
-                self.storage.update_case_manifest(manifest)
+                self.case_close(manifest)
                 manifest = None
 
         if not manifest :
@@ -568,6 +583,15 @@ class CaseHandlerBase (ABC) :
         self._restore_machine_state(manifest)
 
         return manifest.id, manifest
+
+    def case_close( self, manifest : CaseManifest) -> None :
+        """
+        Close and persist a case manifest.
+        """
+        manifest.is_open = False
+        self.storage.update_case_manifest(manifest)
+
+        return
 
     def case_open_new(self) -> tuple[int, CaseManifest] :
         """
@@ -720,26 +744,34 @@ class CaseHandlerBase (ABC) :
 
         return
 
-    def apply_and_persist_message( self, message : Message) -> Message :
+    def apply_and_persist_message(
+        self,
+        message : Message,
+        *,
+        apply_to_state_machine : bool = True,
+    ) -> Message :
         """
         Apply and persist one message in a deterministic order. \\
         Workflow:
             1. Open or restore the active case when necessary.
-            2. Apply the message to the FSM. A transition changes state immediately
-               and queues its `on_exit` / `on_enter` callbacks.
+            2. Optionally apply the message to the FSM. A transition changes state
+               immediately and queues its `on_exit` / `on_enter` callbacks.
             3. Persist the message, resulting FSM state, and tracked agent-context
                changes in one storage operation.
             4. Replace transient message references with the persisted message and
                update the in-memory case manifest and context.
             5. Run queued callbacks only after the triggering message is durable.
                Messages produced by callbacks therefore cannot overtake it.
+        Args:
+            message                : Message to persist.
+            apply_to_state_machine : Whether to update FSM and agent-context state.
         Returns:
             Persisted copy of `message`, including its database identifiers.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = self.case_decide()
 
-        if self.machine :
+        if self.machine and apply_to_state_machine :
             self.apply_message_to_state_machine(message)
 
         machine_state            = self._machine_state()
@@ -752,12 +784,14 @@ class CaseHandlerBase (ABC) :
                 machine_state,
                 agent_contexts_to_clear,
                 agent_contexts_to_append,
+                silenced_until = self.case_manifest.silenced_until,
             )
         else :
             stored = self.storage.insert_case_handler_message(
                 self.case_id,
                 message,
                 machine_state,
+                silenced_until = self.case_manifest.silenced_until,
             )
         if not stored or stored.id is None :
             raise RuntimeError(
@@ -780,7 +814,7 @@ class CaseHandlerBase (ABC) :
 
         self._agent_contexts_to_append.clear()
         self._agent_contexts_to_clear.clear()
-        if self.machine :
+        if self.machine and apply_to_state_machine :
             self.machine.run_pending_state_callbacks()
 
         return stored
@@ -848,6 +882,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         handler_id         : int | None        = None,
         hydrate_media      : bool              = True,
         owner_token        : UUID | str | None = None,
+        silence_timeout    : timedelta | None  = None,
     ) -> None :
         """
         Initialize a WhatsApp handler for one normalized contact. \\
@@ -860,15 +895,17 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             handler_id         : Optional `wa_case_handler_routes.id`.
             hydrate_media      : Whether to hydrate media during `context_build()`.
             owner_token        : Token owning the contact lease.
+            silence_timeout    : Duration of message-echo silence mode.
         """
         super().__init__(
-            business      = business,
-            contact       = contact,
-            database_url  = database_url,
-            debug         = debug,
-            handler_id    = handler_id,
-            hydrate_media = hydrate_media,
-            owner_token   = owner_token,
+            business        = business,
+            contact         = contact,
+            database_url    = database_url,
+            debug           = debug,
+            handler_id      = handler_id,
+            hydrate_media   = hydrate_media,
+            owner_token     = owner_token,
+            silence_timeout = silence_timeout,
         )
         
         self.api_inbound_msg_id = api_inbound_msg_id
@@ -892,7 +929,8 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             api_inbound_msg_id : Persisted inbound API message ID. Defaults to the
                                  ID supplied when the handler was initialized.
         Returns:
-            Persisted human message, or `None` when already processed or unsupported.
+            Persisted human message, or `None` when already processed, unsupported,
+            or intentionally suppressed during silence.
         """
         inbound_msg_id = api_inbound_msg_id or self.api_inbound_msg_id
         if inbound_msg_id is None :
@@ -904,6 +942,24 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             return None
 
         self.case_id, self.case_manifest = self.case_decide()
+
+        is_echo     = isinstance( message, WhatsApp_IB_MessageEcho)
+        now         = datetime.now(UTC)
+        is_silenced = bool(
+            self.case_manifest.silenced_until and
+            ( self.case_manifest.silenced_until > now )
+        )
+        
+        if is_echo and self.silence_timeout :
+            current_deadline = self.case_manifest.silenced_until
+            silence_start = (
+                current_deadline
+                if ( current_deadline is not None ) and is_silenced else
+                now
+            )
+            self.case_manifest.silenced_until = (
+                silence_start + self.silence_timeout
+            )
 
         ContentMsgBM = (
             HumanUserContentMsg
@@ -994,10 +1050,23 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                 text   = message.location.model_dump_json(),
             )
 
+        elif is_echo or is_silenced :
+            msg = ContentMsgBM(
+                origin = here(),
+                ts     = message.timestamp,
+                text   = message.model_dump_json(
+                    by_alias     = True,
+                    exclude_none = True,
+                ),
+            )
+
         if not msg :
             return None
 
-        stored = self.apply_and_persist_message(msg)
+        stored = self.apply_and_persist_message(
+            msg,
+            apply_to_state_machine = not ( is_echo or is_silenced ),
+        )
         if (
             ( not isinstance( stored, HumanMsg) ) or
             ( stored.id is None                 ) or
@@ -1038,7 +1107,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         if self.debug :
             stored.print()
 
-        return stored
+        return stored if ( is_echo or ( not is_silenced ) ) else None
 
     # =====================================================================================
     # MESSAGE SENDING
@@ -1234,11 +1303,12 @@ class AsyncCaseHandlerBase (ABC) :
         business : int | WhatsAppDatabaseRecord_Business,
         contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
-        database_url  : str | None        = None,
-        debug         : bool              = False,
-        handler_id    : int | None        = None,
-        hydrate_media : bool              = True,
-        owner_token   : UUID | str | None = None,
+        database_url    : str | None        = None,
+        debug           : bool              = False,
+        handler_id      : int | None        = None,
+        hydrate_media   : bool              = True,
+        owner_token     : UUID | str | None = None,
+        silence_timeout : timedelta | None  = None,
     ) -> None :
         """
         Initialize a transport-neutral handler for one persisted contact. \\
@@ -1250,6 +1320,7 @@ class AsyncCaseHandlerBase (ABC) :
             handler_id    : Optional `wa_case_handler_routes.id`.
             hydrate_media : Whether to hydrate media during `context_build()`.
             owner_token   : Token owning the contact lease.
+            silence_timeout : Duration of message-echo silence mode.
         """
         self.storage = AsyncSupabaseStorage(database_url)
         
@@ -1263,10 +1334,11 @@ class AsyncCaseHandlerBase (ABC) :
         self.business_id = business_record.row_id
         self.contact_id  = contact_record.row_id
         
-        self.debug         = debug
-        self.handler_id    = handler_id
-        self.hydrate_media = hydrate_media
-        self.owner_token   = owner_token or uuid4()
+        self.debug           = debug
+        self.handler_id      = handler_id
+        self.hydrate_media   = hydrate_media
+        self.owner_token     = owner_token or uuid4()
+        self.silence_timeout = silence_timeout
         
         self.operator_waba = business_record.waba_id
         self.operator_num  = business_record.display_phone_number
@@ -1463,19 +1535,30 @@ class AsyncCaseHandlerBase (ABC) :
         Continue the open case when current; otherwise create a new case.
         """
         manifest = await self.storage.get_open_case_manifest(self.contact_id)
-
-        if manifest and ( manifest.handler_id != self.handler_id ) :
-            manifest.is_open = False
-            await self.storage.update_case_manifest(manifest)
+        if (
+            manifest and
+            ( manifest.handler_id != self.handler_id )
+        ) :
+            await self.case_close(manifest)
             manifest = None
-
-        if manifest and self.TIME_LIMIT_STALE :
+        
+        now = datetime.now(UTC)
+        if (
+            manifest                and
+            manifest.silenced_until and
+            ( manifest.silenced_until <= now )
+        ) :
+            await self.case_close(manifest)
+            manifest = None
+        if (
+            manifest              and
+            self.TIME_LIMIT_STALE and
+            not manifest.silenced_until
+        ) :
             last = manifest.updated_at or manifest.created_at
-            age  = datetime.now(UTC) - last
-
+            age  = now - last
             if age > timedelta( hours = self.TIME_LIMIT_STALE) :
-                manifest.is_open = False
-                await self.storage.update_case_manifest(manifest)
+                await self.case_close(manifest)
                 manifest = None
 
         if not manifest :
@@ -1486,6 +1569,15 @@ class AsyncCaseHandlerBase (ABC) :
         self._restore_machine_state(manifest)
 
         return manifest.id, manifest
+
+    async def case_close( self, manifest : CaseManifest) -> None :
+        """
+        Close and persist a case manifest.
+        """
+        manifest.is_open = False
+        await self.storage.update_case_manifest(manifest)
+
+        return
 
     async def case_open_new(self) -> tuple[int, CaseManifest] :
         """
@@ -1637,26 +1729,34 @@ class AsyncCaseHandlerBase (ABC) :
         self._restore_machine_state(self.case_manifest)
         return
 
-    async def apply_and_persist_message( self, message : Message) -> Message :
+    async def apply_and_persist_message(
+        self,
+        message : Message,
+        *,
+        apply_to_state_machine : bool = True,
+    ) -> Message :
         """
         Apply and persist one message in a deterministic order. \\
         Workflow:
             1. Open or restore the active case when necessary.
-            2. Apply the message to the FSM. A transition changes state immediately
-               and queues its `on_exit` / `on_enter` callbacks.
+            2. Optionally apply the message to the FSM. A transition changes state
+               immediately and queues its `on_exit` / `on_enter` callbacks.
             3. Persist the message, resulting FSM state, and tracked agent-context
                changes in one storage operation.
             4. Replace transient message references with the persisted message and
                update the in-memory case manifest and context.
             5. Run queued callbacks only after the triggering message is durable.
                Messages produced by callbacks therefore cannot overtake it.
+        Args:
+            message                : Message to persist.
+            apply_to_state_machine : Whether to update FSM and agent-context state.
         Returns:
             Persisted copy of `message`, including its database identifiers.
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = await self.case_decide()
 
-        if self.machine :
+        if self.machine and apply_to_state_machine :
             await self.apply_message_to_state_machine(message)
 
         machine_state            = self._machine_state()
@@ -1669,12 +1769,14 @@ class AsyncCaseHandlerBase (ABC) :
                 machine_state,
                 agent_contexts_to_clear,
                 agent_contexts_to_append,
+                silenced_until = self.case_manifest.silenced_until,
             )
         else :
             stored = await self.storage.insert_case_handler_message(
                 self.case_id,
                 message,
                 machine_state,
+                silenced_until = self.case_manifest.silenced_until,
             )
         if not stored or stored.id is None :
             raise RuntimeError(
@@ -1697,7 +1799,7 @@ class AsyncCaseHandlerBase (ABC) :
 
         self._agent_contexts_to_append.clear()
         self._agent_contexts_to_clear.clear()
-        if self.machine :
+        if self.machine and apply_to_state_machine :
             await self.machine.run_pending_state_callbacks()
 
         return stored
@@ -1765,6 +1867,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         handler_id         : int | None        = None,
         hydrate_media      : bool              = True,
         owner_token        : UUID | str | None = None,
+        silence_timeout    : timedelta | None  = None,
     ) -> None :
         """
         Initialize an asynchronous WhatsApp handler for one normalized contact. \\
@@ -1777,15 +1880,17 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             handler_id         : Optional `wa_case_handler_routes.id`.
             hydrate_media      : Whether to hydrate media during `context_build()`.
             owner_token        : Token owning the contact lease.
+            silence_timeout    : Duration of message-echo silence mode.
         """
         super().__init__(
-            business      = business,
-            contact       = contact,
-            database_url  = database_url,
-            debug         = debug,
-            handler_id    = handler_id,
-            hydrate_media = hydrate_media,
-            owner_token   = owner_token,
+            business        = business,
+            contact         = contact,
+            database_url    = database_url,
+            debug           = debug,
+            handler_id      = handler_id,
+            hydrate_media   = hydrate_media,
+            owner_token     = owner_token,
+            silence_timeout = silence_timeout,
         )
         
         self.api_inbound_msg_id = api_inbound_msg_id
@@ -1809,7 +1914,8 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             api_inbound_msg_id : Persisted inbound API message ID. Defaults to the
                                  ID supplied when the handler was initialized.
         Returns:
-            Persisted human message, or `None` when already processed or unsupported.
+            Persisted human message, or `None` when already processed, unsupported,
+            or intentionally suppressed during silence.
         """
         inbound_msg_id = api_inbound_msg_id or self.api_inbound_msg_id
         if inbound_msg_id is None :
@@ -1821,6 +1927,24 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             return None
 
         self.case_id, self.case_manifest = await self.case_decide()
+
+        is_echo     = isinstance( message, WhatsApp_IB_MessageEcho)
+        now         = datetime.now(UTC)
+        is_silenced = bool(
+            self.case_manifest.silenced_until and
+            ( self.case_manifest.silenced_until > now )
+        )
+        
+        if is_echo and self.silence_timeout :
+            current_deadline = self.case_manifest.silenced_until
+            silence_start = (
+                current_deadline
+                if ( current_deadline is not None ) and is_silenced else
+                now
+            )
+            self.case_manifest.silenced_until = (
+                silence_start + self.silence_timeout
+            )
 
         ContentMsgBM = (
             HumanUserContentMsg
@@ -1911,10 +2035,23 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                 text   = message.location.model_dump_json(),
             )
 
+        elif is_echo or is_silenced :
+            msg = ContentMsgBM(
+                origin = here(),
+                ts     = message.timestamp,
+                text   = message.model_dump_json(
+                    by_alias     = True,
+                    exclude_none = True,
+                ),
+            )
+
         if not msg :
             return None
 
-        stored = await self.apply_and_persist_message(msg)
+        stored = await self.apply_and_persist_message(
+            msg,
+            apply_to_state_machine = not ( is_echo or is_silenced ),
+        )
         if (
             ( not isinstance( stored, HumanMsg) ) or
             ( stored.id is None                  ) or
@@ -1955,7 +2092,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         if self.debug :
             stored.print()
 
-        return stored
+        return stored if ( is_echo or ( not is_silenced ) ) else None
 
     # =====================================================================================
     # MESSAGE SENDING
@@ -2120,7 +2257,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
     @abstractmethod
     async def process_message(
         self,
-        message       : WhatsApp_IB_Message,
+        message       : WhatsApp_IB_Message | WhatsApp_IB_MessageEcho,
         media_content : bytes | None = None,
     ) -> bool :
         """
@@ -2132,9 +2269,16 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
 
 
 # =========================================================================================
-# STATE MACHINE GRAPH HELPER
+# ALIASES
 # =========================================================================================
 
+WhatsAppCaseHandlerClass  = Type[WhatsAppCaseHandler] | Type[AsyncWhatsAppCaseHandler]
+WhatsAppCaseHandlerObject = WhatsAppCaseHandler       | AsyncWhatsAppCaseHandler
+
+
+# =========================================================================================
+# STATE MACHINE GRAPH HELPER
+# =========================================================================================
 
 def draw_state_machine_graph(
     *,

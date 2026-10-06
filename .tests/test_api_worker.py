@@ -5,6 +5,7 @@ import asyncio
 from datetime import (
     UTC,
     datetime,
+    timedelta,
 )
 from uuid import uuid4
 
@@ -38,6 +39,7 @@ def _queue_item() -> dict :
         "display_phone_number" : "15551234567",
         "handler_id"           : 7,
         "handler_key"          : "default",
+        "silence_timeout_minutes" : None,
         "owner_token"         : uuid4(),
     }
 
@@ -55,6 +57,8 @@ class _AsyncQueueStub :
         self.done_ids   = []
         self.error_ids  = []
         self.claimed_keys = None
+        self.pending_echo  = False
+        self.pending_echo_checks = []
         self.storage      = object()
 
     async def claim_next( self, handler_keys) -> dict | None :
@@ -68,6 +72,10 @@ class _AsyncQueueStub :
 
     async def mark_error( self, row_id : int) -> None :
         self.error_ids.append(row_id)
+
+    async def has_pending_echo( self, contact : int, after_row_id : int) -> bool :
+        self.pending_echo_checks.append(( contact, after_row_id))
+        return self.pending_echo
 
 
 class _ImmediateReplyHandler :
@@ -152,6 +160,8 @@ def test_queue_row_reconstructs_job_and_message() -> None :
     assert job.api_inbound_msg_id == 21
     assert job.handler_id == 7
     assert job.handler_key == "default"
+    assert job.queue_row_id == 1
+    assert job.silence_timeout == timedelta( minutes = 30)
     assert isinstance( hash(job), int)
     assert message.id == "wamid.ABC123="
     assert message.text.body == "Hola"
@@ -172,6 +182,9 @@ def test_api_worker_releases_lease_after_ingest_reply() -> None :
     assert _ImmediateReplyHandler.instances[0].released is True
     assert _ImmediateReplyHandler.instances[0].user.row_id == 31
     assert _ImmediateReplyHandler.instances[0].kwargs["handler_id"] == 7
+    assert _ImmediateReplyHandler.instances[0].kwargs["silence_timeout"] == (
+        timedelta( minutes = 30)
+    )
     assert queue.claimed_keys == ( "default", )
 
 
@@ -216,6 +229,40 @@ def test_api_worker_holds_lease_through_delayed_response() -> None :
     response_handler = _DelayedReplyHandler.instances[1]
 
     assert response_handler.renewed is True
+    assert response_handler.released is True
+    assert not worker._job_td
+
+
+def test_api_worker_uses_configured_silence_timeout() -> None :
+    item                            = _queue_item()
+    item["silence_timeout_minutes"] = 15
+
+    job, _message = _job_and_message(item)
+
+    assert job.silence_timeout == timedelta( minutes = 15)
+
+
+def test_pending_echo_cancels_delayed_response() -> None :
+    _DelayedReplyHandler.instances.clear()
+    queue              = _AsyncQueueStub()
+    queue.pending_echo = True
+    worker             = WhatsAppAPIWorker(
+        handler_cls = _DelayedReplyHandler,
+        queue       = queue,
+    )
+
+    async def run() -> None :
+        assert await worker._process_message() is True
+        jobs = list(worker._job_td)
+
+        assert await worker._process_jobs(jobs) is True
+
+    asyncio.run(run())
+
+    response_handler = _DelayedReplyHandler.instances[1]
+
+    assert queue.pending_echo_checks == [ ( 31, 1) ]
+    assert response_handler.renewed is False
     assert response_handler.released is True
     assert not worker._job_td
 

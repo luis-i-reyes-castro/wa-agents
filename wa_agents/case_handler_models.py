@@ -589,26 +589,28 @@ class ToolResultsMsg (Message) :
 
 class CaseManifest (BaseModel) :
     """
-    Manifest
-        `id`            : wa_case_handler_case_manifests.id
-        `handler_id`    : wa_case_handler_routes.id | null
-        `contact`       : wa_case_handler_case_manifests.contact
-        `case_index`    : one-based index for the contact
-        `created_at`    : <timestamp>
-        `updated_at`    : <timestamp> | null
-        `is_open`       : bool
-        `machine_state` : "<optional string>" | null
+    Case Manifest
+        `id`             : wa_case_handler_case_manifests.id
+        `handler_id`     : wa_case_handler_routes.id | null
+        `contact`        : wa_case_handler_case_manifests.contact
+        `case_index`     : one-based index for the contact
+        `created_at`     : <timestamp>
+        `updated_at`     : <timestamp> | null
+        `is_open`        : bool
+        `machine_state`  : "<optional string>" | null
+        `silenced_until` : <timestamp> | null
+        `message_ids`    : list of `wa_case_handler_messages.id`
     """
-    id            : PositiveInt
-    handler_id    : PositiveInt | None = None
-    contact       : PositiveInt
-    case_index    : PositiveInt = 1
-    created_at    : datetime = Field( default_factory = lambda : datetime.now(UTC))
-    updated_at    : datetime | None = None
-    is_open       : bool            = True
-    machine_state : NE_str   | None = None
-    
-    message_ids   : Annotated[ list[PositiveInt], Field( default_factory = list)]
+    id             : PositiveInt
+    handler_id     : PositiveInt | None = None
+    contact        : PositiveInt
+    case_index     : PositiveInt = 1
+    created_at     : datetime = Field( default_factory = lambda : datetime.now(UTC))
+    updated_at     : datetime | None = None
+    is_open        : bool            = True
+    machine_state  : NE_str   | None = None
+    silenced_until : datetime | None = None
+    message_ids    : Annotated[ list[PositiveInt], Field( default_factory = list)]
 
 # =========================================================================================
 # UTILITY FUNCTIONS
