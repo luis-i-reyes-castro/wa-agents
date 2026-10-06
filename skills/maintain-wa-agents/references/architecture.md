@@ -67,6 +67,9 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
   atomically with message persistence.
 - Case manifests persist `machine_state` so rebuilding a handler does not require
   replay merely to recover its current state.
+- `wa_case_handler_state_histories` stores the initial state and one resulting-state
+  snapshot per persisted case message. A null `case_message` identifies the initial
+  snapshot; manifest-only updates do not create history rows.
 - A case-handler message may map to multiple outbound WhatsApp rows because text can
   be chunked. An inbound WhatsApp row maps to at most one case-handler message.
 - Contact leases expire after 90 seconds and are owned by UUID tokens. Claim, renew,

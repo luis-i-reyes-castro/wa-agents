@@ -32,6 +32,10 @@ a substitute for reading affected code.
 - Use `case_handler_models.py` for stored conversation models and
   `case_handler_base.py` for contact-bound context, FSM state, deduplication, sending,
   and media orchestration.
+- For persisted FSM or agent-context diagnosis, run
+  `scripts/diagnose_case_state.sql` with the business `display_phone_number` and
+  contact `wa_id`. Treat a reported chatbot number as the former and review all case
+  manifests, ordered messages/state snapshots, and context generations together.
 - Use `S3_bucket_storage.py` and `S3_bucket_io.py` only for media bytes and object
   operations. Store media metadata in PostgreSQL.
 - Inspect consumer construction and overrides when changing a public signature.
