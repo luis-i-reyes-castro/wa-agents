@@ -610,7 +610,7 @@ def test_context_build_restores_fsm_without_replay() -> None :
     assert len(handler.case_context) == 1
 
 
-def test_message_echo_starts_and_extends_silence_without_advancing_state() -> None :
+def test_message_echo_rolls_silence_deadline_without_advancing_state() -> None :
     handler = _SilenceHandler(_manifest("start"))
     before  = datetime.now(UTC)
 
@@ -619,18 +619,53 @@ def test_message_echo_starts_and_extends_silence_without_advancing_state() -> No
         api_inbound_msg_id = 81,
     )
     first_deadline = handler.case_manifest.silenced_until
+    before_second  = datetime.now(UTC)
     second = handler.dedup_and_ingest_message(
         _message_echo("wamid.echo2"),
         api_inbound_msg_id = 82,
     )
+    after_second   = datetime.now(UTC)
+    second_deadline = handler.case_manifest.silenced_until
 
     assert isinstance( first, HumanServerMsg)
     assert isinstance( second, HumanServerMsg)
     assert first_deadline
+    assert second_deadline
     assert before + timedelta( minutes = 30) <= first_deadline
-    assert handler.case_manifest.silenced_until == (
-        first_deadline + timedelta( minutes = 30)
+    assert before_second + timedelta( minutes = 30) <= second_deadline
+    assert second_deadline <= after_second + timedelta( minutes = 30)
+    assert second_deadline < first_deadline + timedelta( minutes = 1)
+    assert handler.ingested == []
+    assert handler.agent_contexts["main"] == []
+    assert handler.state == "start"
+
+
+def test_async_message_echo_rolls_silence_deadline() -> None :
+    handler = _AsyncSilenceHandler(_manifest("start"))
+
+    asyncio.run(
+        handler.dedup_and_ingest_message(
+            _message_echo("wamid.echo1"),
+            api_inbound_msg_id = 81,
+        )
     )
+    first_deadline = handler.case_manifest.silenced_until
+    before_second  = datetime.now(UTC)
+    second = asyncio.run(
+        handler.dedup_and_ingest_message(
+            _message_echo("wamid.echo2"),
+            api_inbound_msg_id = 82,
+        )
+    )
+    after_second    = datetime.now(UTC)
+    second_deadline = handler.case_manifest.silenced_until
+
+    assert isinstance( second, HumanServerMsg)
+    assert first_deadline
+    assert second_deadline
+    assert before_second + timedelta( minutes = 30) <= second_deadline
+    assert second_deadline <= after_second + timedelta( minutes = 30)
+    assert second_deadline < first_deadline + timedelta( minutes = 1)
     assert handler.ingested == []
     assert handler.agent_contexts["main"] == []
     assert handler.state == "start"

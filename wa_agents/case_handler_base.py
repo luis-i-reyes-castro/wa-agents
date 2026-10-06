@@ -951,14 +951,8 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         )
         
         if is_echo and self.silence_timeout :
-            current_deadline = self.case_manifest.silenced_until
-            silence_start = (
-                current_deadline
-                if ( current_deadline is not None ) and is_silenced else
-                now
-            )
             self.case_manifest.silenced_until = (
-                silence_start + self.silence_timeout
+                now + self.silence_timeout
             )
 
         ContentMsgBM = (
@@ -1936,14 +1930,8 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         )
         
         if is_echo and self.silence_timeout :
-            current_deadline = self.case_manifest.silenced_until
-            silence_start = (
-                current_deadline
-                if ( current_deadline is not None ) and is_silenced else
-                now
-            )
             self.case_manifest.silenced_until = (
-                silence_start + self.silence_timeout
+                now + self.silence_timeout
             )
 
         ContentMsgBM = (

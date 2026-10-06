@@ -239,11 +239,11 @@ SET
   updated_at              = now();
 ```
 
-Handlers without a settings row use the worker's 30-minute fallback. Repeated echoes
-add one full timeout to the active deadline. Customer messages received during silence
-are persisted for audit without advancing the state machine or agent contexts and do
-not receive a response. The open case is closed lazily on the first message after the
-deadline, and that message starts a fresh case and context.
+Handlers without a settings row use the worker's 30-minute fallback. Each echo rolls
+the deadline to one full timeout after that echo is processed. Customer messages
+received during silence are persisted for audit without advancing the state machine
+or agent contexts and do not receive a response. The open case is closed lazily on the
+first message after the deadline, and that message starts a fresh case and context.
 
 The canonical DDL defines these objects for new or rebuilt databases. It does not
 migrate an already provisioned database; add the table and manifest column there
