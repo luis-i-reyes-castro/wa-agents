@@ -143,6 +143,7 @@ SQL_GET_CASE_MANIFEST               = _load_sql("get_case_manifest.sql")
 SQL_GET_CASE_MESSAGE_IDS            = _load_sql("get_case_message_ids.sql")
 SQL_GET_CONTACT                     = _load_sql("get_contact.sql")
 SQL_GET_ACTIVE_FLOW                 = _load_sql("get_active_flow.sql")
+SQL_GET_BLOCKING_FLOW_SESSION       = _load_sql("get_blocking_flow_session.sql")
 SQL_GET_FLOW_EXCHANGE               = _load_sql("get_flow_exchange.sql")
 SQL_GET_FLOW_SESSION                = _load_sql("get_flow_session.sql")
 SQL_GET_FLOW_WABA                   = _load_sql("get_flow_waba.sql")
@@ -697,6 +698,22 @@ class SyncSupabaseStorage :
         return self._fetch_one(
             SQL_GET_ACTIVE_FLOW,
             { "waba_id" : waba_id, "flow_key" : flow_key },
+        )
+    
+    def get_blocking_flow_session(
+        self,
+        contact         : int,
+        inbound_message : int,
+    ) -> dict[str, Any] | None :
+        """
+        Return the Flow session blocking an inbound message, if any.
+        """
+        return self._fetch_one(
+            SQL_GET_BLOCKING_FLOW_SESSION,
+            {
+                "contact"         : contact,
+                "inbound_message" : inbound_message,
+            },
         )
     
     def create_flow_session(
@@ -1531,6 +1548,22 @@ class AsyncSupabaseStorage :
         return await self._fetch_one(
             SQL_GET_ACTIVE_FLOW,
             { "waba_id" : waba_id, "flow_key" : flow_key },
+        )
+    
+    async def get_blocking_flow_session(
+        self,
+        contact         : int,
+        inbound_message : int,
+    ) -> dict[str, Any] | None :
+        """
+        Return the Flow session blocking an inbound message, if any.
+        """
+        return await self._fetch_one(
+            SQL_GET_BLOCKING_FLOW_SESSION,
+            {
+                "contact"         : contact,
+                "inbound_message" : inbound_message,
+            },
         )
     
     async def create_flow_session(

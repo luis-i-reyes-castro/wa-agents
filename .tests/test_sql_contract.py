@@ -112,6 +112,22 @@ def test_payload_metadata_updates_raw_payload() -> None :
     assert not re.search( r"\b(item_idx|change_idx)\b", DDL + metadata)
 
 
+def test_blocking_flow_session_uses_message_receipt_interval() -> None :
+    query = _normalized_sql(
+        ( SQL_DIR / "get_blocking_flow_session.sql").read_text(encoding = "utf-8")
+    )
+
+    assert "message.id = @inbound_message" in query
+    assert "session.contact = @contact" in query
+    assert "session.created_at <= payload.received_at" in query
+    assert "payload.received_at < CASE" in query
+    assert "session.session_status = 'completed'" in query
+    assert "session.completed_at" in query
+    assert "session.session_status IN ( 'failed', 'superseded')" in query
+    assert "session.updated_at" in query
+    assert "ELSE session.expires_at" in query
+
+
 def test_frequently_refreshed_rows_update_before_insert() -> None :
     business = _normalized_sql(
         ( SQL_DIR / "upsert_business.sql").read_text(encoding = "utf-8")

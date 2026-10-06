@@ -88,6 +88,46 @@ def test_async_get_business_uses_business_row_id( monkeypatch) -> None :
     assert calls == [ ( supabase.SQL_GET_BUSINESS, { "business" : 41 } ) ]
 
 
+def test_get_blocking_flow_session_uses_inbound_message( monkeypatch) -> None :
+    storage = supabase.SyncSupabaseStorage("postgresql://test")
+    calls   = []
+
+    def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return { "id" : 17 }
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+
+    assert storage.get_blocking_flow_session( 31, 47) == { "id" : 17 }
+    assert calls == [
+        (
+            supabase.SQL_GET_BLOCKING_FLOW_SESSION,
+            { "contact" : 31, "inbound_message" : 47 },
+        )
+    ]
+
+
+def test_async_get_blocking_flow_session_uses_inbound_message( monkeypatch) -> None :
+    storage = supabase.AsyncSupabaseStorage("postgresql://test")
+    calls   = []
+
+    async def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return { "id" : 17 }
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+
+    assert asyncio.run(
+        storage.get_blocking_flow_session( 31, 47)
+    ) == { "id" : 17 }
+    assert calls == [
+        (
+            supabase.SQL_GET_BLOCKING_FLOW_SESSION,
+            { "contact" : 31, "inbound_message" : 47 },
+        )
+    ]
+
+
 def test_resolve_business_and_contact( monkeypatch) -> None :
     storage = supabase.SyncSupabaseStorage("postgresql://test")
 
