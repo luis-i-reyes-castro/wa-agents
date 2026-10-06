@@ -36,11 +36,44 @@ a substitute for reading affected code.
   `scripts/diagnose_case_state.sql` with the business `display_phone_number` and
   contact `wa_id`. Treat a reported chatbot number as the former and review all case
   manifests, ordered messages/state snapshots, and context generations together.
+- For Flow session or data-exchange diagnosis, run
+  `scripts/diagnose_flow_state.sql` with the same business/contact identifiers. It
+  reads `ENCRYPTION_KEY` from the client environment and decrypts Flow data only in
+  the query result; it never prints the Flow token.
 - Use `S3_bucket_storage.py` and `S3_bucket_io.py` only for media bytes and object
   operations. Store media metadata in PostgreSQL.
 - Inspect consumer construction and overrides when changing a public signature.
   Search at least `~/sofia-server` and relevant local bots for `from wa_agents` and
   direct imports of the changed symbol.
+
+## Diagnostic Scripts
+
+Both diagnostic scripts are read-only and require `psql`. Run them from the
+repository root against the intended database.
+
+Inspect regular message, case, FSM, and agent-context state with:
+
+```bash
+psql "$DATABASE_URL" \
+  -v business_display_phone_number=593962939146 \
+  -v contact_wa_id=593995341161 \
+  -f skills/maintain-wa-agents/scripts/diagnose_case_state.sql
+```
+
+Inspect Flow sessions and their decrypted endpoint exchanges with:
+
+```bash
+# ENCRYPTION_KEY must already be exported in the client environment.
+psql "$DATABASE_URL" \
+  -v business_display_phone_number=593962939146 \
+  -v contact_wa_id=593995341161 \
+  -f skills/maintain-wa-agents/scripts/diagnose_flow_state.sql
+```
+
+The Flow script reads `ENCRYPTION_KEY` directly from the client environment; do not
+pass it with `-v`, put it in the script, or commit it. Its result contains decrypted
+customer data. Do not redirect, retain, or share the output without treating it as
+sensitive. A wrong key stops the script at the first failed decryption.
 
 ## Implement Coherently
 
