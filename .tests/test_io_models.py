@@ -48,6 +48,42 @@ def test_inbound_document_message() -> None :
     assert message.document.extension == "pdf"
 
 
+def test_inbound_unsupported_message() -> None :
+    
+    message = WhatsApp_IB_Message.model_validate({
+        "from"         : "593995168398",
+        "from_user_id" : "EC.1147177764911282",
+        "id"           : "wamid.dW5zdXBwb3J0ZWQ=",
+        "timestamp"    : "1791390490",
+        "errors"       : [
+            {
+                "code"       : 131051,
+                "title"      : "Message type unknown",
+                "message"    : "Message type unknown",
+                "error_data" : {
+                    "details" : "Message type is currently not supported.",
+                },
+            }
+        ],
+        "type"        : "unsupported",
+        "unsupported" : {
+            "type"     : "unknown",
+            "raw_type" : "unknown",
+        },
+    })
+    
+    assert message.unsupported
+    assert message.unsupported.type == "unknown"
+    assert message.unsupported.raw_type == "unknown"
+    assert message.errors
+    assert message.errors[0].code == 131051
+    assert message.errors[0].error_data
+    assert (
+        message.errors[0].error_data.details ==
+        "Message type is currently not supported."
+    )
+
+
 def test_document_message_echo() -> None :
     
     message = WhatsApp_IB_MessageEcho.model_validate({

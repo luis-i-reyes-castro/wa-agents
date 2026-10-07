@@ -477,6 +477,50 @@ class WhatsApp_IB_Reaction (BaseModel) :
     message_id : WhatsAppMessageID
     emoji      : str | None = None
 
+class WhatsApp_IB_MessageErrorData (BaseModel) :
+    """
+    WhatsApp inbound message error details
+        `details` : "<error details>" | null
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    details : NE_str | None = None
+
+class WhatsApp_IB_MessageError (BaseModel) :
+    """
+    WhatsApp inbound message error
+        `code`       : <error code>
+        `title`      : "<error title>"
+        `message`    : "<error message>" | null
+        `error_data` : WhatsApp_IB_MessageErrorData | null
+        `href`       : "<error code URL>" | null
+    Reference:
+        https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/errors
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    code       : int
+    title      : NE_str
+    message    : NE_str                       | None = None
+    error_data : WhatsApp_IB_MessageErrorData | None = None
+    href       : NE_str                       | None = None
+
+class WhatsApp_IB_UnsupportedData (BaseModel) :
+    """
+    WhatsApp unsupported message data
+        `type`     : "<unsupported message type>"
+        `raw_type` : "<raw unsupported message type>"
+    Reference:
+        https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/unsupported
+    NOTE:
+        Field `raw_type` was observed in a received payload on 2026-10-07,
+        yet it does not seem to be included in the Meta docs.
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    type     : NE_str
+    raw_type : NE_str
+
 class WhatsApp_IB_Message (BaseModel) :
     """
     WhatsApp message payload
@@ -486,11 +530,13 @@ class WhatsApp_IB_Message (BaseModel) :
         `timestamp`    : "<unix timestamp>"
         `type`         : "<message type>"
         
-        `contacts`    : `tuple[ WhatsAppContactCard, ...]` | null
-        `interactive` : `WhatsApp_IB_InteractiveReply`     | null
+        `contacts`    : `tuple[ WhatsAppContactCard, ...]`      | null
+        `errors`      : `tuple[ WhatsApp_IB_MessageError, ...]` | null
+        `interactive` : `WhatsApp_IB_InteractiveReply`          | null
         `location`    : `WhatsAppLocation`      | null
         `reaction`    : `WhatsApp_IB_Reaction`  | null
         `text`        : `WhatsAppText`          | null
+        `unsupported` : `WhatsApp_IB_UnsupportedData` | null
         
         `audio`       : `WhatsApp_IB_MediaData` | null
         `document`    : `WhatsApp_IB_MediaData` | null
@@ -517,11 +563,13 @@ class WhatsApp_IB_Message (BaseModel) :
     # In a WhatsApp message only one of the fields below will be present
     # (more precisely, the field that matches the message `type`).
     
-    contacts    : tuple[ WhatsAppContactCard, ...] | None = None
-    interactive : WhatsApp_IB_InteractiveReply     | None = None
+    contacts    : tuple[ WhatsAppContactCard, ...]      | None = None
+    errors      : tuple[ WhatsApp_IB_MessageError, ...] | None = None
+    interactive : WhatsApp_IB_InteractiveReply          | None = None
     location    : WhatsAppLocation      | None = None
     reaction    : WhatsApp_IB_Reaction  | None = None
     text        : WhatsAppText          | None = None
+    unsupported : WhatsApp_IB_UnsupportedData | None = None
     
     audio       : WhatsApp_IB_MediaData | None = None
     document    : WhatsApp_IB_MediaData | None = None
