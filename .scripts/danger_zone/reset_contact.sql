@@ -2,8 +2,9 @@
 -- This permanently deletes all database state associated with matching WhatsApp
 -- contacts while preserving the contacts and their case-handler routes.
 --
--- Replace the contact placeholder and set WABA_ID to one WABA ID or `all` before
--- running this script manually in the Supabase SQL editor.
+-- Replace the contact placeholder and set BUSINESS_DISPLAY_PHONE_NUMBER to one
+-- business display phone number or `all` before running this script manually in
+-- the Supabase SQL editor.
 --
 -- Preserved:
 --   - WhatsApp businesses
@@ -24,16 +25,20 @@
 
 DO $$
 DECLARE
-  v_waba_id            public.T_NO_WS_STR := '<WABA_ID>';
-  v_contact_identifier public.T_NO_WS_STR := '<WA_ID_OR_USER_ID>';
-  v_contacts           BIGINT[];
-  v_matching_contacts  BIGINT;
+  v_business_display_phone_number public.T_NO_WS_STR :=
+    '<BUSINESS_DISPLAY_PHONE_NUMBER>';
+  v_contact_identifier            public.T_NO_WS_STR := '<WA_ID_OR_USER_ID>';
+  v_contacts                      BIGINT[];
+  v_matching_contacts             BIGINT;
 BEGIN
   IF
-    ( v_waba_id            = '<WABA_ID>'          ) OR
+    (
+      v_business_display_phone_number = '<BUSINESS_DISPLAY_PHONE_NUMBER>'
+    ) OR
     ( v_contact_identifier = '<WA_ID_OR_USER_ID>' )
   THEN
-    RAISE EXCEPTION 'Replace the WABA and contact placeholders before running';
+    RAISE EXCEPTION
+      'Replace the business display phone number and contact placeholders before running';
   END IF;
   
   SELECT
@@ -48,8 +53,10 @@ BEGIN
     public.wa_api_businesses AS business ON business.id = contact.business
   WHERE
     (
-      ( v_waba_id = 'all' ) OR
-      ( business.waba_id = v_waba_id )
+      ( v_business_display_phone_number = 'all' ) OR
+      (
+        business.display_phone_number = v_business_display_phone_number
+      )
     ) AND
     (
       ( contact.wa_id   = v_contact_identifier ) OR
@@ -60,7 +67,10 @@ BEGIN
     RAISE EXCEPTION 'Expected to find at least one contact, found none';
   END IF;
   
-  IF ( v_waba_id <> 'all' ) AND ( v_matching_contacts <> 1 ) THEN
+  IF
+    ( v_business_display_phone_number <> 'all' ) AND
+    ( v_matching_contacts <> 1 )
+  THEN
     RAISE EXCEPTION
       'Expected to find one contact, found %',
       v_matching_contacts;
