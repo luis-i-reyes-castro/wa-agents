@@ -153,7 +153,10 @@ class _DelayedReplyHandler :
 
 
 def test_queue_row_reconstructs_job_and_message() -> None :
-    job, message = _job_and_message(_queue_item())
+    job, message = _job_and_message(
+        _queue_item(),
+        timedelta( minutes = 30),
+    )
 
     assert job.operator.row_id == 41
     assert job.user.row_id == 31
@@ -167,7 +170,8 @@ def test_queue_row_reconstructs_job_and_message() -> None :
     assert message.text.body == "Hola"
 
 
-def test_api_worker_releases_lease_after_ingest_reply() -> None :
+def test_api_worker_releases_lease_after_ingest_reply(monkeypatch) -> None :
+    monkeypatch.delenv( "QUEUE_SILENCE_TIMEOUT_MINUTES", raising = False)
     _ImmediateReplyHandler.instances.clear()
     queue  = _AsyncQueueStub()
     worker = WhatsAppAPIWorker(
@@ -233,11 +237,44 @@ def test_api_worker_holds_lease_through_delayed_response() -> None :
     assert not worker._job_td
 
 
+def test_api_worker_uses_constructor_timing(monkeypatch) -> None :
+    monkeypatch.setenv( "QUEUE_SILENCE_TIMEOUT_MINUTES", "60")
+    _DelayedReplyHandler.instances.clear()
+    worker = WhatsAppAPIWorker(
+        handler_cls        = _DelayedReplyHandler,
+        queue              = _AsyncQueueStub(),
+        poll_interval_busy = 0.1,
+        poll_interval_idle = 2.0,
+        response_delay     = 3.0,
+        silence_timeout    = timedelta( minutes = 45),
+    )
+    monkeypatch.setattr( api_worker.time, "time", lambda : 10.0)
+
+    assert asyncio.run(worker._process_message()) is True
+    assert worker.poll_interval_busy == 0.1
+    assert worker.poll_interval_idle == 2.0
+    assert list(worker._job_td.values()) == [ 13.0 ]
+    assert next(iter(worker._job_td)).silence_timeout == timedelta( minutes = 45)
+
+
+def test_api_worker_uses_environment_silence_timeout(monkeypatch) -> None :
+    monkeypatch.setenv( "QUEUE_SILENCE_TIMEOUT_MINUTES", "45")
+    worker = WhatsAppAPIWorker(
+        handler_cls = _ImmediateReplyHandler,
+        queue       = _AsyncQueueStub(),
+    )
+
+    assert worker.silence_timeout == timedelta( minutes = 45)
+
+
 def test_api_worker_uses_configured_silence_timeout() -> None :
     item                            = _queue_item()
     item["silence_timeout_minutes"] = 15
 
-    job, _message = _job_and_message(item)
+    job, _message = _job_and_message(
+        item,
+        timedelta( minutes = 30),
+    )
 
     assert job.silence_timeout == timedelta( minutes = 15)
 

@@ -63,16 +63,16 @@ from .supabase import (
 )
 
 
-POLL_INTERVAL_BUSY = float( os.getenv( "QUEUE_POLL_INTERVAL_BUSY", 0.2))
+DEFAULT_POLL_INTERVAL_BUSY = 0.2
 """ Poll interval to use while the worker has pending jobs. """
-POLL_INTERVAL_IDLE = float( os.getenv( "QUEUE_POLL_INTERVAL_IDLE", 1.0))
+DEFAULT_POLL_INTERVAL_IDLE = 1.0
 """ Poll interval to use while the worker does not have pending jobs. """
-RESPONSE_DELAY     = float( os.getenv( "QUEUE_RESPONSE_DELAY",     1.0))
+DEFAULT_RESPONSE_DELAY     = 1.0
 """
 Response delay for handler. This delay is meant to try attenuate some of the various issues
 caused by users that communicate via single-word messages (emphasis in the word "try").
 """
-SILENCE_TIMEOUT    = timedelta( minutes = 30)
+DEFAULT_SILENCE_TIMEOUT_MINUTES = 30
 """ Fallback message-echo silence timeout when the handler has no setting. """
 
 
@@ -114,7 +114,8 @@ def _message_timestamp( value : datetime | str) -> str :
 
 
 def _job_and_message(
-    item : dict[str, Any],
+    item                     : dict[str, Any],
+    fallback_silence_timeout : timedelta,
 ) -> tuple[ HandlerJob, WhatsApp_IB_Message] :
     """
     Reconstruct handler inputs from `get_inbound_message.sql` output.
@@ -156,7 +157,7 @@ def _job_and_message(
     silence_timeout    = (
         timedelta( minutes = configured_timeout)
         if ( configured_timeout is not None ) else
-        SILENCE_TIMEOUT
+        fallback_silence_timeout
     )
     
     job = HandlerJob(
@@ -181,29 +182,41 @@ class WhatsAppAPIWorker (FastAPI) :
     def __init__(
         self,
         *,
-        debug              : bool = False,
-        handler_cls        : WhatsAppCaseHandlerClass | None = None,
-        handler_classes    : Mapping[ str, WhatsAppCaseHandlerClass] | None = None,
-        queue              : AsyncWhatsAppDatabaseQueue | None = None,
-        flow_endpoint_path : str = "/webhook/flows/{waba_id}",
-        **kwargs           : Any,
+        debug               : bool = False,
+        flow_endpoint_path  : str = "/webhook/flows/{waba_id}",
+        handler_cls         : WhatsAppCaseHandlerClass | None = None,
+        handler_classes     : Mapping[ str, WhatsAppCaseHandlerClass] | None = None,
+        poll_interval_busy  : float | None = None,
+        poll_interval_idle  : float | None = None,
+        queue               : AsyncWhatsAppDatabaseQueue | None = None,
+        response_delay      : float | None = None,
+        silence_timeout     : timedelta | None = None,
+        **kwargs            : Any,
     ) -> None :
         """
         Initialize the WhatsApp database queue worker app. \\
         Args:
-            debug              : Whether to emit debug output
-            handler_cls        : Case handler class invoked by the worker
-            queue              : Optional async WhatsApp database queue
-            handler_classes    : Case handler classes keyed by their `HANDLER_KEY`
-            flow_endpoint_path : Route for synchronous Flow data exchange
-            kwargs             : Forwarded to FastAPI
+            debug               : Whether to emit debug output
+            flow_endpoint_path  : Route for synchronous Flow data exchange
+            handler_cls         : Case handler class invoked by the worker
+            handler_classes     : Case handler classes keyed by their `HANDLER_KEY`
+            poll_interval_busy  : Poll interval while the worker has pending jobs
+            poll_interval_idle  : Poll interval while the worker is idle
+            queue               : Optional async WhatsApp database queue
+            response_delay      : Delay before running `run_while_in_action`
+            silence_timeout     : Fallback echo silence timeout
+            kwargs              : Forwarded to FastAPI
         """
         self._init_worker(
-            debug              = debug,
-            queue              = queue or AsyncWhatsAppDatabaseQueue(),
-            handler_cls        = handler_cls,
-            handler_classes    = handler_classes,
-            flow_endpoint_path = flow_endpoint_path,
+            debug               = debug,
+            flow_endpoint_path  = flow_endpoint_path,
+            handler_cls         = handler_cls,
+            handler_classes     = handler_classes,
+            poll_interval_busy  = poll_interval_busy,
+            poll_interval_idle  = poll_interval_idle,
+            queue               = queue or AsyncWhatsAppDatabaseQueue(),
+            response_delay      = response_delay,
+            silence_timeout     = silence_timeout,
         )
         kwargs.setdefault( "debug", debug)
         kwargs.setdefault( "lifespan", self.worker_lifespan)
@@ -269,17 +282,48 @@ class WhatsAppAPIWorker (FastAPI) :
     def _init_worker(
         self,
         *,
-        debug              : bool,
-        queue              : AsyncWhatsAppDatabaseQueue,
-        handler_cls        : WhatsAppCaseHandlerClass | None,
-        handler_classes    : Mapping[ str, WhatsAppCaseHandlerClass] | None,
-        flow_endpoint_path : str,
+        debug               : bool,
+        queue               : AsyncWhatsAppDatabaseQueue,
+        handler_cls         : WhatsAppCaseHandlerClass | None,
+        handler_classes     : Mapping[ str, WhatsAppCaseHandlerClass] | None,
+        flow_endpoint_path  : str,
+        poll_interval_busy  : float | None,
+        poll_interval_idle  : float | None,
+        response_delay      : float | None,
+        silence_timeout     : timedelta | None,
     ) -> None :
         """
         Initialize worker state without initializing FastAPI.
         """
-        self.debug        = debug
-        self.queue        = queue
+        self.debug = debug
+        self.queue = queue
+        self.poll_interval_busy = (
+            float( os.getenv( "QUEUE_POLL_INTERVAL_BUSY", DEFAULT_POLL_INTERVAL_BUSY))
+            if poll_interval_busy is None else
+            poll_interval_busy
+        )
+        self.poll_interval_idle = (
+            float( os.getenv( "QUEUE_POLL_INTERVAL_IDLE", DEFAULT_POLL_INTERVAL_IDLE))
+            if poll_interval_idle is None else
+            poll_interval_idle
+        )
+        self.response_delay = (
+            float( os.getenv( "QUEUE_RESPONSE_DELAY", DEFAULT_RESPONSE_DELAY))
+            if response_delay is None else
+            response_delay
+        )
+        self.silence_timeout = (
+            timedelta(
+                minutes = float(
+                    os.getenv(
+                        "QUEUE_SILENCE_TIMEOUT_MINUTES",
+                        DEFAULT_SILENCE_TIMEOUT_MINUTES,
+                    )
+                )
+            )
+            if silence_timeout is None else
+            silence_timeout
+        )
         self.handler_keys = self._build_handler_registry(
             handler_cls,
             handler_classes,
@@ -471,7 +515,7 @@ class WhatsAppAPIWorker (FastAPI) :
         
         logging.info(
             "Async queue worker started, poll interval = %ss",
-            POLL_INTERVAL_IDLE,
+            self.poll_interval_idle,
         )
         
         while not self._stop_flag :
@@ -487,7 +531,7 @@ class WhatsAppAPIWorker (FastAPI) :
                 active = False
             
             await asyncio.sleep(
-                POLL_INTERVAL_BUSY if active else POLL_INTERVAL_IDLE
+                self.poll_interval_busy if active else self.poll_interval_idle
             )
         
         logging.info("Async queue worker stopped")
@@ -523,7 +567,7 @@ class WhatsAppAPIWorker (FastAPI) :
         keep_lease = False
         
         try :
-            job, message = _job_and_message(item)
+            job, message = _job_and_message( item, self.silence_timeout)
             handler      = self._handler(job)
             
             media_content = (
@@ -543,7 +587,7 @@ class WhatsAppAPIWorker (FastAPI) :
             await self.queue.mark_done(row_id)
             
             if respond :
-                self._job_td[job] = time.time() + RESPONSE_DELAY
+                self._job_td[job] = time.time() + self.response_delay
                 keep_lease        = True
         
         except Exception as ex :

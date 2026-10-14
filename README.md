@@ -117,6 +117,17 @@ Supabase credentials are mandatory because webhook audit storage and
 | `QUEUE_POLL_INTERVAL_BUSY` | `0.2` | worker sleep when active |
 | `QUEUE_POLL_INTERVAL_IDLE` | `1.0` | worker sleep when idle |
 | `QUEUE_RESPONSE_DELAY` | `1.0` | delay before running `run_while_in_action` |
+| `QUEUE_SILENCE_TIMEOUT_MINUTES` | `30` | fallback echo silence timeout in minutes |
+
+Override them per application with the `poll_interval_busy`, `poll_interval_idle`,
+`response_delay`, and `silence_timeout` constructor arguments.
+
+```python
+app = WhatsAppAPIServer(
+    handler_cls    = CaseHandler,
+    response_delay = 3.0,
+)
+```
 
 ## Minimal App Skeleton
 
@@ -138,11 +149,10 @@ from wa_agents.api_server import WhatsAppAPIServer
 from casehandler import CaseHandler
 
 
-class App(WhatsAppAPIServer):
-    pass
-
-
-app = App( title = "WhatsApp Bot", handler_cls = CaseHandler)
+app = WhatsAppAPIServer(
+    title       = "WhatsApp Bot",
+    handler_cls = CaseHandler,
+)
 ```
 
 Run it with:
@@ -239,11 +249,12 @@ SET
   updated_at              = now();
 ```
 
-Handlers without a settings row use the worker's 30-minute fallback. Each echo rolls
-the deadline to one full timeout after that echo is processed. Customer messages
-received during silence are persisted for audit without advancing the state machine
-or agent contexts and do not receive a response. The open case is closed lazily on the
-first message after the deadline, and that message starts a fresh case and context.
+Handlers without a settings row use the worker's configured fallback, which
+defaults to 30 minutes. Each echo rolls the deadline to one full timeout after that
+echo is processed. Customer messages received during silence are persisted for audit
+without advancing the state machine or agent contexts and do not receive a response.
+The open case is closed lazily on the first message after the deadline, and that
+message starts a fresh case and context.
 
 The canonical DDL defines these objects for new or rebuilt databases. It does not
 migrate an already provisioned database; add the table and manifest column there

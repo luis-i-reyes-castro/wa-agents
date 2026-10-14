@@ -4,6 +4,7 @@ import hmac
 import json
 
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import Any
 
 from fastapi import FastAPI
@@ -196,6 +197,22 @@ def test_server_accepts_handler_registry() -> None :
 
     assert server.queue is queue
     assert server.handler_keys == ( "registry", )
+
+
+def test_server_forwards_worker_timing() -> None :
+    server = WhatsAppAPIServer(
+        handler_cls        = StubHandler,
+        queue              = StubQueue(),
+        poll_interval_busy = 0.1,
+        poll_interval_idle = 2.0,
+        response_delay     = 3.0,
+        silence_timeout    = timedelta( minutes = 45),
+    )
+
+    assert server.poll_interval_busy == 0.1
+    assert server.poll_interval_idle == 2.0
+    assert server.response_delay == 3.0
+    assert server.silence_timeout == timedelta( minutes = 45)
 
 
 def test_webhook_accepts_any_configured_meta_app_secret( monkeypatch) -> None :
