@@ -64,6 +64,9 @@ pip install -r requirements.txt
     - `process_message(...)` for ingestion-time decisions,
     - `run_while_in_action(...)` for LLM response generation (single or multi-turn).
 
+See [`docs/api_worker_mechanics.md`](docs/api_worker_mechanics.md) for the queue,
+lease, burst-debounce, and delayed-response lifecycle.
+
 ## Required Environment Variables
 
 ### Storage backend
@@ -116,7 +119,7 @@ Supabase credentials are mandatory because webhook audit storage and
 | --- | --- | --- |
 | `QUEUE_POLL_INTERVAL_BUSY` | `0.2` | worker sleep when active |
 | `QUEUE_POLL_INTERVAL_IDLE` | `1.0` | worker sleep when idle |
-| `QUEUE_RESPONSE_DELAY` | `1.0` | delay before running `run_while_in_action` |
+| `QUEUE_RESPONSE_DELAY` | `1.0` | quiet period after the latest message before running `run_while_in_action` |
 | `QUEUE_SILENCE_TIMEOUT_MINUTES` | `30` | fallback echo silence timeout in minutes |
 
 Override them per application with the `poll_interval_busy`, `poll_interval_idle`,
@@ -128,6 +131,12 @@ app = WhatsAppAPIServer(
     response_delay = 3.0,
 )
 ```
+
+`response_delay` is a trailing-edge debounce for delayed handler responses. While
+the worker holds a contact lease, each newer queued message is persisted into the
+same case and restarts the quiet period. Once the contact remains quiet for the
+configured interval, the worker calls `run_while_in_action` once with the complete
+persisted context. Replies sent directly by `process_message` remain immediate.
 
 ## Minimal App Skeleton
 

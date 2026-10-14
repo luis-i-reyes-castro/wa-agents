@@ -59,7 +59,8 @@ class WhatsAppAPIServer (
             poll_interval_busy : Poll interval while the worker has pending jobs
             poll_interval_idle : Poll interval while the worker is idle
             queue              : Optional async WhatsApp database queue
-            response_delay     : Delay before running `run_while_in_action`
+            response_delay     : Quiet period after the latest message before running
+                                 `run_while_in_action`
             silence_timeout    : Fallback echo silence timeout
             webhook_path       : Webhook route path
             verify_app_secret  : Whether to verify payload signatures

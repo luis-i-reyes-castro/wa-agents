@@ -63,14 +63,13 @@ from .supabase import (
 )
 
 
-DEFAULT_POLL_INTERVAL_BUSY = 0.2
+DEFAULT_POLL_INTERVAL_BUSY = 1.0
 """ Poll interval to use while the worker has pending jobs. """
 DEFAULT_POLL_INTERVAL_IDLE = 1.0
 """ Poll interval to use while the worker does not have pending jobs. """
 DEFAULT_RESPONSE_DELAY     = 1.0
 """
-Response delay for handler. This delay is meant to try attenuate some of the various issues
-caused by users that communicate via single-word messages (emphasis in the word "try").
+Quiet period after a contact's latest message before running the delayed response.
 """
 DEFAULT_SILENCE_TIMEOUT_MINUTES = 30
 """ Fallback message-echo silence timeout when the handler has no setting. """
@@ -91,17 +90,39 @@ class HandlerJob :
     silence_timeout    : timedelta
 
 
-class JobTimeDict ( dict[ HandlerJob, float] ) :
+@dataclass( frozen = True)
+class TimedHandlerJob :
     """
-    Delayed response times keyed by contact-bound jobs.
+    One contact's delayed response and its trailing-edge deadline.
     """
+    job           : HandlerJob
+    response_time : float
+
+
+class JobTimeDict ( dict[ int, TimedHandlerJob] ) :
+    """
+    Delayed responses keyed by contact row ID.
+    """
+
+    def schedule( self, job : HandlerJob, response_time : float) -> None :
+        self[job.user.row_id] = TimedHandlerJob( job, response_time)
+        return
+
+    def get_all(self) -> list[HandlerJob] :
+        return [ timed.job for timed in self.values() ]
     
     def get_due_now(self) -> list[HandlerJob] :
         now = time.time()
-        return [ job for job, response_time in self.items() if response_time <= now ]
+        return [
+            timed.job
+            for timed in self.values()
+            if timed.response_time <= now
+        ]
     
     def mark_as_done( self, job : HandlerJob) -> None :
-        self.pop( job, None)
+        timed = self.get(job.user.row_id)
+        if timed and ( timed.job == job ) :
+            self.pop( job.user.row_id, None)
         return
 
 
@@ -203,7 +224,8 @@ class WhatsAppAPIWorker (FastAPI) :
             poll_interval_busy  : Poll interval while the worker has pending jobs
             poll_interval_idle  : Poll interval while the worker is idle
             queue               : Optional async WhatsApp database queue
-            response_delay      : Delay before running `run_while_in_action`
+            response_delay      : Quiet period after the latest message before running
+                                  `run_while_in_action`
             silence_timeout     : Fallback echo silence timeout
             kwargs              : Forwarded to FastAPI
         """
@@ -540,10 +562,19 @@ class WhatsAppAPIWorker (FastAPI) :
     
     async def tick(self) -> bool :
         
-        received_message = await self._process_message()
-        processed_jobs   = await self._process_jobs(self._job_td.get_due_now())
+        refreshed_contacts = await self._process_pending_job_messages()
+        received_message   = await self._process_message()
+        processed_jobs     = await self._process_jobs(
+            self._job_td.get_due_now(),
+            refreshed_contacts,
+        )
         
-        return received_message or processed_jobs or bool(self._job_td)
+        return (
+            bool(refreshed_contacts) or
+            received_message         or
+            processed_jobs           or
+            bool(self._job_td)
+        )
     
     async def _call_handler_method(
         self,
@@ -556,15 +587,17 @@ class WhatsAppAPIWorker (FastAPI) :
         
         return await asyncio.to_thread( method, *args)
     
-    async def _process_message(self) -> bool :
-        
-        item = await self.queue.claim_next(self.handler_keys)
-        if not item :
-            return False
-        
-        row_id    = item["row_id"]
-        handler   = None
-        keep_lease = False
+    async def _process_claimed_message(
+        self,
+        item         : dict[str, Any],
+        previous_job : HandlerJob | None = None,
+    ) -> None :
+        """
+        Ingest one claimed message and update its contact's delayed response.
+        """
+        row_id     = item["row_id"]
+        handler    = None
+        keep_lease = previous_job is not None
         
         try :
             job, message = _job_and_message( item, self.silence_timeout)
@@ -580,15 +613,19 @@ class WhatsAppAPIWorker (FastAPI) :
                 media_content,
             )
             
-            if getattr( handler, "_responded_in_ingest", False) :
-                self._job_td.mark_as_done(job)
-                respond = False
-            
             await self.queue.mark_done(row_id)
+
+            if previous_job :
+                self._job_td.mark_as_done(previous_job)
             
             if respond :
-                self._job_td[job] = time.time() + self.response_delay
-                keep_lease        = True
+                self._job_td.schedule(
+                    job,
+                    time.time() + self.response_delay,
+                )
+                keep_lease = True
+            else :
+                keep_lease = False
         
         except Exception as ex :
             logging.error(
@@ -607,24 +644,69 @@ class WhatsAppAPIWorker (FastAPI) :
                         item["owner_token"],
                     )
         
+        return
+
+    async def _process_message(self) -> bool :
+        """
+        Claim and ingest one message for a contact without an active job.
+        """
+        item = await self.queue.claim_next(self.handler_keys)
+        if not item :
+            return False
+
+        await self._process_claimed_message(item)
+
         return True
+
+    async def _process_next_message_for_job( self, job : HandlerJob) -> bool :
+        """
+        Claim and ingest one newer message using a delayed job's contact lease.
+        """
+        item = await self.queue.claim_next_for_contact(
+            job.user.row_id,
+            job.owner_token,
+            job.queue_row_id,
+            self.handler_keys,
+        )
+        if not item :
+            return False
+
+        await self._process_claimed_message( item, previous_job = job)
+        return True
+
+    async def _process_pending_job_messages(self) -> set[int] :
+        """
+        Advance each active contact burst by at most one queued message.
+        """
+        refreshed_contacts = set()
+
+        for job in self._job_td.get_all() :
+            if await self._process_next_message_for_job(job) :
+                refreshed_contacts.add(job.user.row_id)
+
+        return refreshed_contacts
     
-    async def _process_jobs( self, jobs_to_process : list[HandlerJob]) -> bool :
+    async def _process_jobs(
+        self,
+        jobs_to_process    : list[HandlerJob],
+        refreshed_contacts : set[int] | None = None,
+    ) -> bool :
         
         processed_jobs = False
+        refreshed_contacts = refreshed_contacts or set()
         
         for job in jobs_to_process :
+
+            if job.user.row_id in refreshed_contacts :
+                continue
+
+            if await self._process_next_message_for_job(job) :
+                processed_jobs = True
+                continue
             
             handler = self._handler(job)
             
             try :
-                if await self.queue.has_pending_echo(
-                    job.user.row_id,
-                    job.queue_row_id,
-                ) :
-                    processed_jobs = True
-                    continue
-                
                 renewed = await self._call_handler_method(
                     handler.renew_contact_lease
                 )

@@ -178,6 +178,26 @@ def test_queue_claim_acquires_contact_lease_atomically() -> None :
     assert "msg_status = 'processing'" in normalized
 
 
+def test_contact_queue_claim_reuses_active_lease_and_preserves_fifo() -> None :
+    claim = (
+        SQL_DIR / "claim_next_case_handler_message_for_contact.sql"
+    ).read_text(encoding = "utf-8")
+    normalized = _normalized_sql(claim)
+
+    assert "lea.contact = @contact" in normalized
+    assert "lea.owner_token = @owner_token" in normalized
+    assert "lea.expires_at > now()" in normalized
+    assert "que.id > @after_row_id" in normalized
+    assert "ORDER BY que.created_at ASC, que.id ASC LIMIT 1" in normalized
+    assert "FOR UPDATE OF que SKIP LOCKED" in normalized
+    assert normalized.index("LIMIT 1") < normalized.index(
+        "can.handler_key = ANY( @handler_keys)"
+    )
+    assert "heartbeat_at = now()" in normalized
+    assert "expires_at = now() + INTERVAL '90 seconds'" in normalized
+    assert "msg_status = 'processing'" in normalized
+
+
 def test_queue_claim_returns_handler_silence_timeout() -> None :
     claim = ( SQL_DIR / "claim_next_case_handler_message.sql").read_text(
         encoding = "utf-8"

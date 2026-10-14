@@ -16,20 +16,28 @@ from wa_agents.api_worker import (
     WhatsAppAPIWorker,
     _job_and_message,
 )
+from wa_agents.io_models import WhatsApp_IB_MessageEcho
 
 
-def _queue_item() -> dict :
+def _queue_item(
+    *,
+    row_id     : int = 1,
+    message_id : int = 21,
+    msg_id     : str = "wamid.ABC123=",
+    body       : str = "Hola",
+    contact    : int = 31,
+) -> dict :
     return {
-        "row_id"              : 1,
-        "id"                  : 21,
+        "row_id"              : row_id,
+        "id"                  : message_id,
         "payload"             : 11,
         "is_echo"             : False,
-        "msg_id"              : "wamid.ABC123=",
+        "msg_id"              : msg_id,
         "msg_ts"              : datetime( 2026, 11, 27, tzinfo = UTC),
         "msg_type"            : "text",
-        "msg_data"            : { "text" : { "body" : "Hola" } },
-        "contact"             : 31,
-        "wa_id"               : "593995341161",
+        "msg_data"            : { "text" : { "body" : body } },
+        "contact"             : contact,
+        "wa_id"               : str(593995341130 + contact),
         "user_id"             : None,
         "profile_name"        : "Test User",
         "profile_username"    : None,
@@ -54,11 +62,14 @@ class _AsyncQueueStub :
 
     def __init__(self) -> None :
         self.item       = _queue_item()
+        self.contact_items = []
         self.done_ids   = []
         self.error_ids  = []
         self.claimed_keys = None
+        self.contact_claims = []
         self.pending_echo  = False
         self.pending_echo_checks = []
+        self.released_leases = []
         self.storage      = object()
 
     async def claim_next( self, handler_keys) -> dict | None :
@@ -67,11 +78,33 @@ class _AsyncQueueStub :
         self.item = None
         return item
 
+    async def claim_next_for_contact(
+        self,
+        contact,
+        owner_token,
+        after_row_id,
+        handler_keys,
+    ) -> dict | None :
+        self.contact_claims.append(
+            ( contact, owner_token, after_row_id, handler_keys)
+        )
+        if not self.contact_items :
+            return None
+
+        item = self.contact_items.pop(0)
+        assert item["contact"] == contact
+        assert item["row_id"] > after_row_id
+        return { **item, "owner_token" : owner_token }
+
     async def mark_done( self, row_id : int) -> None :
         self.done_ids.append(row_id)
 
     async def mark_error( self, row_id : int) -> None :
         self.error_ids.append(row_id)
+
+    async def release_contact_lease(self, contact, owner_token) -> bool :
+        self.released_leases.append(( contact, owner_token))
+        return True
 
     async def has_pending_echo( self, contact : int, after_row_id : int) -> bool :
         self.pending_echo_checks.append(( contact, after_row_id))
@@ -86,7 +119,6 @@ class _ImmediateReplyHandler :
         self.operator             = operator
         self.user                 = user
         self.kwargs               = kwargs
-        self._responded_in_ingest = True
         self.released             = False
         self.__class__.instances.append(self)
 
@@ -106,7 +138,6 @@ class _AsyncImmediateReplyHandler :
         self.operator             = operator
         self.user                 = user
         self.kwargs               = kwargs
-        self._responded_in_ingest = True
         self.released             = False
         self.__class__.instances.append(self)
 
@@ -132,15 +163,16 @@ class _DelayedReplyHandler :
 
     def __init__( self, _operator, _user, **kwargs) -> None :
         self.kwargs               = kwargs
-        self._responded_in_ingest = False
         self.released             = False
         self.renewed              = False
+        self.ran                  = False
         self.__class__.instances.append(self)
 
     def process_message( self, _message, _media_content = None) -> bool :
         return True
 
     def run_while_in_action(self) -> bool :
+        self.ran = True
         return False
 
     def renew_contact_lease(self) -> bool :
@@ -220,7 +252,7 @@ def test_api_worker_holds_lease_through_delayed_response() -> None :
     async def run() -> tuple[ object, list] :
         assert await worker._process_message() is True
         ingest_handler = _DelayedReplyHandler.instances[0]
-        jobs           = list(worker._job_td)
+        jobs           = worker._job_td.get_all()
 
         assert ingest_handler.released is False
         assert len(jobs) == 1
@@ -253,8 +285,9 @@ def test_api_worker_uses_constructor_timing(monkeypatch) -> None :
     assert asyncio.run(worker._process_message()) is True
     assert worker.poll_interval_busy == 0.1
     assert worker.poll_interval_idle == 2.0
-    assert list(worker._job_td.values()) == [ 13.0 ]
-    assert next(iter(worker._job_td)).silence_timeout == timedelta( minutes = 45)
+    timed = next(iter(worker._job_td.values()))
+    assert timed.response_time == 13.0
+    assert timed.job.silence_timeout == timedelta( minutes = 45)
 
 
 def test_api_worker_uses_environment_silence_timeout(monkeypatch) -> None :
@@ -279,29 +312,236 @@ def test_api_worker_uses_configured_silence_timeout() -> None :
     assert job.silence_timeout == timedelta( minutes = 15)
 
 
-def test_pending_echo_cancels_delayed_response() -> None :
+def test_newer_immediate_reply_cancels_delayed_response() -> None :
+    class ImmediateSecondReplyHandler (_DelayedReplyHandler) :
+
+        def process_message( self, message, _media_content = None) -> bool :
+            return message.id != "wamid.SECOND="
+
     _DelayedReplyHandler.instances.clear()
-    queue              = _AsyncQueueStub()
-    queue.pending_echo = True
+    queue = _AsyncQueueStub()
+    queue.contact_items.append(
+        _queue_item(
+            row_id     = 2,
+            message_id = 22,
+            msg_id     = "wamid.SECOND=",
+        )
+    )
     worker             = WhatsAppAPIWorker(
-        handler_cls = _DelayedReplyHandler,
+        handler_cls = ImmediateSecondReplyHandler,
         queue       = queue,
     )
 
     async def run() -> None :
         assert await worker._process_message() is True
-        jobs = list(worker._job_td)
-
-        assert await worker._process_jobs(jobs) is True
+        assert await worker._process_pending_job_messages() == { 31 }
 
     asyncio.run(run())
 
-    response_handler = _DelayedReplyHandler.instances[1]
-
-    assert queue.pending_echo_checks == [ ( 31, 1) ]
-    assert response_handler.renewed is False
-    assert response_handler.released is True
+    assert queue.done_ids == [ 1, 2 ]
     assert not worker._job_td
+    assert ImmediateSecondReplyHandler.instances[-1].released is True
+
+
+def test_newer_echo_cancels_delayed_response() -> None :
+    class EchoAwareHandler (_DelayedReplyHandler) :
+
+        def process_message( self, message, _media_content = None) -> bool :
+            return not isinstance( message, WhatsApp_IB_MessageEcho)
+
+    EchoAwareHandler.instances.clear()
+    queue = _AsyncQueueStub()
+    echo  = _queue_item(
+        row_id     = 2,
+        message_id = 22,
+        msg_id     = "wamid.ECHO123=",
+    )
+    echo["is_echo"] = True
+    echo["msg_data"] = {
+        "text" : { "body" : "Operator reply" },
+        "to"   : echo["wa_id"],
+    }
+    queue.contact_items.append(echo)
+    worker = WhatsAppAPIWorker(
+        handler_cls = EchoAwareHandler,
+        queue       = queue,
+    )
+
+    async def run() -> None :
+        assert await worker._process_message() is True
+        assert await worker._process_pending_job_messages() == { 31 }
+
+    asyncio.run(run())
+
+    assert queue.done_ids == [ 1, 2 ]
+    assert not worker._job_td
+    assert sum(handler.ran for handler in EchoAwareHandler.instances) == 0
+
+
+def test_response_delay_debounces_contact_message_burst(monkeypatch) -> None :
+    _DelayedReplyHandler.instances.clear()
+    now    = [ 10.0 ]
+    queue  = _AsyncQueueStub()
+    worker = WhatsAppAPIWorker(
+        handler_cls    = _DelayedReplyHandler,
+        queue          = queue,
+        response_delay = 5.0,
+    )
+    monkeypatch.setattr( api_worker.time, "time", lambda : now[0])
+
+    async def run() -> None :
+        assert await worker._process_message() is True
+        first_job = worker._job_td.get_all()[0]
+        owner     = first_job.owner_token
+
+        now[0] = 11.0
+        queue.contact_items.append(
+            _queue_item(
+                row_id     = 2,
+                message_id = 22,
+                msg_id     = "wamid.SECOND=",
+            )
+        )
+        assert await worker._process_pending_job_messages() == { 31 }
+        second_timed = next(iter(worker._job_td.values()))
+        assert second_timed.job.queue_row_id == 2
+        assert second_timed.job.owner_token == owner
+        assert second_timed.response_time == 16.0
+
+        now[0] = 12.0
+        queue.contact_items.append(
+            _queue_item(
+                row_id     = 3,
+                message_id = 23,
+                msg_id     = "wamid.THIRD=",
+            )
+        )
+        assert await worker._process_pending_job_messages() == { 31 }
+        latest_timed = next(iter(worker._job_td.values()))
+        assert latest_timed.job.queue_row_id == 3
+        assert latest_timed.job.api_inbound_msg_id == 23
+        assert latest_timed.response_time == 17.0
+
+        now[0] = 16.9
+        assert worker._job_td.get_due_now() == []
+
+        now[0] = 17.0
+        assert await worker._process_jobs(worker._job_td.get_due_now()) is True
+
+    asyncio.run(run())
+
+    assert queue.done_ids == [ 1, 2, 3 ]
+    assert queue.error_ids == []
+    assert not worker._job_td
+    assert sum(handler.ran for handler in _DelayedReplyHandler.instances) == 1
+    response_handler = next(
+        handler for handler in _DelayedReplyHandler.instances if handler.ran
+    )
+    assert response_handler.kwargs["api_inbound_msg_id"] == 23
+
+
+def test_delayed_response_deadlines_are_independent_per_contact() -> None :
+    jobs = api_worker.JobTimeDict()
+    first, _ = _job_and_message(
+        _queue_item( contact = 31),
+        timedelta( minutes = 30),
+    )
+    second, _ = _job_and_message(
+        _queue_item(
+            row_id     = 2,
+            message_id = 22,
+            msg_id     = "wamid.SECOND=",
+            contact    = 32,
+        ),
+        timedelta( minutes = 30),
+    )
+    first_latest, _ = _job_and_message(
+        _queue_item(
+            row_id     = 3,
+            message_id = 23,
+            msg_id     = "wamid.THIRD=",
+            contact    = 31,
+        ),
+        timedelta( minutes = 30),
+    )
+
+    jobs.schedule( first, 10.0)
+    jobs.schedule( second, 11.0)
+    jobs.schedule( first_latest, 12.0)
+
+    assert len(jobs) == 2
+    assert jobs[31] == api_worker.TimedHandlerJob( first_latest, 12.0)
+    assert jobs[32] == api_worker.TimedHandlerJob( second, 11.0)
+
+
+def test_messages_after_quiet_period_start_a_new_burst(monkeypatch) -> None :
+    _DelayedReplyHandler.instances.clear()
+    now    = [ 10.0 ]
+    queue  = _AsyncQueueStub()
+    worker = WhatsAppAPIWorker(
+        handler_cls    = _DelayedReplyHandler,
+        queue          = queue,
+        response_delay = 5.0,
+    )
+    monkeypatch.setattr( api_worker.time, "time", lambda : now[0])
+
+    async def run() -> None :
+        assert await worker._process_message() is True
+
+        now[0] = 15.0
+        assert await worker._process_jobs(worker._job_td.get_due_now()) is True
+        assert not worker._job_td
+
+        queue.item = _queue_item(
+            row_id     = 2,
+            message_id = 22,
+            msg_id     = "wamid.SECOND=",
+        )
+        assert await worker._process_message() is True
+
+        now[0] = 20.0
+        assert await worker._process_jobs(worker._job_td.get_due_now()) is True
+
+    asyncio.run(run())
+
+    assert queue.done_ids == [ 1, 2 ]
+    assert sum(handler.ran for handler in _DelayedReplyHandler.instances) == 2
+
+
+def test_newer_message_failure_keeps_previous_delayed_response() -> None :
+    class FailingSecondMessageHandler (_DelayedReplyHandler) :
+
+        def process_message( self, message, _media_content = None) -> bool :
+            if message.id == "wamid.SECOND=" :
+                raise RuntimeError("test ingest failure")
+            return True
+
+    FailingSecondMessageHandler.instances.clear()
+    queue = _AsyncQueueStub()
+    queue.contact_items.append(
+        _queue_item(
+            row_id     = 2,
+            message_id = 22,
+            msg_id     = "wamid.SECOND=",
+        )
+    )
+    worker = WhatsAppAPIWorker(
+        handler_cls = FailingSecondMessageHandler,
+        queue       = queue,
+    )
+
+    async def run() -> None :
+        assert await worker._process_message() is True
+        first_job = worker._job_td.get_all()[0]
+
+        assert await worker._process_pending_job_messages() == { 31 }
+        assert worker._job_td.get_all() == [ first_job ]
+
+    asyncio.run(run())
+
+    assert queue.done_ids == [ 1 ]
+    assert queue.error_ids == [ 2 ]
+    assert len(worker._job_td) == 1
 
 
 def test_api_worker_claims_and_dispatches_registered_handler_keys() -> None :

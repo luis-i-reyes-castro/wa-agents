@@ -53,7 +53,12 @@ from .supabase import (
 
 SQL_DIR = Path(__file__).parent / "sql"
 
-SQL_CLAIM_NEXT       = load_sql_script( SQL_DIR / "claim_next_case_handler_message.sql")
+SQL_CLAIM_NEXT = load_sql_script(
+    SQL_DIR / "claim_next_case_handler_message.sql"
+)
+SQL_CLAIM_NEXT_FOR_CONTACT = load_sql_script(
+    SQL_DIR / "claim_next_case_handler_message_for_contact.sql"
+)
 SQL_ENQUEUE          = load_sql_script( SQL_DIR / "enqueue_case_handler_message.sql")
 SQL_HAS_PENDING_ECHO = load_sql_script( SQL_DIR / "has_pending_message_echo.sql")
 SQL_MARK_DONE        = load_sql_script( SQL_DIR / "mark_case_handler_message_done.sql")
@@ -400,6 +405,55 @@ class WhatsAppDatabaseQueue :
             )
         )
     
+    def claim_next_for_contact(
+        self,
+        contact      : int,
+        owner_token  : UUID | str,
+        after_row_id : int,
+        handler_keys : Collection[str] | None = None,
+    ) -> dict[ str, Any] | None :
+        """
+        Claim the next message for a contact using its existing active lease.
+        """
+        claimed_keys = sorted(
+            set(handler_keys)
+            if ( handler_keys is not None ) else
+            { self.fallback_handler_key }
+        )
+        if not claimed_keys :
+            return None
+
+        queue_row = self._fetch_one(
+            SQL_CLAIM_NEXT_FOR_CONTACT,
+            {
+                "contact"              : contact,
+                "owner_token"          : owner_token,
+                "after_row_id"         : after_row_id,
+                "handler_keys"         : claimed_keys,
+                "fallback_handler_key" : self.fallback_handler_key,
+            },
+        )
+        if not queue_row :
+            return None
+
+        message_row = self.storage.get_inbound_message(queue_row["msg_id"])
+        if not message_row :
+            self.mark_error(queue_row["row_id"])
+            raise RuntimeError(
+                f"In {here()}: Queued WhatsApp message "
+                f"'{queue_row['msg_id']}' was not found"
+            )
+
+        return {
+            **message_row,
+            "row_id"                  : queue_row["row_id"],
+            "handler_id"              : queue_row["handler_id"],
+            "handler_key"             : queue_row["handler_key"],
+            "msg_status"              : queue_row["msg_status"],
+            "owner_token"             : owner_token,
+            "silence_timeout_minutes" : queue_row.get("silence_timeout_minutes"),
+        }
+
     def mark_done( self, row_id : int) -> bool :
         """
         Mark a claimed queue row as successfully processed.
@@ -722,6 +776,55 @@ class AsyncWhatsAppDatabaseQueue :
         )
         return bool(row)
     
+    async def claim_next_for_contact(
+        self,
+        contact      : int,
+        owner_token  : UUID | str,
+        after_row_id : int,
+        handler_keys : Collection[str] | None = None,
+    ) -> dict[ str, Any] | None :
+        """
+        Claim the next message for a contact using its existing active lease.
+        """
+        claimed_keys = sorted(
+            set(handler_keys)
+            if ( handler_keys is not None ) else
+            { self.fallback_handler_key }
+        )
+        if not claimed_keys :
+            return None
+
+        queue_row = await self._fetch_one(
+            SQL_CLAIM_NEXT_FOR_CONTACT,
+            {
+                "contact"              : contact,
+                "owner_token"          : owner_token,
+                "after_row_id"         : after_row_id,
+                "handler_keys"         : claimed_keys,
+                "fallback_handler_key" : self.fallback_handler_key,
+            },
+        )
+        if not queue_row :
+            return None
+
+        message_row = await self.storage.get_inbound_message(queue_row["msg_id"])
+        if not message_row :
+            await self.mark_error(queue_row["row_id"])
+            raise RuntimeError(
+                f"In {here()}: Queued WhatsApp message "
+                f"'{queue_row['msg_id']}' was not found"
+            )
+
+        return {
+            **message_row,
+            "row_id"                  : queue_row["row_id"],
+            "handler_id"              : queue_row["handler_id"],
+            "handler_key"             : queue_row["handler_key"],
+            "msg_status"              : queue_row["msg_status"],
+            "owner_token"             : owner_token,
+            "silence_timeout_minutes" : queue_row.get("silence_timeout_minutes"),
+        }
+
     async def mark_done( self, row_id : int) -> bool :
         """
         Mark a claimed queue row as successfully processed.

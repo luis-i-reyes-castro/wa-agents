@@ -28,6 +28,24 @@ class _StorageStub :
         return True
 
 
+class _AsyncStorageStub :
+
+    def __init__(self) -> None :
+        self.released = []
+
+    async def get_inbound_message( self, msg_id : str) -> dict :
+        return {
+            "id"       : 22,
+            "msg_id"   : msg_id,
+            "contact"  : 31,
+            "business" : 41,
+        }
+
+    async def release_contact_lease( self, contact, owner_token) -> bool :
+        self.released.append(( contact, owner_token))
+        return True
+
+
 def test_legacy_queue_class_names_are_removed() -> None :
     assert not hasattr( database_queue, "QueueDB")
     assert not hasattr( database_queue, "AsyncQueueDB")
@@ -124,6 +142,85 @@ def test_queue_claim_returns_message_and_lease_identity( monkeypatch) -> None :
     assert calls[0][1]["owner_token"] == item["owner_token"]
     assert calls[0][1]["handler_keys"] == [ "default" ]
     assert calls[0][1]["fallback_handler_key"] == "default"
+
+
+def test_queue_claims_next_contact_message_with_existing_lease(monkeypatch) -> None :
+    queue         = database_queue.WhatsAppDatabaseQueue("postgresql://test")
+    queue.storage = _StorageStub()
+    owner_token   = UUID("12345678-1234-5678-1234-567812345678")
+    calls         = []
+
+    def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return {
+            "row_id"     : 2,
+            "msg_id"     : "wamid.SECOND=",
+            "msg_status" : "processing",
+            "contact"    : 31,
+            "handler_id" : 7,
+            "handler_key": "default",
+        }
+
+    monkeypatch.setattr( queue, "_fetch_one", fake_fetch_one)
+    item = queue.claim_next_for_contact(
+        31,
+        owner_token,
+        1,
+        [ "retail", "default" ],
+    )
+
+    assert item and item["id"] == 21
+    assert item["row_id"] == 2
+    assert item["owner_token"] == owner_token
+    assert calls == [
+        (
+            database_queue.SQL_CLAIM_NEXT_FOR_CONTACT,
+            {
+                "contact"              : 31,
+                "owner_token"          : owner_token,
+                "after_row_id"         : 1,
+                "handler_keys"         : [ "default", "retail" ],
+                "fallback_handler_key" : "default",
+            },
+        )
+    ]
+
+
+def test_async_queue_claims_next_contact_message_with_existing_lease(
+    monkeypatch,
+) -> None :
+    queue         = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
+    queue.storage = _AsyncStorageStub()
+    owner_token   = UUID("12345678-1234-5678-1234-567812345678")
+    calls         = []
+
+    async def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return {
+            "row_id"     : 2,
+            "msg_id"     : "wamid.SECOND=",
+            "msg_status" : "processing",
+            "contact"    : 31,
+            "handler_id" : 7,
+            "handler_key": "default",
+        }
+
+    monkeypatch.setattr( queue, "_fetch_one", fake_fetch_one)
+
+    async def run() -> dict | None :
+        return await queue.claim_next_for_contact(
+            31,
+            owner_token,
+            1,
+            [ "default" ],
+        )
+
+    item = asyncio.run(run())
+
+    assert item and item["id"] == 22
+    assert item["owner_token"] == owner_token
+    assert calls[0][0] == database_queue.SQL_CLAIM_NEXT_FOR_CONTACT
+    assert calls[0][1]["owner_token"] == owner_token
 
 
 VALID_PAYLOAD = {
