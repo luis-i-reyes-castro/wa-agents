@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import base64
 import hashlib
 import hmac
 import httpx
@@ -14,7 +15,10 @@ from typing import (
 )
 
 from sofia_utils.io import JSON_INDENT
-from sofia_utils.printing import print_sep
+from sofia_utils.printing import (
+    get_qualname as here,
+    print_sep,
+)
 
 from .case_handler_models import (
     ServerDocumentMsg,
@@ -108,6 +112,21 @@ def _collect_send_results(
 # =========================================================================================
 # INBOUND
 
+def _verify_media_content(
+    media_data : WhatsApp_IB_MediaData,
+    content    : bytes,
+) -> bytes :
+    """
+    Verify downloaded media against Meta's declared SHA-256 digest
+    """
+    expected = base64.b64decode( media_data.sha256, validate = True)
+    actual   = hashlib.sha256(content).digest()
+    
+    if not hmac.compare_digest( actual, expected) :
+        raise ValueError(f"In {here()}: WhatsApp media checksum mismatch")
+    
+    return content
+
 def fetch_media( media_data : WhatsApp_IB_MediaData) -> bytes :
     """
     Download WhatsApp media content using its media id \\
@@ -116,22 +135,25 @@ def fetch_media( media_data : WhatsApp_IB_MediaData) -> bytes :
     Returns:
         Raw media bytes
     """
-    result = None
-    
-    # Request media URL
-    req_url   = f"{API_URL}{media_data.id}"
-    req_head  = write_headers()
-    req_resp  = httpx.get( req_url, headers = req_head).json()
-    media_url = req_resp.get("url")
-    
-    # If response contains media URL then download
-    if media_url :
-        req_resp = httpx.get( media_url, headers = req_head)
-        result   = req_resp.content
-    else :
-        print("In download_media: No file URL received")
-    
-    return result
+    req_url  = f"{API_URL}{media_data.id}"
+    req_head = write_headers()
+    response = httpx.get( req_url, headers = req_head)
+    response.raise_for_status()
+
+    response_data = response.json()
+    media_url     = (
+        response_data.get("url")
+        if isinstance( response_data, dict) else None
+    )
+    if not media_url :
+        raise RuntimeError(
+            f"In {here()}: Graph media response did not contain a URL"
+        )
+
+    response = httpx.get( media_url, headers = req_head)
+    response.raise_for_status()
+
+    return _verify_media_content( media_data, response.content)
 
 async def async_fetch_media( media_data : WhatsApp_IB_MediaData) -> bytes :
     """
@@ -141,23 +163,27 @@ async def async_fetch_media( media_data : WhatsApp_IB_MediaData) -> bytes :
     Returns:
         Raw media bytes
     """
-    result = None
-    
     req_url  = f"{API_URL}{media_data.id}"
     req_head = write_headers()
     
     async with httpx.AsyncClient() as client :
+        response = await client.get( req_url, headers = req_head)
+        response.raise_for_status()
         
-        req_resp  = await client.get( req_url, headers = req_head)
-        media_url = req_resp.json().get("url")
+        response_data = response.json()
+        media_url     = (
+            response_data.get("url")
+            if isinstance( response_data, dict) else None
+        )
+        if not media_url :
+            raise RuntimeError(
+                f"In {here()}: Graph media response did not contain a URL"
+            )
         
-        if media_url :
-            req_resp = await client.get( media_url, headers = req_head)
-            result   = req_resp.content
-        else :
-            print("In download_media: No file URL received")
+        response = await client.get( media_url, headers = req_head)
+        response.raise_for_status()
     
-    return result
+    return _verify_media_content( media_data, response.content)
 
 def verify_app_secret(
     payload    : bytes | None,

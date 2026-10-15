@@ -52,6 +52,28 @@ def _queue_item(
     }
 
 
+def _media_queue_item(
+    *,
+    row_id     : int = 1,
+    message_id : int = 21,
+    msg_id     : str = "wamid.MEDIA123=",
+) -> dict :
+    item             = _queue_item(
+        row_id     = row_id,
+        message_id = message_id,
+        msg_id     = msg_id,
+    )
+    item["msg_type"] = "image"
+    item["msg_data"] = {
+        "image" : {
+            "id"        : "123456789",
+            "mime_type" : "image/jpeg",
+            "sha256"    : "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+        }
+    }
+    return item
+
+
 def test_legacy_worker_class_names_are_removed() -> None :
     assert not hasattr( api_worker, "QueueWorker")
     assert not hasattr( api_worker, "AsyncQueueWorker")
@@ -529,6 +551,63 @@ def test_newer_message_failure_keeps_previous_delayed_response() -> None :
         handler_cls = FailingSecondMessageHandler,
         queue       = queue,
     )
+
+    async def run() -> None :
+        assert await worker._process_message() is True
+        first_job = worker._job_td.get_all()[0]
+
+        assert await worker._process_pending_job_messages() == { 31 }
+        assert worker._job_td.get_all() == [ first_job ]
+
+    asyncio.run(run())
+
+    assert queue.done_ids == [ 1 ]
+    assert queue.error_ids == [ 2 ]
+    assert len(worker._job_td) == 1
+
+
+def test_media_fetch_failure_marks_initial_row_error_and_releases(
+    monkeypatch,
+) -> None :
+    async def fail_fetch(_media_data) -> bytes :
+        raise RuntimeError("media download failed")
+
+    _DelayedReplyHandler.instances.clear()
+    queue      = _AsyncQueueStub()
+    queue.item = _media_queue_item()
+    worker     = WhatsAppAPIWorker(
+        handler_cls = _DelayedReplyHandler,
+        queue       = queue,
+    )
+    monkeypatch.setattr( api_worker, "async_fetch_media", fail_fetch)
+
+    assert asyncio.run(worker._process_message()) is True
+    assert queue.done_ids == []
+    assert queue.error_ids == [ 1 ]
+    assert not worker._job_td
+    assert _DelayedReplyHandler.instances[0].released is True
+
+
+def test_newer_media_fetch_failure_keeps_previous_delayed_response(
+    monkeypatch,
+) -> None :
+    async def fail_fetch(_media_data) -> bytes :
+        raise RuntimeError("media download failed")
+
+    _DelayedReplyHandler.instances.clear()
+    queue = _AsyncQueueStub()
+    queue.contact_items.append(
+        _media_queue_item(
+            row_id     = 2,
+            message_id = 22,
+            msg_id     = "wamid.MEDIA456=",
+        )
+    )
+    worker = WhatsAppAPIWorker(
+        handler_cls = _DelayedReplyHandler,
+        queue       = queue,
+    )
+    monkeypatch.setattr( api_worker, "async_fetch_media", fail_fetch)
 
     async def run() -> None :
         assert await worker._process_message() is True

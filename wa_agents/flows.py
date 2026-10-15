@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import hmac
 import inspect
 import json
 import logging
@@ -29,11 +30,17 @@ import httpx
 
 from cryptography.hazmat.primitives import (
     hashes,
+    padding as symmetric_padding,
     serialization,
 )
 from cryptography.hazmat.primitives.asymmetric import (
-    padding,
+    padding as asymmetric_padding,
     rsa,
+)
+from cryptography.hazmat.primitives.ciphers import (
+    Cipher,
+    algorithms,
+    modes,
 )
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import status
@@ -48,14 +55,17 @@ from sofia_utils.pydantic import (
     NO_WS_str,
     NumericID,
 )
+from sofia_utils.printing import get_qualname as here
 
 from .io_functions import (
     API_URL,
     write_headers,
 )
 from .io_models import (
-    WhatsApp_IB_Encrypted_FlowRequest,
+    WhatsAppFlowMediaError,
     WhatsApp_IB_Decrypted_FlowRequest,
+    WhatsApp_IB_Encrypted_FlowRequest,
+    WhatsApp_IB_FlowCDNMedia,
     WhatsApp_OB_FlowResponse,
 )
 from .supabase import (
@@ -143,8 +153,8 @@ def decrypt_flow_request(
     )
     aes_key = private_key.decrypt(
         base64.b64decode(envelope.encrypted_aes_key),
-        padding.OAEP(
-            mgf       = padding.MGF1( algorithm = hashes.SHA256()),
+        asymmetric_padding.OAEP(
+            mgf       = asymmetric_padding.MGF1( algorithm = hashes.SHA256()),
             algorithm = hashes.SHA256(),
             label     = None,
         ),
@@ -178,6 +188,120 @@ def encrypt_flow_response(
         None,
     )
     return base64.b64encode(ciphertext).decode("ascii")
+
+
+# =========================================================================================
+# FLOW MEDIA
+
+def _decrypt_flow_cdn_media(
+    media    : WhatsApp_IB_FlowCDNMedia,
+    cdn_file : bytes,
+) -> bytes :
+    """
+    Verify and decrypt one downloaded Flow CDN file
+    """
+    metadata       = media.encryption_metadata
+    encrypted_hash = base64.b64decode(metadata.encrypted_hash)
+    actual_hash    = hashlib.sha256(cdn_file).digest()
+    if not hmac.compare_digest( actual_hash, encrypted_hash) :
+        raise WhatsAppFlowMediaError(
+            f"In {here()}: Flow media encrypted hash mismatch"
+        )
+    
+    if len(cdn_file) <= 10 :
+        raise WhatsAppFlowMediaError(
+            f"In {here()}: Flow media CDN file is truncated"
+        )
+    
+    ciphertext    = cdn_file[:-10]
+    hmac_tag      = cdn_file[-10:]
+    iv            = base64.b64decode(metadata.iv)
+    hmac_key      = base64.b64decode(metadata.hmac_key)
+    expected_hmac = hmac.new(
+        hmac_key,
+        iv + ciphertext,
+        hashlib.sha256,
+    ).digest()[:10]
+    if not hmac.compare_digest( hmac_tag, expected_hmac) :
+        raise WhatsAppFlowMediaError(
+            f"In {here()}: Flow media HMAC mismatch"
+        )
+    
+    if ( len(ciphertext) % 16) != 0 :
+        raise WhatsAppFlowMediaError(
+            f"In {here()}: Flow media ciphertext is not block aligned"
+        )
+    
+    try :
+        encryption_key = base64.b64decode(metadata.encryption_key)
+        decryptor       = Cipher(
+            algorithms.AES(encryption_key),
+            modes.CBC(iv),
+        ).decryptor()
+        padded         = decryptor.update(ciphertext) + decryptor.finalize()
+        unpadder       = symmetric_padding.PKCS7(128).unpadder()
+        plaintext      = unpadder.update(padded) + unpadder.finalize()
+    except ValueError :
+        raise WhatsAppFlowMediaError(
+            f"In {here()}: Flow media padding is invalid"
+        ) from None
+    
+    plaintext_hash = base64.b64decode(metadata.plaintext_hash)
+    actual_hash    = hashlib.sha256(plaintext).digest()
+    if not hmac.compare_digest( actual_hash, plaintext_hash) :
+        raise WhatsAppFlowMediaError(
+            f"In {here()}: Flow media plaintext hash mismatch"
+        )
+    
+    return plaintext
+
+
+def _flow_media_download_error( ex : httpx.HTTPError) -> WhatsAppFlowMediaError :
+    """
+    Return a download error that does not expose Meta's signed CDN URL
+    """
+    status_code = (
+        ex.response.status_code
+        if isinstance( ex, httpx.HTTPStatusError) else None
+    )
+    detail = (
+        f" with HTTP status {status_code}"
+        if status_code is not None else ""
+    )
+    return WhatsAppFlowMediaError(
+        f"In {here()}: Flow media download failed{detail}"
+    )
+
+
+def fetch_flow_cdn_media( media : WhatsApp_IB_FlowCDNMedia) -> bytes :
+    """
+    Download, verify, and decrypt one Flow data-exchange media file
+    """
+    try :
+        response = httpx.get(media.cdn_url)
+        response.raise_for_status()
+    
+    except httpx.HTTPError as ex :
+        raise _flow_media_download_error(ex) from None
+    
+    return _decrypt_flow_cdn_media( media, response.content)
+
+
+async def async_fetch_flow_cdn_media(
+    media : WhatsApp_IB_FlowCDNMedia,
+) -> bytes :
+    """
+    Download, verify, and decrypt one Flow data-exchange media file asynchronously
+    """
+    try :
+        async with httpx.AsyncClient() as client :
+            response = await client.get(media.cdn_url)
+            response.raise_for_status()
+    
+    except httpx.HTTPError as ex :
+        raise _flow_media_download_error(ex) from None
+    
+    return _decrypt_flow_cdn_media( media, response.content)
 
 
 # =========================================================================================

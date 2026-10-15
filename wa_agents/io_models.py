@@ -5,6 +5,7 @@ References:
 * https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/
 """
 
+import base64
 import json
 
 from abc import ABC
@@ -12,6 +13,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationError,
     model_serializer,
     model_validator,
 )
@@ -22,6 +24,7 @@ from typing import (
     Literal,
     Self,
 )
+from uuid import UUID
 
 from sofia_utils.pydantic import (
     Base64_str,
@@ -33,6 +36,7 @@ from sofia_utils.pydantic import (
     UnixTS,
     serialize_without_nones,
 )
+from sofia_utils.printing import get_qualname as here
 
 
 # =========================================================================================
@@ -127,6 +131,11 @@ type WhatsApp_OB_MediaType = Literal[
 
 # =========================================================================================
 # INBOUND & OUTBOUND: SHARED MODELS
+
+class WhatsAppFlowMediaError (ValueError) :
+    """
+    Sanitized Flow media parsing, download, or integrity failure.
+    """
 
 class WhatsAppText (BaseModel) :
     """
@@ -377,6 +386,52 @@ class WhatsApp_IB_Context (BaseModel) :
     # Field below present only if message refers to a catalog product
     referred_product : dict[ str, str] | None = None
 
+class WhatsApp_IB_FlowEncryptionMetadata (BaseModel) :
+    """
+    Encryption metadata for one Flow media file stored on Meta's CDN
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    encrypted_hash : Base64_str
+    iv             : Base64_str
+    encryption_key : Base64_str
+    hmac_key       : Base64_str
+    plaintext_hash : Base64_str
+    
+    @model_validator( mode = "after")
+    def validate_decoded_lengths(self) -> Self :
+        
+        expected_lengths = {
+            "encrypted_hash" : 32,
+            "iv"             : 16,
+            "encryption_key" : 32,
+            "hmac_key"       : 32,
+            "plaintext_hash" : 32,
+        }
+        for field, expected_length in expected_lengths.items() :
+            value = base64.b64decode( getattr( self, field), validate = True)
+            if len(value) != expected_length :
+                raise ValueError(
+                    f"'{field}' must decode to {expected_length} bytes"
+                )
+        
+        return self
+
+class WhatsApp_IB_FlowCDNMedia (BaseModel) :
+    """
+    Encrypted Flow media descriptor received through a data endpoint
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    media_id            : UUID
+    cdn_url             : Annotated[ str, Field( pattern = r"^https://[^\s]+$")]
+    file_name           : NE_str
+    encryption_metadata : WhatsApp_IB_FlowEncryptionMetadata
+
+# Compatibility aliases for the original Flow media API names
+WhatsApp_Flow_EncryptionMetadata = WhatsApp_IB_FlowEncryptionMetadata
+WhatsApp_Flow_CDNMedia           = WhatsApp_IB_FlowCDNMedia
+
 class WhatsApp_IB_FlowReply (BaseModel) :
     """
     Terminal Flow reply delivered through the messages webhook
@@ -400,6 +455,41 @@ class WhatsApp_IB_FlowReply (BaseModel) :
             raise ValueError("Flow response_json must contain an object")
         
         return data
+
+    @property
+    def media(self) -> dict[str, list["WhatsApp_IB_MediaData"]] :
+        """
+        Return completion media descriptors grouped by Flow component name
+        """
+        required = { "id", "mime_type", "sha256" }
+        result   = {}
+        
+        for component, value in self.response.items() :
+            if not (
+                isinstance( value, list) and
+                all(
+                    isinstance( item, dict) and required <= item.keys()
+                    for item in value
+                )
+            ) :
+                continue
+            
+            try :
+                result[component] = [
+                    WhatsApp_IB_MediaData(
+                        id        = item["id"],
+                        mime_type = item["mime_type"],
+                        sha256    = item["sha256"],
+                        filename  = item.get("file_name"),
+                    )
+                    for item in value
+                ]
+            except ValidationError :
+                raise WhatsAppFlowMediaError(
+                    f"In {here()}: Invalid Flow completion media descriptor"
+                ) from None
+        
+        return result
 
 class WhatsApp_IB_InteractiveReply (BaseModel) :
     """
@@ -990,6 +1080,41 @@ class WhatsApp_IB_Decrypted_FlowRequest (BaseModel) :
         Return whether the Flow client reported an execution error
         """
         return bool(self.data.get("error"))
+
+    @property
+    def media(self) -> dict[str, list[WhatsApp_IB_FlowCDNMedia]] :
+        """
+        Return CDN media descriptors grouped by Flow component name
+        """
+        required = {
+            "media_id",
+            "cdn_url",
+            "file_name",
+            "encryption_metadata",
+        }
+        result = {}
+        
+        for component, value in self.data.items() :
+            if not (
+                isinstance( value, list) and
+                all(
+                    isinstance( item, dict) and required <= item.keys()
+                    for item in value
+                )
+            ) :
+                continue
+            
+            try :
+                result[component] = [
+                    WhatsApp_IB_FlowCDNMedia.model_validate(item)
+                    for item in value
+                ]
+            except ValidationError :
+                raise WhatsAppFlowMediaError(
+                    f"In {here()}: Invalid Flow CDN media descriptor"
+                ) from None
+        
+        return result
 
 
 # =========================================================================================

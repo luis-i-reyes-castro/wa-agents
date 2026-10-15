@@ -129,6 +129,48 @@ This model contains the client input for one endpoint call. Its `screen` is the
 screen that initiated that call, and its `data` is the payload submitted by that
 screen.
 
+### Picker Media During `data_exchange`
+
+PhotoPicker and DocumentPicker values appear as top-level lists inside `data`.
+`request.media` detects those lists and returns validated
+`WhatsApp_IB_FlowCDNMedia` objects grouped by component name. An empty optional
+picker remains present with an empty list. `WhatsApp_Flow_CDNMedia` and
+`WhatsApp_Flow_EncryptionMetadata` remain available as compatibility aliases.
+
+The CDN file is encrypted separately from the Flow request envelope. Download and
+decrypt only the components the application needs:
+
+```python
+import asyncio
+
+from wa_agents.flows import async_fetch_flow_cdn_media
+from wa_agents.io_models import WhatsAppFlowMediaError
+
+
+items   = request.media.get( "photo_picker", [])
+results = await asyncio.gather(
+    *( async_fetch_flow_cdn_media(item) for item in items ),
+    return_exceptions = True,
+)
+
+verified = {}
+errors   = {}
+for item, result in zip( items, results) :
+    if isinstance( result, WhatsAppFlowMediaError) :
+        errors[str(item.media_id)] = "File could not be verified."
+    elif isinstance( result, Exception) :
+        raise result
+    else :
+        verified[str(item.media_id)] = result
+```
+
+The handler returns `errors` through whichever response-data field the Flow JSON
+binds to the picker's `error-message`. The helper downloads without Graph
+authorization, verifies the encrypted hash and HMAC, decrypts AES-256-CBC with
+PKCS7 unpadding, and verifies the plaintext hash. Its errors never include the
+signed CDN URL or encryption keys. A synchronous `fetch_flow_cdn_media()` variant
+is also available.
+
 ## 3. Build Handler Context and Produce a Response
 
 After decrypting the request, `WhatsAppFlowEndpoint` uses its `flow_token` to load
@@ -394,6 +436,30 @@ returns:
     "outcome"    : "success",
 }
 ```
+
+If the completion contains picker uploads, `nfm_reply.media` returns ordinary
+`WhatsApp_IB_MediaData` descriptors grouped by component name. Flow's `file_name`
+field is exposed as `filename`. Download selected files through the same verified
+Graph path used for ordinary inbound media:
+
+```python
+import asyncio
+
+from wa_agents.io_functions import async_fetch_media
+
+
+reply = message.interactive.nfm_reply
+items = reply.media.get( "document_picker", [])
+files = await asyncio.gather(
+    *( async_fetch_media(item) for item in items )
+)
+```
+
+Both `fetch_media()` variants raise on Graph HTTP failures, missing download URLs,
+and SHA-256 mismatches. Neither the worker nor the endpoint downloads Flow picker
+media automatically. Applications decide which components to fetch, how to inspect
+untrusted content, and where accepted bytes are stored. Meta's picker count and
+size limits are not duplicated locally.
 
 
 

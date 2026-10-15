@@ -672,3 +672,57 @@ Flow launch tokens are encrypted in session storage and redacted from ordinary
 outbound-message JSON. Decrypted endpoint payloads, application state, and
 responses are encrypted at rest. The endpoint returns HTTP 421 for transport
 decryption failures and HTTP 432 for invalid, expired, or superseded sessions.
+
+### Flow Media Uploads
+
+PhotoPicker and DocumentPicker uploads are exposed lazily. The worker and Flow
+endpoint do not download files unless the application handler requests them.
+
+For a completed Flow, read the component-keyed descriptors from the `nfm_reply`
+and fetch their Graph media IDs in parallel:
+
+```python
+import asyncio
+
+from wa_agents.io_functions import async_fetch_media
+
+
+reply = message.interactive.nfm_reply
+items = reply.media.get( "photo_picker", []) if reply else []
+files = await asyncio.gather(
+    *( async_fetch_media(item) for item in items )
+)
+```
+
+For a `data_exchange`, files are encrypted on Meta's CDN. Fetch and decrypt each
+typed descriptor inside `handle_flow_request()`:
+
+```python
+import asyncio
+
+from wa_agents.flows import async_fetch_flow_cdn_media
+from wa_agents.io_models import WhatsAppFlowMediaError
+
+
+items   = request.media.get( "document_picker", [])
+results = await asyncio.gather(
+    *( async_fetch_flow_cdn_media(item) for item in items ),
+    return_exceptions = True,
+)
+files  = {}
+errors = {}
+for item, result in zip( items, results) :
+    if isinstance( result, WhatsAppFlowMediaError) :
+        errors[str(item.media_id)] = "No se pudo verificar el archivo."
+    elif isinstance( result, Exception) :
+        raise result
+    else :
+        files[str(item.media_id)] = result
+```
+
+Expose `errors` through the Flow response field bound to the picker's
+`error-message`. The exception is intentionally sanitized and never contains the
+signed CDN URL or encryption keys. Applications remain responsible for validating
+content types, scanning untrusted files, and storing accepted bytes. Meta enforces
+the picker file-count and size limits; these helpers verify transport and content
+integrity but do not add local limits.
