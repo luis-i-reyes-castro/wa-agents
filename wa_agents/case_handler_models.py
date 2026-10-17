@@ -43,12 +43,12 @@ from sofia_utils.stamps import (
 )
 
 from .io_models import (
+    WhatsAppIdentity,
     WhatsAppInteractiveBody,
     WhatsAppInteractiveButtonLabel,
     WhatsAppInteractiveHeaderFooter,
     WhatsAppInteractiveOption,
     WhatsAppTemplateLanguageCode,
-    WhatsAppUsername,
 )
 from .phone_numbers import get_country_and_language
 
@@ -91,7 +91,7 @@ class UserData (BaseModel) :
     """
     id           : PositiveInt
     name         : str                | None = None
-    username     : WhatsAppUsername   | None = None
+    username     : WhatsAppIdentity   | None = None
     lan_reg_data : LanguageRegionData | None = None
     
     @model_validator( mode = "after")

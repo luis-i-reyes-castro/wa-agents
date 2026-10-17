@@ -34,7 +34,7 @@ from sofia_utils.psycopg import (
 from sofia_utils.printing import get_qualname as here
 from sofia_utils.pydantic import (
     NE_str,
-    NumericID,
+    NO_WS_str,
 )
 
 from .case_handler_models import (
@@ -72,7 +72,7 @@ class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsApp_IB_Meta
     """
     model_config = ConfigDict( frozen = False)
     
-    waba_id : NumericID
+    waba_id : NO_WS_str
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
@@ -90,6 +90,11 @@ class WhatsAppDatabaseRecord_Contact ( WhatsAppDatabaseRecord, WhatsApp_IB_Conta
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
+        if not ( self.wa_id or self.user_id ) :
+            raise ValueError(
+                f"{self.__class__.__name__} is missing both fields "
+                f"'wa_id' and 'user_id'"
+            )
         self.api_id = self.wa_id or self.user_id
         return self
 

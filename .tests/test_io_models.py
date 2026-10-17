@@ -6,6 +6,7 @@ from wa_agents.io_models import (
     WhatsAppInteractiveOption,
     WhatsApp_IB_Message,
     WhatsApp_IB_MessageEcho,
+    WhatsApp_IB_Payload,
     WhatsApp_OB_InteractiveOptionsBodyObject,
     WhatsApp_OB_InteractiveOptionsButtonEntry,
     WhatsApp_OB_InteractiveOptionsButtons,
@@ -21,6 +22,10 @@ from wa_agents.io_models import (
     WhatsApp_OB_TemplateTextParameter,
     WhatsAppText,
 )
+from wa_agents.supabase import (
+    WhatsAppDatabaseRecord_Business,
+    WhatsAppDatabaseRecord_Contact,
+)
 
 
 DOCUMENT_DATA = {
@@ -30,6 +35,92 @@ DOCUMENT_DATA = {
     "filename"  : "invoice.pdf",
     "caption"   : "Invoice",
 }
+
+
+@pytest.mark.parametrize(
+    ( "identity", "contact_identity"),
+    [
+        ( "987654321", "593995341161"),
+        ( "IECED_Autocomplete", "IECED_Request_ciphertext"),
+    ],
+)
+def test_business_and_contact_identities_accept_meta_and_synthetic_values(
+    identity         : str,
+    contact_identity : str,
+) -> None :
+    business = WhatsAppDatabaseRecord_Business(
+        row_id              = 5,
+        display_phone_number = identity,
+        phone_number_id      = identity,
+        waba_id              = identity,
+    )
+    contact = WhatsAppDatabaseRecord_Contact(
+        row_id  = 35,
+        user_id = contact_identity,
+    )
+
+    assert business.api_id == identity
+    assert contact.api_id == contact_identity
+
+
+def test_synthetic_identities_parse_inbound_webhook() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "IECED_Autocomplete",
+                "changes" : [
+                    {
+                        "field" : "messages",
+                        "value" : {
+                            "metadata" : {
+                                "display_phone_number" : "IECED_Autocomplete",
+                                "phone_number_id"      : "IECED_Autocomplete",
+                            },
+                            "contacts" : [
+                                { "user_id" : "IECED_Request_ciphertext" },
+                            ],
+                            "messages" : [
+                                {
+                                    "from_user_id" : "IECED_Request_ciphertext",
+                                    "id"           : "IECED_Message_1",
+                                    "timestamp"    : "1788724265",
+                                    "type"         : "text",
+                                    "text"         : { "body" : "Hello" },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    assert payload.entry[0].id == "IECED_Autocomplete"
+    assert payload.entry[0].changes[0].value.messages[0].id == "IECED_Message_1"
+
+
+def test_synthetic_identity_builds_outbound_message() -> None :
+    message = WhatsApp_OB_TextMessage(
+        to   = "IECED_Request_ciphertext",
+        text = WhatsAppText( body = "Hello" ),
+    )
+
+    assert message.to == "IECED_Request_ciphertext"
+
+
+@pytest.mark.parametrize( "identity", [ "", "contains whitespace" ] )
+def test_identity_values_must_be_nonempty_without_whitespace(identity : str) -> None :
+    with pytest.raises( ValidationError ) :
+        WhatsApp_OB_TextMessage(
+            to   = identity,
+            text = WhatsAppText( body = "Hello" ),
+        )
+
+
+def test_contact_still_requires_an_identity() -> None :
+    with pytest.raises( ValidationError ) :
+        WhatsAppDatabaseRecord_Contact( row_id = 35)
 
 
 def test_inbound_document_message() -> None :

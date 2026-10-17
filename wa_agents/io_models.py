@@ -44,50 +44,72 @@ from sofia_utils.printing import get_qualname as here
 
 # Strings constrained by regex pattern and/or length specs
 
-type WhatsAppBSUID                = Annotated[
-    str, Field( pattern = r"^[A-Z]{2}\.[A-Za-z0-9]{1,128}$"),
-]
-""" WhatsApp Business-scoped User ID (BSUID) """
+type WhatsAppIdentity = NO_WS_str
+r"""
+Nonempty, whitespace-free WhatsApp API or synthetic identifier.
+Left flexible intentionally to allow synthetic IDs.
 
-type WhatsAppMessageID            = Annotated[
-    str, Field( pattern = r"^wamid\.[A-Za-z0-9\+\/\=]+$"),
-]
-""" WhatsApp Message ID """
+NOTE:
+Data received/sent through the official Meta Graph API (WhatsApp API)
+has been observed so far to follow the patterns shown in the table below,
+but these patterns are not enforced in this codebase.
+
+| Type/Field                          | Pattern/Description              |
+|-------------------------------------|----------------------------------|
+| Business-scoped User ID (BSUID)     | `^[A-Z]{2}\.[A-Za-z0-9]{1,128}$` |
+| Display Phone Number                | `^[0-9]+$`                       |
+| Message ID                          | `^wamid\.[A-Za-z0-9\+\/\=]+$`    |
+| Phone Number ID                     | `^[0-9]+$`                       |
+| Username                            | `^[A-Za-z0-9\.\_]{3,35}$`        |
+| WhatsApp Business Account ID (WABA) | `^[0-9]+$`                       |
+"""
 
 type WhatsAppTemplateLanguageCode = Annotated[
-    str, Field( pattern = r"^[a-z]{2}\_[A-Z]{2}$"),
+    str,
+    Field( pattern = r"^[a-z]{2}\_[A-Z]{2}$"),
 ]
+""" WhatsApp template message language code string """
 
-type WhatsAppUsername             = Annotated[
-    str, Field( pattern = r"^[A-Za-z0-9\.\_]{3,35}$"),
+type WhatsAppTextBody = Annotated[
+    str,
+    Field( min_length = 1, max_length = 4096),
 ]
-""" WhatsApp Username """
-
-type WhatsAppTextBody                = Annotated[ str, Field( min_length = 1)]
 """ WhatsApp text body """
 
-type WhatsAppInteractiveId           = Annotated[ str, Field( min_length = 1,
-                                                              max_length = 200)]
+type WhatsAppInteractiveId = Annotated[
+    str,
+    Field( min_length = 1, max_length = 200),
+]
 """ WhatsApp interactive option id """
 
-type WhatsAppInteractiveTitle        = Annotated[ str, Field( min_length = 1,
-                                                              max_length = 24)]
+type WhatsAppInteractiveTitle = Annotated[
+    str,
+    Field( min_length = 1, max_length = 24),
+]
 """ WhatsApp interactive option title """
 
-type WhatsAppInteractiveDescription  = Annotated[ str, Field( min_length = 1,
-                                                              max_length = 72)]
+type WhatsAppInteractiveDescription = Annotated[
+    str,
+    Field( min_length = 1, max_length = 72),
+]
 """ WhatsApp interactive option description """
 
-type WhatsAppInteractiveHeaderFooter = Annotated[ str, Field( min_length = 1,
-                                                              max_length = 60)]
+type WhatsAppInteractiveHeaderFooter = Annotated[
+    str,
+    Field( min_length = 1, max_length = 60),
+]
 """ WhatsApp interactive header/footer text """
 
-type WhatsAppInteractiveBody         = Annotated[ str, Field( min_length = 1,
-                                                              max_length = 1024)]
+type WhatsAppInteractiveBody = Annotated[
+    str,
+    Field( min_length = 1, max_length = 1024),
+]
 """ WhatsApp interactive body text """
 
-type WhatsAppInteractiveButtonLabel  = Annotated[ str, Field( min_length = 1,
-                                                              max_length = 20), ]
+type WhatsAppInteractiveButtonLabel = Annotated[
+    str,
+    Field( min_length = 1, max_length = 20),
+]
 """ WhatsApp interactive button label """
 
 # Literal-constrained strings
@@ -319,8 +341,8 @@ class WhatsApp_IB_MetaData (BaseModel) :
     """
     model_config = ConfigDict( frozen = True)
     
-    display_phone_number : NumericID # Receiver phone number
-    phone_number_id      : NumericID # Receiver phone number ID
+    display_phone_number : WhatsAppIdentity # Receiver phone number
+    phone_number_id      : WhatsAppIdentity # Receiver phone number ID
 
 class WhatsApp_IB_Profile (BaseModel) :
     """
@@ -331,7 +353,7 @@ class WhatsApp_IB_Profile (BaseModel) :
     model_config = ConfigDict( frozen = True)
     
     name     : NE_str
-    username : WhatsAppUsername | None = None
+    username : WhatsAppIdentity | None = None
 
 class WhatsApp_IB_Contact (BaseModel) :
     """
@@ -347,8 +369,8 @@ class WhatsApp_IB_Contact (BaseModel) :
     model_config = ConfigDict( frozen = True)
     
     profile : WhatsApp_IB_Profile | None = None
-    wa_id   : NumericID       | None = None # Sender phone number
-    user_id : WhatsAppBSUID   | None = None # Sender BSUID
+    wa_id   : WhatsAppIdentity    | None = None # Sender phone number
+    user_id : WhatsAppIdentity    | None = None # Sender BSUID
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
@@ -375,9 +397,9 @@ class WhatsApp_IB_Context (BaseModel) :
                                populate_by_name = True)
     
     # Fields below present only if message is a reply
-    user    : NumericID         | None = Field( alias = "from",         default = None)
-    user_id : WhatsAppBSUID     | None = Field( alias = "from_user_id", default = None)
-    id      : WhatsAppMessageID | None = None # ID of message being replied to
+    user    : WhatsAppIdentity  | None = Field( alias = "from",         default = None)
+    user_id : WhatsAppIdentity  | None = Field( alias = "from_user_id", default = None)
+    id      : WhatsAppIdentity  | None = None # ID of message being replied to
     
     # Fields below present only if message was forwarded
     forwarded            : bool | None = None
@@ -564,7 +586,7 @@ class WhatsApp_IB_Reaction (BaseModel) :
     """
     model_config = ConfigDict( frozen = True)
     
-    message_id : WhatsAppMessageID
+    message_id : WhatsAppIdentity
     emoji      : str | None = None
 
 class WhatsApp_IB_MessageErrorData (BaseModel) :
@@ -643,10 +665,10 @@ class WhatsApp_IB_Message (BaseModel) :
     
     context   : WhatsApp_IB_Context | None = None
     
-    user      : NumericID     | None = Field( alias   = "from",         default = None)
-    user_id   : WhatsAppBSUID | None = Field( alias   = "from_user_id", default = None)
+    user      : WhatsAppIdentity | None = Field( alias = "from", default = None)
+    user_id   : WhatsAppIdentity | None = Field( alias   = "from_user_id", default = None)
     
-    id        : WhatsAppMessageID
+    id        : WhatsAppIdentity
     timestamp : UnixTS
     type      : WhatsAppMessageType
     
@@ -702,8 +724,8 @@ class WhatsApp_IB_MessageEcho (WhatsApp_IB_Message) :
         `to`: "<receiver phone number>"
     """
     
-    to         : NumericID     | None = None
-    to_user_id : WhatsAppBSUID | None = None
+    to         : WhatsAppIdentity | None = None
+    to_user_id : WhatsAppIdentity | None = None
     
     @model_validator( mode = "after")
     def validate_recipient(self) -> Self :
@@ -819,9 +841,9 @@ class WhatsApp_IB_Status (BaseModel) :
     """
     model_config = ConfigDict( frozen = True)
     
-    id                : WhatsAppMessageID
-    recipient_id      : NumericID     | None = None # Receiver phone number
-    recipient_user_id : WhatsAppBSUID | None = None # Receiver BSUID
+    id                : WhatsAppIdentity
+    recipient_id      : WhatsAppIdentity | None = None # Receiver phone number
+    recipient_user_id : WhatsAppIdentity | None = None # Receiver BSUID
     status            : Literal[
         "delivered",
         "failed",
@@ -872,9 +894,9 @@ class WhatsApp_IB_PartnerWABAInfo (BaseModel) :
     
     model_config = ConfigDict( frozen = True)
     
-    waba_id           : NumericID
-    owner_business_id : NumericID
-    partner_app_id    : NumericID | None = None
+    waba_id           : WhatsAppIdentity
+    owner_business_id : WhatsAppIdentity
+    partner_app_id    : WhatsAppIdentity | None = None
 
 class WhatsApp_IB_PartnerUpdate (BaseModel) :
     """
@@ -1008,7 +1030,7 @@ class WhatsApp_IB_PayloadItem (BaseModel) :
     
     model_config = ConfigDict( frozen = True)
     
-    id      : NumericID # Receiver WABA ID
+    id      : WhatsAppIdentity # Receiver WABA ID
     time    : int | None = None
     changes : Annotated[ tuple[ WhatsApp_IB_Change, ...], Field( min_length = 1)]
 
@@ -1122,10 +1144,10 @@ class WhatsApp_IB_Decrypted_FlowRequest (BaseModel) :
 
 class WhatsApp_OB_PayloadHeader ( BaseModel, ABC) :
     
-    messaging_product : Literal["whatsapp"]   = "whatsapp"
-    recipient_type    : Literal["individual"] = "individual"
-    to                : NumericID     | None  = None
-    recipient         : WhatsAppBSUID | None  = None
+    messaging_product : Literal["whatsapp"]     = "whatsapp"
+    recipient_type    : Literal["individual"]   = "individual"
+    to                : WhatsAppIdentity | None = None
+    recipient         : WhatsAppIdentity | None = None
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
