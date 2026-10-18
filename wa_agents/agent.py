@@ -65,16 +65,20 @@ class AgentBase (ABC) :
         self,
         name   : str,
         models : str | list[str],
+        *,
+        api_key_name : str = "OPENROUTER_API_KEY",
     ) -> None :
         """
         Configure the agent for OpenRouter model fallback order \\
         Args:
-            name   : Friendly name to attach to generated responses
-            models : One OpenRouter model string or ordered model fallback list
+            name         : Friendly name to attach to generated responses
+            models       : One OpenRouter model string or ordered model fallback list
+            api_key_name : Environment variable containing the OpenRouter API key
         """
-        if not os.getenv("OPENROUTER_API_KEY") :
+        self.api_key = os.getenv(api_key_name)
+        if not self.api_key :
             raise RuntimeError(
-                f"In {here()}: Env var 'OPENROUTER_API_KEY' was not found"
+                f"In {here()}: OpenRouter API key env var '{api_key_name}' was not found"
             )
         
         if isinstance( models, str) :
@@ -597,7 +601,7 @@ class Agent (AgentBase) :
             self.debug_print( "input", resp_req_parms, client_call)
         
         self.client : OpenAI = OpenAI(
-            api_key  = os.environ.get("OPENROUTER_API_KEY"),
+            api_key  = self.api_key,
             base_url = self.BASE_URL,
         )
         
@@ -665,7 +669,7 @@ class AsyncAgent (AgentBase) :
             self.debug_print( "input", resp_req_parms, client_call)
         
         self.client : AsyncOpenAI = AsyncOpenAI(
-            api_key  = os.environ.get("OPENROUTER_API_KEY"),
+            api_key  = self.api_key,
             base_url = self.BASE_URL,
         )
         

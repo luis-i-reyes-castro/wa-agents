@@ -517,7 +517,9 @@ def process_message(
 
 Constructor behavior:
 - pass a single OpenRouter model string, or
-- pass a `list[str]` to enable OpenRouter fallback models.
+- pass a `list[str]` to enable OpenRouter fallback models;
+- pass `api_key_name="CUSTOM_ENV_VAR"` to use a scoped OpenRouter key instead of
+  `OPENROUTER_API_KEY`.
 
 ### 1) Plain text completion
 
