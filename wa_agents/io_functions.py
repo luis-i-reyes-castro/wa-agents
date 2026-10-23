@@ -976,6 +976,62 @@ async def async_send_whatsapp_media(
 # -----------------------------------------------------------------------------------------
 # APP SUBSCRIPTIONS
 
+def _has_waba_app_subscription(
+    payload : dict[str, Any],
+    app_id  : str,
+) -> bool :
+    """
+    Check a subscribed-apps Graph response for one Meta app
+    """
+    subscriptions = payload.get("data")
+    if not isinstance( subscriptions, list) :
+        return False
+    
+    return any(
+        isinstance( subscription, dict) and
+        isinstance(
+            app_data := subscription.get("whatsapp_business_api_data"),
+            dict,
+        ) and
+        str( app_data.get("id") or "" ) == str(app_id)
+        for subscription in subscriptions
+    )
+
+
+def is_app_subscribed_to_waba(
+    waba_id        : str,
+    business_token : str,
+    app_id         : str,
+) -> bool :
+    """
+    Check whether a Meta app is subscribed to a WhatsApp Business Account
+    """
+    payload = graph_request(
+        method       = "GET",
+        path         = f"{waba_id}/subscribed_apps",
+        access_token = business_token,
+    )
+    
+    return _has_waba_app_subscription( payload, app_id)
+
+
+async def async_is_app_subscribed_to_waba(
+    waba_id        : str,
+    business_token : str,
+    app_id         : str,
+) -> bool :
+    """
+    Check asynchronously whether a Meta app is subscribed to a WABA
+    """
+    payload = await async_graph_request(
+        method       = "GET",
+        path         = f"{waba_id}/subscribed_apps",
+        access_token = business_token,
+    )
+    
+    return _has_waba_app_subscription( payload, app_id)
+
+
 def subscribe_to_waba(
     waba_id : str,
     business_token : str,

@@ -231,6 +231,15 @@ def test_async_embedded_signup_graph_helpers(monkeypatch) -> None :
         ),
         _response(
             200,
+            f"{io_functions.META_GRAPH_API_URL}/waba-id/subscribed_apps",
+            json = {
+                "data" : [{
+                    "whatsapp_business_api_data" : { "id" : "app-id" },
+                }],
+            },
+        ),
+        _response(
+            200,
             f"{io_functions.META_GRAPH_API_URL}/waba-id/phone_numbers",
             json = { "data" : [{ "id" : "phone-id" }] },
         ),
@@ -263,11 +272,16 @@ def test_async_embedded_signup_graph_helpers(monkeypatch) -> None :
             "waba-id",
             token,
         )
+        still_subscribed = await io_functions.async_is_app_subscribed_to_waba(
+            waba_id        = "waba-id",
+            business_token = token,
+            app_id         = "app-id",
+        )
         phone_numbers = await io_functions.async_list_phone_numbers_for_waba(
             "waba-id",
             token,
         )
-        return token, subscribed, phone_numbers
+        return token, subscribed and still_subscribed, phone_numbers
 
     monkeypatch.setattr( io_functions.httpx, "AsyncClient", AsyncClient)
 
@@ -290,9 +304,33 @@ def test_async_embedded_signup_graph_helpers(monkeypatch) -> None :
     assert requests[1]["headers"] == {
         "Authorization" : "Bearer business-token"
     }
-    assert requests[2]["params"] == {
+    assert requests[2] == {
+        "method"  : "GET",
+        "url"     : f"{io_functions.META_GRAPH_API_URL}/waba-id/subscribed_apps",
+        "headers" : { "Authorization" : "Bearer business-token" },
+        "params"  : None,
+    }
+    assert requests[3]["params"] == {
         "fields" : ",".join(io_functions.WABA_PHONE_NUMBER_FIELDS)
     }
+
+
+def test_waba_app_subscription_requires_matching_app_id(monkeypatch) -> None :
+    monkeypatch.setattr(
+        io_functions,
+        "graph_request",
+        lambda **_kwargs: {
+            "data" : [{
+                "whatsapp_business_api_data" : { "id" : "another-app" },
+            }],
+        },
+    )
+
+    assert not io_functions.is_app_subscribed_to_waba(
+        waba_id        = "waba-id",
+        business_token = "business-token",
+        app_id         = "app-id",
+    )
 
 
 def test_graph_error_preserves_meta_message_and_status(monkeypatch) -> None :
