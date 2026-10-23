@@ -33,7 +33,6 @@ from sofia_utils.io import (
 )
 from sofia_utils.printing import (
     get_qualname as here,
-    print_recursively,
     print_sep,
 )
 
@@ -255,7 +254,7 @@ class AgentBase (ABC) :
         print_sep()
         print(f"{self.api.upper()} API {mode.upper()}:")
         print_sep()
-        print_recursively(data)
+        print(write_to_json_string( data, indent = 2))
         
         if client_call :
             print_sep()
