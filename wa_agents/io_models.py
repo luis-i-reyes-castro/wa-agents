@@ -64,18 +64,6 @@ but these patterns are not enforced in this codebase.
 | WhatsApp Business Account ID (WABA) | `^[0-9]+$`                       |
 """
 
-type WhatsAppTemplateLanguageCode = Annotated[
-    str,
-    Field( pattern = r"^[a-z]{2}\_[A-Z]{2}$"),
-]
-""" WhatsApp template message language code string """
-
-type WhatsAppTextBody = Annotated[
-    str,
-    Field( min_length = 1, max_length = 4096),
-]
-""" WhatsApp text body """
-
 type WhatsAppInteractiveId = Annotated[
     str,
     Field( min_length = 1, max_length = 200),
@@ -111,6 +99,24 @@ type WhatsAppInteractiveButtonLabel = Annotated[
     Field( min_length = 1, max_length = 20),
 ]
 """ WhatsApp interactive button label """
+
+type WhatsAppMediaCaption = Annotated[
+    str,
+    Field( min_length = 1, max_length = 1024),
+]
+""" WhatsApp image, video, or document caption """
+
+type WhatsAppTemplateLanguageCode = Annotated[
+    str,
+    Field( pattern = r"^[a-z]{2}\_[A-Z]{2}$"),
+]
+""" WhatsApp template message language code string """
+
+type WhatsAppTextBody = Annotated[
+    str,
+    Field( min_length = 1, max_length = 4096),
+]
+""" WhatsApp text body """
 
 # Literal-constrained strings
 
@@ -565,10 +571,10 @@ class WhatsApp_IB_MediaData (BaseModel) :
     id        : NumericID
     mime_type : MIME_Type
     sha256    : WhatsAppMediaSHA256
-    caption   : WhatsAppTextBody | None = None # image, video, and document
-    filename  : NE_str           | None = None # document
-    voice     : bool             | None = None # audio
-    animated  : bool             | None = None # sticker
+    caption   : WhatsAppMediaCaption | None = None # image, video, and document
+    filename  : NE_str               | None = None # document
+    voice     : bool                 | None = None # audio
+    animated  : bool                 | None = None # sticker
     
     @property
     def extension(self) -> str :
@@ -1358,8 +1364,8 @@ class WhatsApp_OB_TemplateMessage (WhatsApp_OB_PayloadHeader) :
 class WhatsApp_OB_MediaData (BaseModel) :
     
     id       : NumericID
-    caption  : NE_str | None = None
-    filename : NE_str | None = None
+    caption  : WhatsAppMediaCaption | None = None
+    filename : NE_str               | None = None
     
     @model_serializer( mode = "wrap")
     def serialize_without_nones(

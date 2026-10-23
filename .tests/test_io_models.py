@@ -1,6 +1,10 @@
 import pytest
 
-from pydantic import ValidationError
+from pydantic import (
+    TypeAdapter,
+    ValidationError,
+)
+from sofia_utils.pydantic import NE_str
 
 from wa_agents.io_models import (
     WhatsAppInteractiveOption,
@@ -14,6 +18,7 @@ from wa_agents.io_models import (
     WhatsApp_OB_InteractiveOptionsMessage,
     WhatsApp_OB_InteractiveOptionsList,
     WhatsApp_OB_InteractiveOptionsListEntries,
+    WhatsApp_OB_MediaData,
     WhatsApp_OB_TextMessage,
     WhatsApp_OB_TemplateBodyComponent,
     WhatsApp_OB_TemplateData,
@@ -35,6 +40,39 @@ DOCUMENT_DATA = {
     "filename"  : "invoice.pdf",
     "caption"   : "Invoice",
 }
+
+
+def test_nonempty_string_accepts_internal_newlines() -> None :
+    value = "First line\nSecond line"
+
+    assert TypeAdapter(NE_str).validate_python(value) == value
+
+
+def test_media_captions_accept_internal_newlines() -> None :
+    caption = "First line\nSecond line"
+    inbound = WhatsApp_IB_Message.model_validate({
+        "from"      : "593995341161",
+        "id"        : "wamid.document",
+        "timestamp" : "1788724265",
+        "type"      : "document",
+        "document"  : { **DOCUMENT_DATA, "caption" : caption },
+    })
+    outbound = WhatsApp_OB_MediaData(
+        id      = "123456789",
+        caption = caption,
+    )
+
+    assert inbound.document
+    assert inbound.document.caption == caption
+    assert outbound.caption == caption
+
+
+def test_media_captions_reject_oversized_text() -> None :
+    with pytest.raises(ValidationError) :
+        WhatsApp_OB_MediaData(
+            id      = "123456789",
+            caption = "x" * 1025,
+        )
 
 
 @pytest.mark.parametrize(

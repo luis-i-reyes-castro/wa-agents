@@ -56,6 +56,7 @@ from .io_models import (
 
 
 API_URL = "https://graph.facebook.com/v26.0/"
+WHATSAPP_MEDIA_TIMEOUT = httpx.Timeout( 30.0, connect = 10.0)
 
 
 class WhatsAppSendResult (TypedDict) :
@@ -490,6 +491,7 @@ def send_whatsapp_media(
     
     # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media/
     
+    stage = "validation"
     try:
         if not media.content :
             raise ValueError("Missing media content")
@@ -500,6 +502,7 @@ def send_whatsapp_media(
             print(f"Uploading media: {media.filepath}")
         
         # Post upload
+        stage       = "upload"
         upload_url  = f"{API_URL}{operator_id}/media"
         upload_head = write_headers()
         files       = { "file" : ( media.filepath, media.content, media.mime) }
@@ -509,6 +512,7 @@ def send_whatsapp_media(
             headers = upload_head,
             files   = files,
             data    = data,
+            timeout = WHATSAPP_MEDIA_TIMEOUT,
         )
         
         # Print response
@@ -541,18 +545,23 @@ def send_whatsapp_media(
         msg_headers = write_headers( content_type = True)
         
         # Write payload and post message
+        stage    = "send"
         payload  = write_payload( to_number, media)
-        response = httpx.post( msg_url, headers = msg_headers, json = payload)
-        
-        # Print response
-        if debug :
-            print(f"Media message response status: {response.status_code}")
-            print(f"Media reply response: {response.json()}")
+        response = httpx.post(
+            url     = msg_url,
+            headers = msg_headers,
+            json    = payload,
+            timeout = WHATSAPP_MEDIA_TIMEOUT,
+        )
+        _collect_send_results( payload, response, debug)
         
         return True
     
     except Exception as ex:
-        print(f"Error sending media: {ex}")
+        print(
+            f"Error sending media during {stage}: "
+            f"{type(ex).__name__}: {ex!r}"
+        )
     
     return False
 
@@ -573,6 +582,7 @@ async def async_send_whatsapp_media(
         True if upload/send succeeded; else False.
     """
     
+    stage = "validation"
     try:
         if not media.content :
             raise ValueError("Missing media content")
@@ -581,12 +591,13 @@ async def async_send_whatsapp_media(
             print_sep()
             print(f"Uploading media: {media.filepath}")
         
+        stage       = "upload"
         upload_url  = f"{API_URL}{operator_id}/media"
         upload_head = write_headers()
         files       = { "file" : ( media.filepath, media.content, media.mime) }
         data        = { "messaging_product": "whatsapp" }
         
-        async with httpx.AsyncClient() as client :
+        async with httpx.AsyncClient( timeout = WHATSAPP_MEDIA_TIMEOUT) as client :
             
             upload_response = await client.post(
                 url     = upload_url,
@@ -613,6 +624,7 @@ async def async_send_whatsapp_media(
                 print(f"Uploaded media with ID: {media.upload_id}")
                 print("Sending media message...")
             
+            stage       = "send"
             msg_url     = f"{API_URL}{operator_id}/messages"
             msg_headers = write_headers( content_type = True)
             payload     = write_payload( to_number, media)
@@ -622,14 +634,15 @@ async def async_send_whatsapp_media(
                 json    = payload,
             )
         
-        if debug :
-            print(f"Media message response status: {response.status_code}")
-            print(f"Media reply response: {response.json()}")
+        _collect_send_results( payload, response, debug)
         
         return True
     
     except Exception as ex:
-        print(f"Error sending media: {ex}")
+        print(
+            f"Error sending media during {stage}: "
+            f"{type(ex).__name__}: {ex!r}"
+        )
     
     return False
 

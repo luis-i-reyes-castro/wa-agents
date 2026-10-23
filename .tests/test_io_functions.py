@@ -12,6 +12,8 @@ from wa_agents.case_handler_models import (
     ServerInteractiveOptsMsg,
 )
 from wa_agents.io_functions import (
+    WHATSAPP_MEDIA_TIMEOUT,
+    async_send_whatsapp_media,
     async_fetch_media,
     fetch_media,
     write_payload,
@@ -279,9 +281,11 @@ def test_write_image_payload_uses_outbound_model() -> None :
 
 def test_write_document_payload_uses_outbound_model() -> None :
     
+    caption = "Pago de contado por transferencia a:\nBanco Guayaquil"
     message = ServerDocumentMsg(
         filepath  = "report.pdf",
         content   = b"%PDF-\xff",
+        caption   = caption,
         upload_id = "987654321",
     )
     
@@ -298,9 +302,98 @@ def test_write_document_payload_uses_outbound_model() -> None :
         "type"              : "document",
         "document"          : {
             "id"       : "987654321",
+            "caption"  : caption,
             "filename" : "report.pdf",
         },
     }
+
+
+def test_async_send_media_uses_extended_timeout(monkeypatch) -> None :
+    monkeypatch.setenv( "WA_TOKEN", "test-token")
+    responses = iter([
+        httpx.Response(
+            200,
+            request = httpx.Request( "POST", "https://example.test/media"),
+            json    = { "id" : "987654321" },
+        ),
+        httpx.Response(
+            200,
+            request = httpx.Request( "POST", "https://example.test/messages"),
+            json    = { "messages" : [{ "id" : "wamid.sent" }] },
+        ),
+    ])
+
+    class AsyncClient :
+
+        def __init__( self, *, timeout) -> None :
+            assert timeout is WHATSAPP_MEDIA_TIMEOUT
+
+        async def __aenter__(self) :
+            return self
+
+        async def __aexit__( self, *_args) -> None :
+            return
+
+        async def post( self, *_args, **_kwargs) -> httpx.Response :
+            return next(responses)
+
+    monkeypatch.setattr( io_functions.httpx, "AsyncClient", AsyncClient)
+    media = ServerDocumentMsg(
+        filepath = "Cotizacion.pdf",
+        content  = b"%PDF",
+        caption  = "Line one\nLine two",
+    )
+
+    assert asyncio.run(async_send_whatsapp_media(
+        operator_id = "123456789",
+        to_number   = TO_NUMBER,
+        media       = media,
+    )) is True
+    assert media.upload_id == "987654321"
+
+
+def test_async_send_media_rejects_failed_message_response(
+    monkeypatch,
+) -> None :
+    monkeypatch.setenv( "WA_TOKEN", "test-token")
+    responses = iter([
+        httpx.Response(
+            200,
+            request = httpx.Request( "POST", "https://example.test/media"),
+            json    = { "id" : "987654321" },
+        ),
+        httpx.Response(
+            400,
+            request = httpx.Request( "POST", "https://example.test/messages"),
+            json    = { "error" : { "message" : "Invalid caption" } },
+        ),
+    ])
+
+    class AsyncClient :
+
+        def __init__( self, *, timeout) -> None :
+            assert timeout is WHATSAPP_MEDIA_TIMEOUT
+
+        async def __aenter__(self) :
+            return self
+
+        async def __aexit__( self, *_args) -> None :
+            return
+
+        async def post( self, *_args, **_kwargs) -> httpx.Response :
+            return next(responses)
+
+    monkeypatch.setattr( io_functions.httpx, "AsyncClient", AsyncClient)
+    media = ServerDocumentMsg(
+        filepath = "Cotizacion.pdf",
+        content  = b"%PDF",
+    )
+
+    assert asyncio.run(async_send_whatsapp_media(
+        operator_id = "123456789",
+        to_number   = TO_NUMBER,
+        media       = media,
+    )) is False
 
 
 def test_write_contacts_payload_uses_outbound_model() -> None :

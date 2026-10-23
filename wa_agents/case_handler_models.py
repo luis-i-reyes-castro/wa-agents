@@ -48,6 +48,7 @@ from .io_models import (
     WhatsAppInteractiveButtonLabel,
     WhatsAppInteractiveHeaderFooter,
     WhatsAppInteractiveOption,
+    WhatsAppMediaCaption,
     WhatsAppTemplateLanguageCode,
 )
 from .phone_numbers import get_country_and_language
@@ -484,8 +485,8 @@ class ServerMediaMsg ( MediaObject, ServerMsg) :
     """
     user_eyes : Literal[True] = True
     filepath  : NE_str
-    caption   : NE_str | None = None
-    upload_id : NE_str | None = None
+    caption   : WhatsAppMediaCaption | None = None
+    upload_id : NE_str               | None = None
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
