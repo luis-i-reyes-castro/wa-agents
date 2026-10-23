@@ -103,7 +103,7 @@ JOIN
 JOIN
   public.wa_api_flows AS flo ON flo.id = ses.flow
 JOIN
-  public.wa_api_flow_wabas AS wba ON wba.id = flo.flow_waba
+  public.wa_api_flow_encryption_keys AS wba ON wba.id = flo.flow_waba
 LEFT JOIN
   public.wa_case_handler_messages AS launch_case
   ON launch_case.id = ses.case_handler_message

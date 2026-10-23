@@ -260,6 +260,102 @@ VALID_PAYLOAD = {
     ],
 }
 
+HISTORY_PAYLOAD = {
+    "object" : "whatsapp_business_account",
+    "entry"  : [
+        {
+            "id"      : "123456789",
+            "changes" : [
+                {
+                    "field" : "history",
+                    "value" : {
+                        "messaging_product" : "whatsapp",
+                        "metadata" : {
+                            "display_phone_number" : "15551234567",
+                            "phone_number_id"      : "987654321",
+                        },
+                        "history" : [
+                            {
+                                "metadata" : {
+                                    "phase"       : 1,
+                                    "chunk_order" : 4,
+                                    "progress"    : 60,
+                                },
+                                "threads" : [
+                                    {
+                                        "id"       : "593995341161",
+                                        "messages" : [
+                                            {
+                                                "from" : "593995341161",
+                                                "id"   : "wamid.history-in",
+                                                "timestamp" : "1788724265",
+                                                "type" : "text",
+                                                "text" : {
+                                                    "body" : "Previous message"
+                                                },
+                                                "history_context" : {
+                                                    "status" : "READ"
+                                                },
+                                            },
+                                            {
+                                                "from" : "15551234567",
+                                                "to"   : "593995341161",
+                                                "id"   : "wamid.history-out",
+                                                "timestamp" : "1788724270",
+                                                "type" : "media_placeholder",
+                                                "history_context" : {
+                                                    "status" : "DELIVERED"
+                                                },
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    ],
+}
+
+HISTORY_MEDIA_PAYLOAD = {
+    "object" : "whatsapp_business_account",
+    "entry"  : [
+        {
+            "id"      : "123456789",
+            "changes" : [
+                {
+                    "field" : "history",
+                    "value" : {
+                        "messaging_product" : "whatsapp",
+                        "metadata" : {
+                            "display_phone_number" : "15551234567",
+                            "phone_number_id"      : "987654321",
+                        },
+                        "messages" : [
+                            {
+                                "from"      : "593995341161",
+                                "id"        : "wamid.history-out",
+                                "timestamp" : "1788724271",
+                                "type"      : "image",
+                                "image" : {
+                                    "id"        : "24230790383178626",
+                                    "mime_type" : "image/jpeg",
+                                    "sha256" : (
+                                        "P52U05n6YckRvBvEccgTpdA1zbG5tR8J"
+                                        "6WOkFcbLDQw="
+                                    ),
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    ],
+}
+
 
 class _PayloadStorageStub :
     def __init__( self, events : list[str], *, inserted : bool = True) -> None :
@@ -287,6 +383,8 @@ class _AsyncPayloadStorageStub :
         self.inserted = inserted
         self.message_data : dict[str, Any] | None = None
         self.metadata     : dict[str, Any] | None = None
+        self.history_chunk : dict[str, Any] | None = None
+        self.messages      : list[dict[str, Any]] = []
 
     async def insert_inbound_payload(self, _data : Any) -> dict[str, Any] :
         self.events.append("insert_raw")
@@ -319,7 +417,26 @@ class _AsyncPayloadStorageStub :
     async def insert_inbound_message(self, **kwargs : Any) -> dict[str, Any] :
         self.events.append("insert_message")
         self.message_data = kwargs["msg_data"]
+        self.messages.append(kwargs)
         return { "id" : 23 }
+
+    async def insert_history_chunk(self, **kwargs : Any) -> dict[str, Any] :
+        self.events.append("insert_history_chunk")
+        self.history_chunk = kwargs
+        return { "id" : 29 }
+
+    async def get_inbound_message( self, msg_id : str) -> dict[str, Any] :
+        self.events.append("get_message")
+        return {
+            "id"              : 23,
+            "contact"         : 13,
+            "payload"         : 5,
+            "is_echo"         : True,
+            "msg_id"          : msg_id,
+            "msg_type"        : "media_placeholder",
+            "history_chunk"   : 29,
+            "history_context" : { "status" : "PLAYED" },
+        }
 
 
 def _track_validation( monkeypatch, events : list[str]) -> None :
@@ -391,3 +508,86 @@ def test_async_queue_does_not_normalize_duplicate_payload( monkeypatch) -> None 
 
     assert events == [ "insert_raw", "validate", "mark_valid" ]
     assert result == { "stored" : False, "enqueued" : False }
+
+
+def test_async_queue_persists_history_without_enqueuing( monkeypatch) -> None :
+    events        = []
+    storage       = _AsyncPayloadStorageStub(events)
+    queue         = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
+    queue.storage = storage
+
+    async def enqueue_message( _msg_id : str) -> bool :
+        raise AssertionError("History messages must not enter the live queue")
+
+    monkeypatch.setattr( queue, "_enqueue_message", enqueue_message)
+    result = asyncio.run(queue.enqueue(HISTORY_PAYLOAD))
+
+    assert events == [
+        "insert_raw",
+        "mark_valid",
+        "upsert_business",
+        "insert_history_chunk",
+        "upsert_contact",
+        "insert_message",
+        "insert_message",
+    ]
+    assert storage.history_chunk == {
+        "phone_number" : 11,
+        "payload"      : 7,
+        "history_index" : 0,
+        "phase"         : 1,
+        "chunk_order"   : 4,
+        "progress"      : 60,
+        "errors"        : None,
+    }
+    assert [ message["is_echo"] for message in storage.messages ] == [
+        False,
+        True,
+    ]
+    assert storage.messages[0]["history_chunk"] == 29
+    assert storage.messages[0]["history_context"] == { "status" : "READ" }
+    assert "history_context" not in storage.messages[0]["msg_data"]
+    assert result == { "stored" : True, "enqueued" : False }
+
+
+def test_async_queue_upgrades_history_media_placeholder( monkeypatch) -> None :
+    events        = []
+    storage       = _AsyncPayloadStorageStub(events)
+    queue         = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
+    queue.storage = storage
+
+    async def enqueue_message( _msg_id : str) -> bool :
+        raise AssertionError("History messages must not enter the live queue")
+
+    monkeypatch.setattr( queue, "_enqueue_message", enqueue_message)
+    result = asyncio.run(queue.enqueue(HISTORY_MEDIA_PAYLOAD))
+
+    assert events == [
+        "insert_raw",
+        "mark_valid",
+        "upsert_business",
+        "get_message",
+        "insert_message",
+    ]
+    assert storage.messages == [
+        {
+            "contact"         : 13,
+            "payload"         : 5,
+            "is_echo"         : True,
+            "msg_id"          : "wamid.history-out",
+            "msg_ts"          : database_queue._timestamp("1788724271"),
+            "msg_type"        : "image",
+            "msg_data" : {
+                "image" : {
+                    "id"        : "24230790383178626",
+                    "mime_type" : "image/jpeg",
+                    "sha256" : (
+                        "P52U05n6YckRvBvEccgTpdA1zbG5tR8J6WOkFcbLDQw="
+                    ),
+                },
+            },
+            "history_chunk"   : 29,
+            "history_context" : { "status" : "PLAYED" },
+        }
+    ]
+    assert result == { "stored" : True, "enqueued" : False }

@@ -101,7 +101,7 @@ def test_fetch_media_verifies_downloaded_content(
     responses  = [
         _response(
             200,
-            f"{io_functions.API_URL}{media_data.id}",
+            f"{io_functions.META_GRAPH_API_URL}/{media_data.id}",
             json = { "url" : MEDIA_URL },
         ),
         _response( 200, MEDIA_URL, content = content),
@@ -119,12 +119,17 @@ def test_fetch_media_raises_on_http_errors(
 ) -> None :
     media_data = _media_data(b"media")
     responses  = (
-        [ _response( 401, f"{io_functions.API_URL}{media_data.id}") ]
+        [
+            _response(
+                401,
+                f"{io_functions.META_GRAPH_API_URL}/{media_data.id}",
+            )
+        ]
         if failure_phase == "lookup" else
         [
             _response(
                 200,
-                f"{io_functions.API_URL}{media_data.id}",
+                f"{io_functions.META_GRAPH_API_URL}/{media_data.id}",
                 json = { "url" : MEDIA_URL },
             ),
             _response( 404, MEDIA_URL),
@@ -144,7 +149,7 @@ def test_fetch_media_raises_when_graph_omits_url(
     responses  = [
         _response(
             200,
-            f"{io_functions.API_URL}{media_data.id}",
+            f"{io_functions.META_GRAPH_API_URL}/{media_data.id}",
             json = {},
         )
     ]
@@ -162,7 +167,7 @@ def test_fetch_media_rejects_checksum_mismatch(
     responses  = [
         _response(
             200,
-            f"{io_functions.API_URL}{media_data.id}",
+            f"{io_functions.META_GRAPH_API_URL}/{media_data.id}",
             json = { "url" : MEDIA_URL },
         ),
         _response( 200, MEDIA_URL, content = b"tampered"),
@@ -207,24 +212,26 @@ def test_async_send_text_uses_message_helper(monkeypatch) -> None :
             "msg_data" : { "text" : { "body" : "Hello" } },
         }
     ]
-    assert requests[0]["url"] == f"{io_functions.API_URL}123456789/messages"
+    assert requests[0]["url"] == (
+        f"{io_functions.META_GRAPH_API_URL}/123456789/messages"
+    )
 
 
 def test_async_embedded_signup_graph_helpers(monkeypatch) -> None :
     responses = iter([
         _response(
             200,
-            f"{io_functions.API_URL}oauth/access_token",
+            f"{io_functions.META_GRAPH_API_URL}/oauth/access_token",
             json = { "access_token" : "business-token" },
         ),
         _response(
             200,
-            f"{io_functions.API_URL}waba-id/subscribed_apps",
+            f"{io_functions.META_GRAPH_API_URL}/waba-id/subscribed_apps",
             json = { "success" : True },
         ),
         _response(
             200,
-            f"{io_functions.API_URL}waba-id/phone_numbers",
+            f"{io_functions.META_GRAPH_API_URL}/waba-id/phone_numbers",
             json = { "data" : [{ "id" : "phone-id" }] },
         ),
     ])
@@ -233,7 +240,7 @@ def test_async_embedded_signup_graph_helpers(monkeypatch) -> None :
     class AsyncClient :
 
         def __init__( self, *, timeout) -> None :
-            assert timeout == io_functions.META_GRAPH_TIMEOUT
+            assert timeout == io_functions.META_GRAPH_API_REQUEST_TIMEOUT
 
         async def __aenter__(self) :
             return self
@@ -271,7 +278,7 @@ def test_async_embedded_signup_graph_helpers(monkeypatch) -> None :
     )
     assert requests[0] == {
         "method"  : "GET",
-        "url"     : f"{io_functions.API_URL}oauth/access_token",
+        "url"     : f"{io_functions.META_GRAPH_API_URL}/oauth/access_token",
         "headers" : { },
         "params"  : {
             "client_id"     : "app-id",
@@ -291,7 +298,7 @@ def test_async_embedded_signup_graph_helpers(monkeypatch) -> None :
 def test_graph_error_preserves_meta_message_and_status(monkeypatch) -> None :
     response = _response(
         401,
-        f"{io_functions.API_URL}waba-id/subscribed_apps",
+        f"{io_functions.META_GRAPH_API_URL}/waba-id/subscribed_apps",
         json = { "error" : { "message" : "Invalid OAuth access token" } },
     )
     monkeypatch.setattr(
@@ -312,7 +319,7 @@ def test_graph_error_preserves_meta_message_and_status(monkeypatch) -> None :
 def test_subscribe_to_waba_requires_success_confirmation(monkeypatch) -> None :
     response = _response(
         200,
-        f"{io_functions.API_URL}waba-id/subscribed_apps",
+        f"{io_functions.META_GRAPH_API_URL}/waba-id/subscribed_apps",
         json = { "success" : False },
     )
     monkeypatch.setattr(

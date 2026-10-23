@@ -138,6 +138,205 @@ def test_synthetic_identities_parse_inbound_webhook() -> None :
     assert payload.entry[0].changes[0].value.messages[0].id == "IECED_Message_1"
 
 
+def test_history_webhook_parses_messages_and_placeholders() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "123456789",
+                "changes" : [
+                    {
+                        "field" : "history",
+                        "value" : {
+                            "messaging_product" : "whatsapp",
+                            "metadata"          : {
+                                "display_phone_number" : "593962939146",
+                                "phone_number_id"      : "987654321",
+                            },
+                            "history" : [
+                                {
+                                    "metadata" : {
+                                        "phase"       : 1,
+                                        "chunk_order" : 4,
+                                        "progress"    : 60,
+                                    },
+                                    "threads" : [
+                                        {
+                                            "id"       : "593995341161",
+                                            "messages" : [
+                                                {
+                                                    "from"      : "593995341161",
+                                                    "id"        : "wamid.history-text",
+                                                    "timestamp" : "1788724265",
+                                                    "type"      : "text",
+                                                    "text"      : {
+                                                        "body" : "Previous message"
+                                                    },
+                                                    "history_context" : {
+                                                        "status" : "READ"
+                                                    },
+                                                },
+                                                {
+                                                    "from"      : "593962939146",
+                                                    "to"        : "593995341161",
+                                                    "id"        : "wamid.history-media",
+                                                    "timestamp" : "1788724270",
+                                                    "type"      : "media_placeholder",
+                                                    "history_context" : {
+                                                        "status" : "DELIVERED"
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    value   = payload.entry[0].changes[0].value
+    history = value.history[0]
+    assert history.metadata
+    assert history.metadata.progress == 60
+    assert history.threads[0].messages[0].text
+    assert history.threads[0].messages[0].text.body == "Previous message"
+    assert history.threads[0].messages[1].type == "media_placeholder"
+    assert history.threads[0].messages[1].to == "593995341161"
+
+
+def test_history_webhook_parses_declined_sharing() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "123456789",
+                "changes" : [
+                    {
+                        "field" : "history",
+                        "value" : {
+                            "metadata" : {
+                                "display_phone_number" : "593962939146",
+                                "phone_number_id"      : "987654321",
+                            },
+                            "history" : [
+                                {
+                                    "errors" : [
+                                        {
+                                            "code"    : 2593109,
+                                            "title"   : "History sync is turned off",
+                                            "message" : "History sharing was declined",
+                                            "error_data" : {
+                                                "details" : "Disabled in the app"
+                                            },
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    history = payload.entry[0].changes[0].value.history[0]
+    assert history.metadata is None
+    assert history.errors[0].code == 2593109
+
+
+def test_history_webhook_parses_later_media_details() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "123456789",
+                "changes" : [
+                    {
+                        "field" : "history",
+                        "value" : {
+                            "messaging_product" : "whatsapp",
+                            "metadata" : {
+                                "display_phone_number" : "593962939146",
+                                "phone_number_id"      : "987654321",
+                            },
+                            "messages" : [
+                                {
+                                    "from"      : "593995341161",
+                                    "id"        : "wamid.history-media",
+                                    "timestamp" : "1788724270",
+                                    "type"      : "image",
+                                    "image" : {
+                                        "id"        : "24230790383178626",
+                                        "mime_type" : "image/jpeg",
+                                        "sha256" : (
+                                            "P52U05n6YckRvBvEccgTpdA1zbG5tR8J"
+                                            "6WOkFcbLDQw="
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    value = payload.entry[0].changes[0].value
+    assert not value.history
+    assert value.messages[0].image
+    assert value.messages[0].image.id == "24230790383178626"
+
+
+def test_revoke_message_parses_original_message_id() -> None :
+    message = WhatsApp_IB_Message.model_validate({
+        "from"      : "593995341161",
+        "id"        : "wamid.revoke",
+        "timestamp" : "1788724265",
+        "type"      : "revoke",
+        "revoke"    : { "original_message_id" : "wamid.original" },
+    })
+
+    assert message.revoke
+    assert message.revoke.original_message_id == "wamid.original"
+
+
+def test_history_chunk_rejects_invalid_progress() -> None :
+    with pytest.raises(ValidationError) :
+        WhatsApp_IB_Payload.model_validate({
+            "entry" : [
+                {
+                    "id"      : "123456789",
+                    "changes" : [
+                        {
+                            "field" : "history",
+                            "value" : {
+                                "metadata" : {
+                                    "display_phone_number" : "593962939146",
+                                    "phone_number_id"      : "987654321",
+                                },
+                                "history" : [
+                                    {
+                                        "metadata" : {
+                                            "phase"       : 0,
+                                            "chunk_order" : 0,
+                                            "progress"    : 101,
+                                        },
+                                        "threads" : [{ "id" : "593995341161" }],
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            ],
+        })
+
+
 def test_synthetic_identity_builds_outbound_message() -> None :
     message = WhatsApp_OB_TextMessage(
         to   = "IECED_Request_ciphertext",

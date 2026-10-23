@@ -13,7 +13,8 @@ Persistent configuration:
 
 - `wa_api_businesses`: configured WhatsApp businesses and phone numbers.
 - `wa_case_handler_routes`: business-wide and contact-specific handler routing.
-- `wa_api_flow_wabas`: the public key and encrypted private key used by a WABA.
+- `wa_api_flow_encryption_keys`: the public key and encrypted private key used by
+  a WABA.
 - `wa_api_flows`: Meta Flow IDs, handler keys, versions, endpoint URIs, and status.
 
 Contact test state:
@@ -51,7 +52,7 @@ Use this order for a new endpoint-backed Flow:
    ```
 
    Provisioning generates a key pair, stores the private key encrypted in
-   `wa_api_flow_wabas`, uploads the public key to Meta, and verifies its
+   `wa_api_flow_encryption_keys`, uploads the public key to Meta, and verifies its
    signature status.
 3. Create the Flow in Flow Builder and load the Flow JSON.
 4. Configure the endpoint URI as:
@@ -106,7 +107,8 @@ The response format identifies which layer rejected the request:
 - nginx HTML `502`: nginx matched the route but could not reach the backend.
   Check container status, the published port, and the nginx upstream.
 - Plain-text `404 Unknown WABA`: nginx and FastAPI routing work, but the WABA
-  provisioning row is absent. Check `wa_api_flow_wabas` and reprovision it.
+  provisioning row is absent. Check `wa_api_flow_encryption_keys` and reprovision
+  it.
 - Plain-text decryption error: A WABA row exists, but Meta's public key and the
   stored private key do not match, or the envelope is invalid. Reprovision the
   key pair and retry the health check.

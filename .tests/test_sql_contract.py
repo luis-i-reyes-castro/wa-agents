@@ -64,6 +64,16 @@ def test_query_scripts_do_not_reference_legacy_tables() -> None :
     assert not ( legacy_tables & set(re.findall( r"\bwa_[a-z_]+\b", query_sql)) )
 
 
+def test_flow_encryption_key_table_has_explicit_name() -> None :
+    query_sql = "\n".join(
+        path.read_text(encoding = "utf-8")
+        for path in QUERY_FILES
+    )
+
+    assert "public.wa_api_flow_encryption_keys" in DDL
+    assert "wa_api_flow_wabas" not in DDL + query_sql
+
+
 def test_media_uses_object_key() -> None :
     insert_media = ( SQL_DIR / "insert_media.sql").read_text(encoding = "utf-8")
     
@@ -136,11 +146,10 @@ def test_frequently_refreshed_rows_update_before_insert() -> None :
         ( SQL_DIR / "upsert_contact_profile.sql").read_text(encoding = "utf-8")
     )
 
-    assert business.index("WITH updated AS ( UPDATE") < business.index(
-        "inserted AS ( INSERT"
-    )
-    assert "WHERE NOT EXISTS ( SELECT 1 FROM updated )" in business
+    assert "INSERT INTO public.wa_api_businesses AS bus" in business
+    assert "ON CONFLICT (waba_id)" in business
     assert "ON CONFLICT (phone_number_id)" in business
+    assert "last_seen_at = now()" in business
 
     assert profile.index("WITH updated AS ( UPDATE") < profile.index(
         "inserted AS ( INSERT"
@@ -217,7 +226,7 @@ def test_pending_echo_query_is_contact_scoped_and_newer_than_job() -> None :
     )
     normalized = " ".join(sql.split())
 
-    assert "pay.contact = @contact" in normalized
+    assert "msg.contact = @contact" in normalized
     assert "msg.is_echo" in normalized
     assert "que.id > @after_row_id" in normalized
     assert "que.msg_status = 'pending'" in normalized
@@ -230,15 +239,34 @@ def test_queue_route_is_resolved_and_persisted_at_enqueue() -> None :
 
     assert "wa_case_handler_routes" in DDL
     assert "handler_key   T_NO_WS_STR" in DDL
-    assert "wa_case_handler_routes_business_fkey" in DDL
-    assert "FOREIGN KEY ( business, contact)" in DDL
-    assert "UNIQUE NULLS NOT DISTINCT ( business, contact)" in DDL
+    assert "wa_case_handler_routes_phone_number_fkey" in DDL
+    assert "FOREIGN KEY ( phone_number, contact)" in DDL
+    assert "UNIQUE NULLS NOT DISTINCT ( phone_number, contact)" in DDL
     assert "handler_url   T_NO_WS_STR DEFAULT NULL" in DDL
     assert "ON DELETE SET NULL" in DDL
     assert "INSERT INTO public.wa_api_to_case_handler_queue ( msg_id, handler_id )" in (
         _normalized_sql(enqueue)
     )
     assert "( rte.contact IS NOT NULL ) DESC" in enqueue
+
+
+def test_history_chunks_and_messages_preserve_import_context() -> None :
+    chunk = ( SQL_DIR / "insert_history_chunk.sql").read_text(
+        encoding = "utf-8"
+    )
+    message = ( SQL_DIR / "insert_inbound_message.sql").read_text(
+        encoding = "utf-8"
+    )
+    normalized_message = _normalized_sql(message)
+
+    assert "wa_api_embedded_signup_syncs" in chunk
+    assert "ON CONFLICT ( phone_number, sync_type)" in chunk
+    assert "ON CONFLICT ( payload, history_index)" in chunk
+    assert "history_chunk     BIGINT" in DDL
+    assert "history_context   JSONB" in DDL
+    assert "history_chunk" in normalized_message
+    assert "history_context" in normalized_message
+    assert "msg.msg_type = 'media_placeholder'" in normalized_message
 
 
 def test_case_manifests_are_bound_to_handler_id() -> None :

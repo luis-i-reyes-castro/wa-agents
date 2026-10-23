@@ -29,7 +29,7 @@ from wa_agents.flows import (
     generate_flow_key_pair,
 )
 from wa_agents.io_functions import (
-    _collect_send_results,
+    collect_send_results,
     write_payload,
 )
 from wa_agents.io_models import (
@@ -237,11 +237,11 @@ def test_flow_launch_payload_and_persisted_token_redaction(capsys) -> None :
         def raise_for_status(self) :
             return None
     
-    results = _collect_send_results( payload, Response())
+    results = collect_send_results( payload, Response())
     stored  = results[0]["msg_data"]["interactive"]
     assert capsys.readouterr().out == ""
 
-    _collect_send_results( payload, Response(), debug = True)
+    collect_send_results( payload, Response(), debug = True)
     assert "WhatsApp API response to sent message" in capsys.readouterr().out
 
     assert stored["action"]["parameters"]["flow_token"] == "[REDACTED]"
