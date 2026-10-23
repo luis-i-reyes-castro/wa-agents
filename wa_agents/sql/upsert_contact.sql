@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- business : wa_api_businesses.id
+  -- business : wa_api_phone_numbers.id
   -- wa_id    : NumericID | None
   -- user_id  : WhatsAppBSUID | None
 
@@ -11,7 +11,7 @@ WITH updated AS (
     user_id      = COALESCE( con.user_id, @user_id ),
     last_seen_at = now()
   WHERE
-    ( con.business = @business ) AND
+    ( con.phone_number = @business ) AND
     (
       ( con.wa_id   = @wa_id   ) OR
       ( con.user_id = @user_id )
@@ -20,13 +20,13 @@ WITH updated AS (
     con.id,
     con.created_at,
     con.last_seen_at,
-    con.business,
+    con.phone_number AS business,
     con.wa_id,
     con.user_id
 ),
 inserted AS (
   INSERT INTO public.wa_api_contacts (
-    business,
+    phone_number,
     wa_id,
     user_id
   )
@@ -47,7 +47,7 @@ inserted AS (
     id,
     created_at,
     last_seen_at,
-    business,
+    phone_number AS business,
     wa_id,
     user_id
 )

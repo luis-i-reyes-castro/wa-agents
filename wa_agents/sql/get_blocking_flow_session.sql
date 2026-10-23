@@ -5,11 +5,13 @@
 SELECT
   session.*
 FROM
-  public.wa_api_flow_sessions    AS session
+  public.wa_api_flow_sessions     AS session
 INNER JOIN
-  public.wa_api_inbound_payloads AS payload ON session.contact = payload.contact
+  public.wa_api_inbound_messages  AS message ON
+    session.contact = message.contact
 INNER JOIN
-  public.wa_api_inbound_messages AS message ON payload.id      = message.payload
+  public.wa_api_inbound_payloads  AS payload ON
+    payload.id = message.payload
 WHERE
   ( session.contact = @contact                ) AND
   ( message.id      = @inbound_message        ) AND

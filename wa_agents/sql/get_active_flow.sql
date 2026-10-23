@@ -7,10 +7,13 @@ SELECT
 FROM
   public.wa_api_flows AS flow
 INNER JOIN
-  public.wa_api_flow_wabas AS fw
+  public.wa_api_flow_encryption_keys AS fw
   ON ( fw.id = flow.flow_waba )
+INNER JOIN
+  public.wa_api_businesses AS bus
+  ON ( bus.id = fw.business )
 WHERE
-  ( fw.waba_id = @waba_id ) AND
+  ( bus.waba_id = @waba_id ) AND
   ( flow.flow_key = @flow_key ) AND
   flow.is_active
 ORDER BY

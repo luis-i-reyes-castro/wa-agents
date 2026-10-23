@@ -3,75 +3,58 @@
   -- phone_number_id      : NumericID
   -- display_phone_number : NumericID
 
-WITH updated AS (
-  UPDATE
-    public.wa_api_businesses AS bus
+WITH business AS (
+  INSERT INTO public.wa_api_businesses AS bus (
+    waba_id
+  )
+  VALUES (
+    @waba_id
+  )
+  ON CONFLICT (waba_id)
+  DO
+    UPDATE
   SET
-    waba_id              = @waba_id,
-    display_phone_number = @display_phone_number,
-    last_seen_at         = now()
-  WHERE
-    ( bus.phone_number_id = @phone_number_id )
+    last_seen_at = now()
   RETURNING
     bus.id,
-    bus.created_at,
-    bus.last_seen_at,
-    bus.waba_id,
-    bus.phone_number_id,
-    bus.display_phone_number
+    bus.waba_id
 ),
-inserted AS (
-  INSERT INTO public.wa_api_businesses (
-    waba_id,
-    phone_number_id,
-    display_phone_number
+phone_number AS (
+  INSERT INTO public.wa_api_phone_numbers AS num (
+    business,
+    display_phone_number,
+    phone_number_id
   )
   SELECT
-    @waba_id,
-    @phone_number_id,
-    @display_phone_number
-  WHERE NOT EXISTS (
-    SELECT
-      1
-    FROM
-      updated
-  )
+    bus.id,
+    @display_phone_number,
+    @phone_number_id
+  FROM
+    business AS bus
   ON CONFLICT (phone_number_id)
   DO
     UPDATE
   SET
-    waba_id              = EXCLUDED.waba_id,
+    business             = EXCLUDED.business,
     display_phone_number = EXCLUDED.display_phone_number,
     last_seen_at         = now()
   RETURNING
-    id,
-    created_at,
-    last_seen_at,
-    waba_id,
-    phone_number_id,
-    display_phone_number
+    num.id,
+    num.created_at,
+    num.last_seen_at,
+    num.business,
+    num.phone_number_id,
+    num.display_phone_number
 )
-(
 SELECT
-  upd.id,
-  upd.created_at,
-  upd.last_seen_at,
-  upd.waba_id,
-  upd.phone_number_id,
-  upd.display_phone_number
+  num.id,
+  num.created_at,
+  num.last_seen_at,
+  num.business,
+  bus.waba_id,
+  num.phone_number_id,
+  num.display_phone_number
 FROM
-  updated AS upd
-)
-UNION ALL
-(
-SELECT
-  ins.id,
-  ins.created_at,
-  ins.last_seen_at,
-  ins.waba_id,
-  ins.phone_number_id,
-  ins.display_phone_number
-FROM
-  inserted AS ins
-LIMIT 1
-);
+  phone_number AS num
+JOIN
+  business AS bus ON bus.id = num.business;

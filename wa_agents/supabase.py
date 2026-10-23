@@ -67,8 +67,8 @@ class WhatsAppDatabaseRecord (BaseModel) :
 class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsApp_IB_MetaData) :
     """
     Normalized WhatsApp Business Record:
-        `row_id` : `wa_api_businesses.id`
-        `api_id` : `wa_api_businesses.phone_number_id`
+        `row_id` : `wa_api_phone_numbers.id`
+        `api_id` : `wa_api_phone_numbers.phone_number_id`
     """
     model_config = ConfigDict( frozen = False)
     
@@ -161,6 +161,7 @@ SQL_INSERT_INBOUND_MESSAGE          = _load_sql("insert_inbound_message.sql")
 SQL_INSERT_INBOUND_PAYLOAD          = _load_sql("insert_inbound_payload.sql")
 SQL_INSERT_FLOW_EVENT               = _load_sql("insert_flow_event.sql")
 SQL_INSERT_FLOW_EXCHANGE            = _load_sql("insert_flow_exchange.sql")
+SQL_INSERT_HISTORY_CHUNK            = _load_sql("insert_history_chunk.sql")
 SQL_INSERT_MEDIA                    = _load_sql("insert_media.sql")
 SQL_INSERT_OUTBOUND_MESSAGE         = _load_sql("insert_outbound_message.sql")
 SQL_INSERT_STATUS                   = _load_sql("insert_status.sql")
@@ -550,23 +551,53 @@ class SyncSupabaseStorage :
     
     def insert_inbound_message(
         self,
-        payload  : int,
-        msg_id   : str,
-        msg_ts   : datetime,
-        msg_type : str,
-        msg_data : dict[str, Any],
-        is_echo  : bool | None = None,
+        contact         : int,
+        payload         : int,
+        msg_id          : str,
+        msg_ts          : datetime,
+        msg_type        : str,
+        msg_data        : dict[str, Any],
+        is_echo         : bool | None = None,
+        history_chunk   : int | None  = None,
+        history_context : dict[str, Any] | None = None,
     ) -> dict[str, Any] | None :
         
         return self._fetch_one(
             SQL_INSERT_INBOUND_MESSAGE,
             {
-                "payload"  : payload,
-                "msg_id"   : msg_id,
-                "msg_ts"   : msg_ts,
-                "msg_type" : msg_type,
-                "msg_data" : Jsonb(msg_data),
-                "is_echo"  : is_echo,
+                "contact"         : contact,
+                "payload"         : payload,
+                "msg_id"          : msg_id,
+                "msg_ts"          : msg_ts,
+                "msg_type"        : msg_type,
+                "msg_data"        : Jsonb(msg_data),
+                "is_echo"         : is_echo,
+                "history_chunk"   : history_chunk,
+                "history_context" : _json_param(history_context),
+            },
+        )
+
+    def insert_history_chunk(
+        self,
+        phone_number  : int,
+        payload       : int,
+        history_index : int,
+        phase         : int | None,
+        chunk_order   : int | None,
+        progress      : int | None,
+        errors        : list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_INSERT_HISTORY_CHUNK,
+            {
+                "phone_number"  : phone_number,
+                "payload"       : payload,
+                "history_index" : history_index,
+                "phase"         : phase,
+                "chunk_order"   : chunk_order,
+                "progress"      : progress,
+                "errors"        : _json_param(errors),
             },
         )
     
@@ -1399,23 +1430,53 @@ class AsyncSupabaseStorage :
     
     async def insert_inbound_message(
         self,
-        payload  : int,
-        msg_id   : str,
-        msg_ts   : datetime,
-        msg_type : str,
-        msg_data : dict[str, Any],
-        is_echo  : bool | None = None,
+        contact         : int,
+        payload         : int,
+        msg_id          : str,
+        msg_ts          : datetime,
+        msg_type        : str,
+        msg_data        : dict[str, Any],
+        is_echo         : bool | None = None,
+        history_chunk   : int | None  = None,
+        history_context : dict[str, Any] | None = None,
     ) -> dict[str, Any] | None :
         
         return await self._fetch_one(
             SQL_INSERT_INBOUND_MESSAGE,
             {
-                "payload"  : payload,
-                "msg_id"   : msg_id,
-                "msg_ts"   : msg_ts,
-                "msg_type" : msg_type,
-                "msg_data" : Jsonb(msg_data),
-                "is_echo"  : is_echo,
+                "contact"         : contact,
+                "payload"         : payload,
+                "msg_id"          : msg_id,
+                "msg_ts"          : msg_ts,
+                "msg_type"        : msg_type,
+                "msg_data"        : Jsonb(msg_data),
+                "is_echo"         : is_echo,
+                "history_chunk"   : history_chunk,
+                "history_context" : _json_param(history_context),
+            },
+        )
+
+    async def insert_history_chunk(
+        self,
+        phone_number  : int,
+        payload       : int,
+        history_index : int,
+        phase         : int | None,
+        chunk_order   : int | None,
+        progress      : int | None,
+        errors        : list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_INSERT_HISTORY_CHUNK,
+            {
+                "phone_number"  : phone_number,
+                "payload"       : payload,
+                "history_index" : history_index,
+                "phase"         : phase,
+                "chunk_order"   : chunk_order,
+                "progress"      : progress,
+                "errors"        : _json_param(errors),
             },
         )
     

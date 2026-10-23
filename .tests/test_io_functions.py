@@ -172,6 +172,162 @@ def test_fetch_media_rejects_checksum_mismatch(
         _run_fetch( monkeypatch, async_mode, media_data, responses)
 
 
+def test_async_send_text_uses_message_helper(monkeypatch) -> None :
+    monkeypatch.setenv( "WA_TOKEN", "test-token")
+    requests = []
+
+    class AsyncClient :
+
+        async def __aenter__(self) :
+            return self
+
+        async def __aexit__( self, *_args) -> None :
+            return
+
+        async def post( self, **kwargs) -> httpx.Response :
+            requests.append(kwargs)
+            return httpx.Response(
+                200,
+                request = httpx.Request( "POST", kwargs["url"]),
+                json    = { "messages" : [{ "id" : "wamid.text" }] },
+            )
+
+    monkeypatch.setattr( io_functions.httpx, "AsyncClient", AsyncClient)
+
+    results = asyncio.run(io_functions.async_send_whatsapp_text(
+        operator_id = "123456789",
+        to_number   = TO_NUMBER,
+        text        = "Hello",
+    ))
+
+    assert results == [
+        {
+            "msg_id"   : "wamid.text",
+            "msg_type" : "text",
+            "msg_data" : { "text" : { "body" : "Hello" } },
+        }
+    ]
+    assert requests[0]["url"] == f"{io_functions.API_URL}123456789/messages"
+
+
+def test_async_embedded_signup_graph_helpers(monkeypatch) -> None :
+    responses = iter([
+        _response(
+            200,
+            f"{io_functions.API_URL}oauth/access_token",
+            json = { "access_token" : "business-token" },
+        ),
+        _response(
+            200,
+            f"{io_functions.API_URL}waba-id/subscribed_apps",
+            json = { "success" : True },
+        ),
+        _response(
+            200,
+            f"{io_functions.API_URL}waba-id/phone_numbers",
+            json = { "data" : [{ "id" : "phone-id" }] },
+        ),
+    ])
+    requests = []
+
+    class AsyncClient :
+
+        def __init__( self, *, timeout) -> None :
+            assert timeout == io_functions.META_GRAPH_TIMEOUT
+
+        async def __aenter__(self) :
+            return self
+
+        async def __aexit__( self, *_args) -> None :
+            return
+
+        async def request( self, **kwargs) -> httpx.Response :
+            requests.append(kwargs)
+            return next(responses)
+
+    async def run_helpers() -> tuple[str, bool, list[dict]] :
+        token = await io_functions.async_exchange_code_for_business_token(
+            code         = "signup-code",
+            app_id       = "app-id",
+            app_secret   = "app-secret",
+            redirect_uri = "https://example.test/callback",
+        )
+        subscribed = await io_functions.async_subscribe_to_waba(
+            "waba-id",
+            token,
+        )
+        phone_numbers = await io_functions.async_list_phone_numbers_for_waba(
+            "waba-id",
+            token,
+        )
+        return token, subscribed, phone_numbers
+
+    monkeypatch.setattr( io_functions.httpx, "AsyncClient", AsyncClient)
+
+    assert asyncio.run(run_helpers()) == (
+        "business-token",
+        True,
+        [{ "id" : "phone-id" }],
+    )
+    assert requests[0] == {
+        "method"  : "GET",
+        "url"     : f"{io_functions.API_URL}oauth/access_token",
+        "headers" : { },
+        "params"  : {
+            "client_id"     : "app-id",
+            "client_secret" : "app-secret",
+            "code"          : "signup-code",
+            "redirect_uri"  : "https://example.test/callback",
+        },
+    }
+    assert requests[1]["headers"] == {
+        "Authorization" : "Bearer business-token"
+    }
+    assert requests[2]["params"] == {
+        "fields" : ",".join(io_functions.WABA_PHONE_NUMBER_FIELDS)
+    }
+
+
+def test_graph_error_preserves_meta_message_and_status(monkeypatch) -> None :
+    response = _response(
+        401,
+        f"{io_functions.API_URL}waba-id/subscribed_apps",
+        json = { "error" : { "message" : "Invalid OAuth access token" } },
+    )
+    monkeypatch.setattr(
+        io_functions.httpx,
+        "request",
+        lambda **_kwargs: response,
+    )
+
+    with pytest.raises(
+        io_functions.MetaGraphError,
+        match = "Invalid OAuth access token",
+    ) as error :
+        io_functions.subscribe_to_waba( "waba-id", "business-token")
+
+    assert error.value.status_code == 401
+
+
+def test_subscribe_to_waba_requires_success_confirmation(monkeypatch) -> None :
+    response = _response(
+        200,
+        f"{io_functions.API_URL}waba-id/subscribed_apps",
+        json = { "success" : False },
+    )
+    monkeypatch.setattr(
+        io_functions.httpx,
+        "request",
+        lambda **_kwargs: response,
+    )
+
+    with pytest.raises(
+        io_functions.MetaGraphError,
+        match = "did not confirm",
+    ) :
+        io_functions.subscribe_to_waba( "waba-id", "business-token")
+
+
 def test_write_text_payload_uses_outbound_model() -> None :
     
     assert write_payload( TO_NUMBER, "Hello") == {

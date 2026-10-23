@@ -7,6 +7,6 @@ WHERE
   id = @route_id
 RETURNING
   id,
-  business,
+  phone_number,
   contact,
   handler_key;

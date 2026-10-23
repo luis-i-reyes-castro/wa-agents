@@ -329,7 +329,7 @@ class CaseHandlerBase (ABC) :
         """
         Initialize a transport-neutral handler for one persisted contact. \\
         Args:
-            business : Row ID `wa_api_businesses.id` or DB record object.
+            business : Row ID `wa_api_phone_numbers.id` or DB record object.
             contact  : Row ID `wa_api_contacts.id` or DB record object.
             database_url  : Optional PostgreSQL URL override.
             debug         : Whether downstream components should emit debug output.
@@ -887,7 +887,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         """
         Initialize a WhatsApp handler for one normalized contact. \\
         Args:
-            business : Row ID `wa_api_businesses.id` or DB record object.
+            business : Row ID `wa_api_phone_numbers.id` or DB record object.
             contact  : Row ID `wa_api_contacts.id` or DB record object.
             api_inbound_msg_id : Current `wa_api_inbound_messages.id`, if any.
             database_url       : Optional PostgreSQL URL override.
@@ -1307,7 +1307,7 @@ class AsyncCaseHandlerBase (ABC) :
         """
         Initialize a transport-neutral handler for one persisted contact. \\
         Args:
-            business : Row ID `wa_api_businesses.id` or DB record object.
+            business : Row ID `wa_api_phone_numbers.id` or DB record object.
             contact  : Row ID `wa_api_contacts.id` or DB record object.
             database_url  : Optional PostgreSQL URL override.
             debug         : Whether downstream components should emit debug output.
@@ -1866,7 +1866,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         """
         Initialize an asynchronous WhatsApp handler for one normalized contact. \\
         Args:
-            business : Row ID `wa_api_businesses.id` or DB record object.
+            business : Row ID `wa_api_phone_numbers.id` or DB record object.
             contact  : Row ID `wa_api_contacts.id` or DB record object.
             api_inbound_msg_id : Current `wa_api_inbound_messages.id`, if any.
             database_url       : Optional PostgreSQL URL override.

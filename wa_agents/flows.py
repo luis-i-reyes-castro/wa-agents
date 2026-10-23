@@ -58,7 +58,7 @@ from sofia_utils.pydantic import (
 from sofia_utils.printing import get_qualname as here
 
 from .io_functions import (
-    API_URL,
+    META_GRAPH_API_URL,
     write_headers,
 )
 from .io_models import (
@@ -84,7 +84,7 @@ class WhatsApp_Local_FlowContext (BaseModel) :
         `session_id`   : Database ID of the active Flow session
         `flow_id`      : Meta Flow ID
         `flow_key`     : Stable application Flow key
-        `business_id`  : Database ID of the WhatsApp business
+        `business_id`  : Database ID of the sending WhatsApp phone number
         `contact_id`   : Database ID of the WhatsApp contact
         `state`        : Decrypted application state from the previous exchange
     """
@@ -456,7 +456,7 @@ class WhatsAppFlowEndpoint :
                     session_id   = session["id"],
                     flow_id      = session["flow_id"],
                     flow_key     = session["flow_key"],
-                    business_id  = session["business"],
+                    business_id  = session["phone_number"],
                     contact_id   = session["contact"],
                     state        = session.get("session_state_data") or {},
                 )
@@ -546,8 +546,8 @@ def upload_flow_public_key( phone_number_id : str, public_key : str) -> None :
         public_key      : PEM-encoded RSA public key
     """
     response = httpx.post(
-        f"{API_URL}{phone_number_id}/whatsapp_business_encryption",
-        headers = write_headers(),
+        f"{META_GRAPH_API_URL}/{phone_number_id}/whatsapp_business_encryption",
+        headers = write_headers( content_type = False),
         data    = { "business_public_key" : public_key },
         timeout = 30,
     )
@@ -583,8 +583,8 @@ def provision_flow_waba(
     for phone_number_id in phone_number_ids :
         upload_flow_public_key( phone_number_id, public_key)
         response = httpx.get(
-            f"{API_URL}{phone_number_id}/whatsapp_business_encryption",
-            headers = write_headers(),
+            f"{META_GRAPH_API_URL}/{phone_number_id}/whatsapp_business_encryption",
+            headers = write_headers( content_type = False),
             timeout = 30,
         )
         response.raise_for_status()

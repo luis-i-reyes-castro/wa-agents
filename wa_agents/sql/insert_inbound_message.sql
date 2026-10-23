@@ -1,35 +1,61 @@
 -- PARAMS:
-  -- payload  : wa_api_inbound_payloads.id
-  -- is_echo  : bool | None
-  -- msg_id   : WhatsAppMessageID
-  -- msg_ts   : datetime
-  -- msg_type : WhatsAppMessageType
-  -- msg_data : dict
+  -- contact         : wa_api_contacts.id
+  -- payload         : wa_api_inbound_payloads.id
+  -- is_echo         : bool | None
+  -- msg_id          : WhatsAppMessageID
+  -- msg_ts          : datetime
+  -- msg_type        : WhatsAppMessageType
+  -- msg_data        : dict
+  -- history_chunk   : wa_api_history_chunks.id | None
+  -- history_context : dict | None
 
-INSERT INTO public.wa_api_inbound_messages (
+INSERT INTO public.wa_api_inbound_messages AS msg (
+  contact,
   payload,
   is_echo,
   msg_id,
   msg_ts,
   msg_type,
-  msg_data
+  msg_data,
+  history_chunk,
+  history_context
 )
 VALUES (
+  @contact,
   @payload,
   COALESCE( @is_echo, FALSE),
   @msg_id,
   @msg_ts,
   @msg_type,
-  @msg_data
+  @msg_data,
+  @history_chunk,
+  @history_context
 )
 ON CONFLICT (msg_id)
 DO
-  NOTHING
+  UPDATE
+SET
+  contact         = EXCLUDED.contact,
+  payload         = EXCLUDED.payload,
+  is_echo         = EXCLUDED.is_echo,
+  msg_ts          = EXCLUDED.msg_ts,
+  msg_type        = EXCLUDED.msg_type,
+  msg_data        = EXCLUDED.msg_data,
+  history_chunk   = EXCLUDED.history_chunk,
+  history_context = EXCLUDED.history_context
+WHERE
+  ( msg.history_chunk IS NOT NULL      ) AND
+  ( EXCLUDED.history_chunk IS NOT NULL ) AND
+  ( msg.msg_type = 'media_placeholder' ) AND
+  ( EXCLUDED.msg_type <> 'media_placeholder' )
 RETURNING
-  id,
-  payload,
-  is_echo,
-  msg_id,
-  msg_ts,
-  msg_type,
-  msg_data;
+  msg.id,
+  msg.contact,
+  msg.payload,
+  msg.is_echo,
+  msg.msg_id,
+  msg.msg_ts,
+  msg.msg_type,
+  msg.msg_data,
+  msg.history_chunk,
+  msg.history_context;

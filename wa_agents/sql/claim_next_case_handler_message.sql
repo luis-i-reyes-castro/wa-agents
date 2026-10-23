@@ -5,20 +5,14 @@
 
 WITH candidate AS MATERIALIZED (
   SELECT
-    pay.contact,
+    msg.contact,
     que.id,
     que.handler_id,
     que.msg_id,
     COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key,
     settings.silence_timeout_minutes
   FROM
-    public.wa_api_businesses            AS bus
-  JOIN
-    public.wa_api_contacts              AS con ON bus.id = con.business
-  JOIN
-    public.wa_api_inbound_payloads      AS pay ON con.id = pay.contact
-  JOIN
-    public.wa_api_inbound_messages      AS msg ON pay.id = msg.payload
+    public.wa_api_inbound_messages      AS msg
   JOIN
     public.wa_api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
   LEFT JOIN
@@ -37,7 +31,7 @@ WITH candidate AS MATERIALIZED (
       FROM
         public.wa_case_handler_contact_leases AS old
       WHERE
-        ( old.contact    = pay.contact ) AND
+        ( old.contact    = msg.contact ) AND
         ( old.expires_at > now()       )
     )
   ORDER BY

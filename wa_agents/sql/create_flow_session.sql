@@ -1,6 +1,6 @@
 -- PARAMS:
   -- flow                 : wa_api_flows.id
-  -- business             : wa_api_businesses.id
+  -- business             : wa_api_phone_numbers.id
   -- contact              : wa_api_contacts.id
   -- case_handler_message : wa_case_handler_messages.id | null
   -- flow_token           : opaque session token
@@ -21,7 +21,7 @@ WITH superseded AS (
 )
 INSERT INTO public.wa_api_flow_sessions (
   flow,
-  business,
+  phone_number,
   contact,
   case_handler_message,
   expires_at,

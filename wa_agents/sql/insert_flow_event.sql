@@ -24,6 +24,15 @@ SELECT
 FROM
   ( SELECT 1 ) AS singleton
 LEFT JOIN
-  public.wa_api_flow_wabas AS fw
-  ON ( fw.waba_id = @waba_id )
+  public.wa_api_flow_encryption_keys AS fw
+  ON (
+    fw.business = (
+      SELECT
+        bus.id
+      FROM
+        public.wa_api_businesses AS bus
+      WHERE
+        ( bus.waba_id = @waba_id )
+    )
+  )
 RETURNING *;

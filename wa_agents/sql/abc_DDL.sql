@@ -23,6 +23,8 @@ CREATE TYPE T_WHATSAPP_MESSAGE AS ENUM (
   'reaction',
   'contacts',
   'location',
+  'media_placeholder',
+  'revoke',
   'unsupported'
 );
 CREATE TYPE T_WHATSAPP_STATUS AS ENUM (
@@ -31,6 +33,32 @@ CREATE TYPE T_WHATSAPP_STATUS AS ENUM (
   'played',
   'read',
   'sent'
+);
+CREATE TYPE T_WHATSAPP_CONNECTION_STATUS AS ENUM (
+  'pending',
+  'connected',
+  'attention_needed',
+  'disconnected'
+);
+CREATE TYPE T_WHATSAPP_SIGNUP_SESSION_STATUS AS ENUM (
+  'pending',
+  'completed',
+  'failed',
+  'cancelled',
+  'expired'
+);
+CREATE TYPE T_WHATSAPP_APP_DATA_SYNC_TYPE AS ENUM (
+  'smb_app_state_sync',
+  'history'
+);
+CREATE TYPE T_WHATSAPP_APP_DATA_SYNC_STATUS AS ENUM (
+  'eligible',
+  'requesting',
+  'accepted',
+  'receiving',
+  'completed',
+  'declined',
+  'failed'
 );
 CREATE TYPE T_WHATSAPP_FLOW_STATUS AS ENUM (
   'DRAFT',
@@ -86,19 +114,52 @@ CREATE TABLE IF NOT EXISTS public.wa_api_businesses (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  waba_id               T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
-  phone_number_id       T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
-  display_phone_number  T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  waba_id       T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  waba_name     TEXT        DEFAULT NULL,
   
-  CONSTRAINT wa_api_businesses_phone_number_id_unique
-    UNIQUE (phone_number_id),
-  
-  CONSTRAINT wa_api_businesses_display_phone_number_unique
-    UNIQUE (display_phone_number)
+  CONSTRAINT wa_api_businesses_waba_id_unique
+    UNIQUE (waba_id)
 
 );
 
 ALTER TABLE public.wa_api_businesses
+  ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.wa_api_phone_numbers (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  business              BIGINT      NOT NULL,
+  display_phone_number  T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  phone_number_id       T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  verified_name         TEXT        DEFAULT NULL,
+  platform_type         T_NO_WS_STR DEFAULT NULL,
+  is_on_biz_app         BOOLEAN     DEFAULT NULL,
+  metadata              JSONB       DEFAULT NULL,
+  
+  CONSTRAINT wa_api_phone_numbers_business_fkey
+    FOREIGN KEY (business)
+    REFERENCES public.wa_api_businesses(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_phone_numbers_display_phone_number_unique
+    UNIQUE (display_phone_number),
+  
+  CONSTRAINT wa_api_phone_numbers_phone_number_id_unique
+    UNIQUE (phone_number_id),
+  
+  CONSTRAINT wa_api_phone_numbers_metadata_object_check
+    CHECK (
+      ( metadata IS NULL ) OR
+      ( jsonb_typeof(metadata) = 'object' )
+    )
+
+);
+
+ALTER TABLE public.wa_api_phone_numbers
   ENABLE ROW LEVEL SECURITY;
 
 -- CONTACTS
@@ -109,30 +170,30 @@ CREATE TABLE IF NOT EXISTS public.wa_api_contacts (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  business      BIGINT      NOT NULL,
+  phone_number  BIGINT      NOT NULL,
   wa_id         T_NO_WS_STR DEFAULT NULL, -- '^[0-9]+$'
   user_id       T_NO_WS_STR DEFAULT NULL, -- '^[A-Z]{2}\.[A-Za-z0-9]{1,128}$'
   
-  CONSTRAINT wa_api_contacts_business_fkey
-    FOREIGN KEY (business)
-    REFERENCES public.wa_api_businesses(id)
+  CONSTRAINT wa_api_contacts_phone_number_fkey
+    FOREIGN KEY (phone_number)
+    REFERENCES public.wa_api_phone_numbers(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
-  CONSTRAINT wa_api_contacts_business_id_unique
-    UNIQUE ( business, id),
+  CONSTRAINT wa_api_contacts_phone_number_id_unique
+    UNIQUE ( phone_number, id),
   
-  CONSTRAINT wa_api_contacts_business_wa_id_unique
-    UNIQUE ( business, wa_id),
+  CONSTRAINT wa_api_contacts_phone_number_wa_id_unique
+    UNIQUE ( phone_number, wa_id),
   
-  CONSTRAINT wa_api_contacts_business_user_id_unique
-    UNIQUE ( business, user_id),
+  CONSTRAINT wa_api_contacts_phone_number_user_id_unique
+    UNIQUE ( phone_number, user_id),
   
   CONSTRAINT wa_api_contacts_wa_id_or_user_id
     CHECK(
       ( wa_id IS NOT NULL ) OR ( user_id IS NOT NULL )
     )
-  
+
 );
 
 ALTER TABLE public.wa_api_contacts
@@ -174,6 +235,175 @@ CREATE INDEX IF NOT EXISTS wa_api_contact_profiles_contact_time_idx
 ALTER TABLE public.wa_api_contact_profiles
   ENABLE ROW LEVEL SECURITY;
 
+-- ========================================================================================
+-- EMBEDDED SIGNUP
+
+CREATE TABLE IF NOT EXISTS public.wa_api_embedded_signup_data (
+  
+  business      BIGINT      PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  business_token       BYTEA                        NOT NULL,
+  connection_status    T_WHATSAPP_CONNECTION_STATUS NOT NULL DEFAULT 'pending',
+  token_last_refreshed TIMESTAMPTZ                  NOT NULL DEFAULT now(),
+  app_subscribed       BOOLEAN                      NOT NULL DEFAULT FALSE,
+  subscribed_at        TIMESTAMPTZ                  DEFAULT NULL,
+  disconnected_at      TIMESTAMPTZ                  DEFAULT NULL,
+  last_error           TEXT                         DEFAULT NULL,
+  
+  CONSTRAINT wa_api_embedded_signup_data_business_fkey
+    FOREIGN KEY (business)
+    REFERENCES public.wa_api_businesses(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_embedded_signup_data_subscription_time_check
+    CHECK ( ( NOT app_subscribed ) OR ( subscribed_at IS NOT NULL ) )
+
+);
+
+ALTER TABLE public.wa_api_embedded_signup_data
+  ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.wa_api_embedded_signup_sessions (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  business          BIGINT                           DEFAULT NULL,
+  session_state     T_NO_WS_STR                      NOT NULL,
+  session_status    T_WHATSAPP_SIGNUP_SESSION_STATUS NOT NULL DEFAULT 'pending',
+  expires_at        TIMESTAMPTZ                      NOT NULL,
+  finished_at       TIMESTAMPTZ                      DEFAULT NULL,
+  code_received_at  TIMESTAMPTZ                      DEFAULT NULL,
+  event_type        T_NO_WS_STR                      DEFAULT NULL,
+  event_name        T_NO_WS_STR                      DEFAULT NULL,
+  event_version     SMALLINT                         DEFAULT NULL,
+  event_data        JSONB                            DEFAULT NULL,
+  application_data  JSONB                            NOT NULL DEFAULT '{}'::JSONB,
+  last_error        TEXT                             DEFAULT NULL,
+  
+  CONSTRAINT wa_api_embedded_signup_sessions_business_fkey
+    FOREIGN KEY (business)
+    REFERENCES public.wa_api_businesses(id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL,
+  
+  CONSTRAINT wa_api_embedded_signup_sessions_state_unique
+    UNIQUE (session_state),
+  
+  CONSTRAINT wa_api_embedded_signup_sessions_expiry_check
+    CHECK ( expires_at > created_at ),
+  
+  CONSTRAINT wa_api_embedded_signup_sessions_finished_check
+    CHECK (
+      ( session_status = 'pending' ) = ( finished_at IS NULL )
+    ),
+  
+  CONSTRAINT wa_api_embedded_signup_sessions_completed_business_check
+    CHECK (
+      ( session_status <> 'completed' ) OR
+      ( business       IS NOT NULL    )
+    ),
+  
+  CONSTRAINT wa_api_embedded_signup_sessions_event_data_object_check
+    CHECK (
+      ( event_data               IS NULL    ) OR
+      ( jsonb_typeof(event_data) = 'object' )
+    ),
+  
+  CONSTRAINT wa_api_embedded_signup_sessions_application_data_object_check
+    CHECK (
+      jsonb_typeof(application_data) = 'object'
+    )
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_api_embedded_signup_sessions_status_expiry_idx
+  ON public.wa_api_embedded_signup_sessions (
+    session_status,
+    expires_at
+  );
+
+CREATE INDEX IF NOT EXISTS wa_api_embedded_signup_sessions_business_time_idx
+  ON public.wa_api_embedded_signup_sessions (
+    business,
+    created_at DESC
+  )
+  WHERE ( business IS NOT NULL );
+
+ALTER TABLE public.wa_api_embedded_signup_sessions
+  ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.wa_api_embedded_signup_syncs (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  phone_number  BIGINT                              NOT NULL,
+  sync_type     T_WHATSAPP_APP_DATA_SYNC_TYPE       NOT NULL,
+  sync_status   T_WHATSAPP_APP_DATA_SYNC_STATUS     NOT NULL DEFAULT 'eligible',
+  request_id    T_NO_WS_STR                         DEFAULT NULL,
+  requested_at  TIMESTAMPTZ                         DEFAULT NULL,
+  started_at    TIMESTAMPTZ                         DEFAULT NULL,
+  completed_at  TIMESTAMPTZ                         DEFAULT NULL,
+  last_error    JSONB                               DEFAULT NULL,
+  
+  CONSTRAINT wa_api_embedded_signup_syncs_phone_number_fkey
+    FOREIGN KEY (phone_number)
+    REFERENCES public.wa_api_phone_numbers(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_embedded_signup_syncs_phone_number_type_unique
+    UNIQUE ( phone_number, sync_type),
+  
+  CONSTRAINT wa_api_embedded_signup_syncs_request_id_unique
+    UNIQUE (request_id),
+  
+  CONSTRAINT wa_api_embedded_signup_syncs_error_object_check
+    CHECK (
+      ( last_error IS NULL ) OR
+      ( jsonb_typeof(last_error) = 'object' )
+    )
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_api_embedded_signup_syncs_status_time_idx
+  ON public.wa_api_embedded_signup_syncs (
+    sync_status,
+    updated_at
+  );
+
+ALTER TABLE public.wa_api_embedded_signup_syncs
+  ENABLE ROW LEVEL SECURITY;
+
+-- WHATSAPP BUSINESS APP CONTACTS
+
+CREATE TABLE IF NOT EXISTS public.wa_api_smb_app_contacts (
+  
+  contact       BIGINT      PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  full_name     TEXT        DEFAULT NULL,
+  first_name    TEXT        DEFAULT NULL,
+  is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
+  changed_at    TIMESTAMPTZ NOT NULL,
+  
+  CONSTRAINT wa_api_smb_app_contacts_contact_fkey
+    FOREIGN KEY (contact)
+    REFERENCES public.wa_api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+
+);
+
+ALTER TABLE public.wa_api_smb_app_contacts
+  ENABLE ROW LEVEL SECURITY;
 
 -- ========================================================================================
 -- PAYLOADS
@@ -220,20 +450,94 @@ CREATE INDEX IF NOT EXISTS wa_api_inbound_payloads_validation_errors_idx
 ALTER TABLE public.wa_api_inbound_payloads
   ENABLE ROW LEVEL SECURITY;
 
+-- MESSAGE HISTORY CHUNKS
+
+CREATE TABLE IF NOT EXISTS public.wa_api_history_chunks (
+  
+  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  
+  sync            BIGINT      NOT NULL,
+  payload         BIGINT      NOT NULL,
+  history_index   SMALLINT    NOT NULL DEFAULT 0,
+  phase           SMALLINT    DEFAULT NULL,
+  chunk_order     INTEGER     DEFAULT NULL,
+  progress        SMALLINT    DEFAULT NULL,
+  errors          JSONB       DEFAULT NULL,
+  
+  CONSTRAINT wa_api_history_chunks_sync_fkey
+    FOREIGN KEY (sync)
+    REFERENCES public.wa_api_embedded_signup_syncs(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_history_chunks_payload_fkey
+    FOREIGN KEY (payload)
+    REFERENCES public.wa_api_inbound_payloads(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_history_chunks_payload_index_unique
+    UNIQUE ( payload, history_index),
+  
+  CONSTRAINT wa_api_history_chunks_index_nonnegative
+    CHECK ( history_index >= 0 ),
+  
+  CONSTRAINT wa_api_history_chunks_phase_check
+    CHECK ( ( phase IS NULL ) OR ( phase BETWEEN 0 AND 2 ) ),
+  
+  CONSTRAINT wa_api_history_chunks_order_nonnegative
+    CHECK ( ( chunk_order IS NULL ) OR ( chunk_order >= 0 ) ),
+  
+  CONSTRAINT wa_api_history_chunks_progress_check
+    CHECK ( ( progress IS NULL ) OR ( progress BETWEEN 0 AND 100 ) ),
+  
+  CONSTRAINT wa_api_history_chunks_result_check
+    CHECK (
+      (
+        ( phase       IS NOT NULL ) AND
+        ( chunk_order IS NOT NULL ) AND
+        ( progress    IS NOT NULL )
+      ) OR
+      ( errors IS NOT NULL )
+    ),
+  
+  CONSTRAINT wa_api_history_chunks_errors_array_check
+    CHECK (
+      ( errors IS NULL ) OR
+      ( jsonb_typeof(errors) = 'array' )
+    )
+
+);
+
+CREATE INDEX IF NOT EXISTS wa_api_history_chunks_sync_progress_idx
+  ON public.wa_api_history_chunks (
+    sync,
+    progress,
+    phase,
+    chunk_order
+  );
+
+ALTER TABLE public.wa_api_history_chunks
+  ENABLE ROW LEVEL SECURITY;
+
 
 -- ========================================================================================
 -- MESSAGES: INBOUND
 
 CREATE TABLE IF NOT EXISTS public.wa_api_inbound_messages (
   
-  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  payload       BIGINT              NOT NULL,
+  id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  contact           BIGINT              NOT NULL,
+  payload           BIGINT              NOT NULL,
   
-  is_echo       BOOLEAN             NOT NULL DEFAULT FALSE,
-  msg_id        T_NO_WS_STR         NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
-  msg_ts        TIMESTAMPTZ         NOT NULL,
-  msg_type      T_WHATSAPP_MESSAGE  NOT NULL,
-  msg_data      JSONB               NOT NULL,
+  is_echo           BOOLEAN             NOT NULL DEFAULT FALSE,
+  msg_id            T_NO_WS_STR         NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
+  msg_ts            TIMESTAMPTZ         NOT NULL,
+  msg_type          T_WHATSAPP_MESSAGE  NOT NULL,
+  msg_data          JSONB               NOT NULL,
+  
+  history_chunk     BIGINT              DEFAULT NULL,
+  history_context   JSONB               DEFAULT NULL,
   
   CONSTRAINT wa_api_inbound_messages_payload_fkey
     FOREIGN KEY (payload)
@@ -241,13 +545,45 @@ CREATE TABLE IF NOT EXISTS public.wa_api_inbound_messages (
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
+  CONSTRAINT wa_api_inbound_messages_contact_fkey
+    FOREIGN KEY (contact)
+    REFERENCES public.wa_api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT wa_api_inbound_messages_history_chunk_fkey
+    FOREIGN KEY (history_chunk)
+    REFERENCES public.wa_api_history_chunks(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
   CONSTRAINT wa_api_inbound_messages_msg_id_unique
-    UNIQUE (msg_id)
+    UNIQUE (msg_id),
+  
+  CONSTRAINT wa_api_inbound_messages_history_context_check
+    CHECK (
+      ( history_context IS NULL ) OR
+      (
+        ( history_chunk IS NOT NULL                ) AND
+        ( jsonb_typeof(history_context) = 'object' )
+      )
+    )
 
 );
 
 CREATE INDEX IF NOT EXISTS wa_api_inbound_messages_payload_idx
   ON public.wa_api_inbound_messages (payload);
+
+CREATE INDEX IF NOT EXISTS wa_api_inbound_messages_contact_time_idx
+  ON public.wa_api_inbound_messages (
+    contact,
+    msg_ts,
+    id
+  );
+
+CREATE INDEX IF NOT EXISTS wa_api_inbound_messages_history_chunk_idx
+  ON public.wa_api_inbound_messages (history_chunk)
+  WHERE ( history_chunk IS NOT NULL );
 
 ALTER TABLE public.wa_api_inbound_messages
   ENABLE ROW LEVEL SECURITY;
@@ -386,25 +722,25 @@ CREATE TABLE IF NOT EXISTS public.wa_case_handler_routes (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  business      BIGINT      NOT NULL,
+  phone_number  BIGINT      NOT NULL,
   contact       BIGINT      DEFAULT NULL, -- For contact-specific handler
   handler_key   T_NO_WS_STR NOT NULL,
   handler_url   T_NO_WS_STR DEFAULT NULL, -- For remote handler URL
   
-  CONSTRAINT wa_case_handler_routes_business_fkey
-    FOREIGN KEY (business)
-    REFERENCES public.wa_api_businesses(id)
+  CONSTRAINT wa_case_handler_routes_phone_number_fkey
+    FOREIGN KEY (phone_number)
+    REFERENCES public.wa_api_phone_numbers(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
   CONSTRAINT wa_case_handler_routes_contact_fkey
-    FOREIGN KEY ( business, contact)
-    REFERENCES public.wa_api_contacts( business, id)
+    FOREIGN KEY ( phone_number, contact)
+    REFERENCES public.wa_api_contacts( phone_number, id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
-  CONSTRAINT wa_case_handler_routes_business_contact_unique
-    UNIQUE NULLS NOT DISTINCT ( business, contact)
+  CONSTRAINT wa_case_handler_routes_phone_number_contact_unique
+    UNIQUE NULLS NOT DISTINCT ( phone_number, contact)
 
 );
 
@@ -789,26 +1125,32 @@ ALTER TABLE public.wa_case_handler_agent_contexts
 
 -- WABA ENCRYPTION KEYS
 
-CREATE TABLE IF NOT EXISTS public.wa_api_flow_wabas (
+CREATE TABLE IF NOT EXISTS public.wa_api_flow_encryption_keys (
   
   id                      BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  waba_id                 T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  business                BIGINT      NOT NULL,
   public_key              TEXT        NOT NULL,
   public_key_fingerprint  T_NO_WS_STR NOT NULL, -- '^[A-Fa-f0-9]{64}$'
   private_key_encrypted   BYTEA       NOT NULL,
   
-  CONSTRAINT wa_api_flow_wabas_waba_id_unique
-    UNIQUE (waba_id),
+  CONSTRAINT wa_api_flow_encryption_keys_business_fkey
+    FOREIGN KEY (business)
+    REFERENCES public.wa_api_businesses(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
   
-  CONSTRAINT wa_api_flow_wabas_public_key_fingerprint_unique
+  CONSTRAINT wa_api_flow_encryption_keys_business_unique
+    UNIQUE (business),
+  
+  CONSTRAINT wa_api_flow_encryption_keys_public_key_fingerprint_unique
     UNIQUE (public_key_fingerprint)
 
 );
 
-ALTER TABLE public.wa_api_flow_wabas
+ALTER TABLE public.wa_api_flow_encryption_keys
   ENABLE ROW LEVEL SECURITY;
 
 -- FLOW DEFINITIONS
@@ -832,7 +1174,7 @@ CREATE TABLE IF NOT EXISTS public.wa_api_flows (
   
   CONSTRAINT wa_api_flows_flow_waba_fkey
     FOREIGN KEY (flow_waba)
-    REFERENCES public.wa_api_flow_wabas(id)
+    REFERENCES public.wa_api_flow_encryption_keys(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
@@ -866,7 +1208,7 @@ CREATE TABLE IF NOT EXISTS public.wa_api_flow_sessions (
   completed_at          TIMESTAMPTZ                      DEFAULT NULL,
   
   flow                  BIGINT                           NOT NULL,
-  business              BIGINT                           NOT NULL,
+  phone_number          BIGINT                           NOT NULL,
   contact               BIGINT                           NOT NULL,
   case_handler_message  BIGINT                           DEFAULT NULL,
   outbound_message      BIGINT                           DEFAULT NULL,
@@ -884,15 +1226,15 @@ CREATE TABLE IF NOT EXISTS public.wa_api_flow_sessions (
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
-  CONSTRAINT wa_api_flow_sessions_business_fkey
-    FOREIGN KEY (business)
-    REFERENCES public.wa_api_businesses(id)
+  CONSTRAINT wa_api_flow_sessions_phone_number_fkey
+    FOREIGN KEY (phone_number)
+    REFERENCES public.wa_api_phone_numbers(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
   CONSTRAINT wa_api_flow_sessions_contact_fkey
-    FOREIGN KEY ( business, contact)
-    REFERENCES public.wa_api_contacts( business, id)
+    FOREIGN KEY ( phone_number, contact)
+    REFERENCES public.wa_api_contacts( phone_number, id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
@@ -960,7 +1302,7 @@ CREATE TABLE IF NOT EXISTS public.wa_api_flow_data_exchanges (
   
   CONSTRAINT wa_api_flow_data_exchanges_flow_waba_fkey
     FOREIGN KEY (flow_waba)
-    REFERENCES public.wa_api_flow_wabas(id)
+    REFERENCES public.wa_api_flow_encryption_keys(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
@@ -1014,7 +1356,7 @@ CREATE TABLE IF NOT EXISTS public.wa_api_flow_events (
   
   CONSTRAINT wa_api_flow_events_flow_waba_fkey
     FOREIGN KEY (flow_waba)
-    REFERENCES public.wa_api_flow_wabas(id)
+    REFERENCES public.wa_api_flow_encryption_keys(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE
 

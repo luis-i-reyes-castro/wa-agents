@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- flow_waba     : wa_api_flow_wabas.id
+  -- flow_waba     : wa_api_flow_encryption_keys.id
   -- session_id    : wa_api_flow_sessions.id | null
   -- request_hash  : SHA-256 hex digest
   -- request_action : Flow endpoint action

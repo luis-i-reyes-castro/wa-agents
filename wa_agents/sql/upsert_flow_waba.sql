@@ -5,19 +5,22 @@
   -- private_key            : PEM private key
   -- secret_key             : ENCRYPTION_KEY
 
-INSERT INTO public.wa_api_flow_wabas (
-  waba_id,
+INSERT INTO public.wa_api_flow_encryption_keys AS fw (
+  business,
   public_key,
   public_key_fingerprint,
   private_key_encrypted
 )
-VALUES (
-  @waba_id,
+SELECT
+  bus.id,
   @public_key,
   @public_key_fingerprint,
   encrypt_text( @private_key, @secret_key)
-)
-ON CONFLICT (waba_id)
+FROM
+  public.wa_api_businesses AS bus
+WHERE
+  ( bus.waba_id = @waba_id )
+ON CONFLICT (business)
 DO
   UPDATE
 SET
@@ -26,7 +29,8 @@ SET
   public_key_fingerprint = EXCLUDED.public_key_fingerprint,
   private_key_encrypted  = EXCLUDED.private_key_encrypted
 RETURNING
-  id,
-  waba_id,
-  public_key,
-  public_key_fingerprint;
+  fw.id,
+  fw.business,
+  @waba_id AS waba_id,
+  fw.public_key,
+  fw.public_key_fingerprint;

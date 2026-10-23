@@ -5,7 +5,7 @@ SELECT
   con.id,
   con.created_at,
   con.last_seen_at,
-  con.business,
+  con.phone_number AS business,
   con.wa_id,
   con.user_id,
   pro.profile_name,

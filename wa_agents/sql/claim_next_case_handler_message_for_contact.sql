@@ -19,31 +19,25 @@ WITH active_lease AS MATERIALIZED (
 ),
 candidate AS MATERIALIZED (
   SELECT
-    pay.contact,
+    msg.contact,
     que.id,
     que.handler_id,
     que.msg_id,
     COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key,
     settings.silence_timeout_minutes
   FROM
-    public.wa_api_businesses            AS bus
-  JOIN
-    public.wa_api_contacts              AS con ON bus.id = con.business
-  JOIN
-    public.wa_api_inbound_payloads      AS pay ON con.id = pay.contact
-  JOIN
-    public.wa_api_inbound_messages      AS msg ON pay.id = msg.payload
+    public.wa_api_inbound_messages      AS msg
   JOIN
     public.wa_api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
   JOIN
-    active_lease                        AS lea ON lea.contact = pay.contact
+    active_lease                        AS lea ON lea.contact = msg.contact
   LEFT JOIN
     public.wa_case_handler_routes       AS rou ON rou.id = que.handler_id
   LEFT JOIN
     public.wa_case_handler_settings     AS settings ON
       settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key )
   WHERE
-    ( pay.contact    = @contact      ) AND
+    ( msg.contact    = @contact      ) AND
     ( que.id         > @after_row_id ) AND
     ( que.msg_status = 'pending'     )
   ORDER BY

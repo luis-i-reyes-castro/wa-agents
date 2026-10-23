@@ -83,7 +83,14 @@ def _message_data(
         mode         = "json",
         by_alias     = True,
         exclude_none = True,
-        exclude      = { "user", "user_id", "id", "timestamp", "type" },
+        exclude      = {
+            "user",
+            "user_id",
+            "id",
+            "timestamp",
+            "type",
+            "history_context",
+        },
     )
 
 
@@ -169,6 +176,93 @@ class WhatsAppDatabaseQueue :
                 { "msg_id" : msg_id },
             )
         )
+
+    def _persist_history(
+        self,
+        payload_id : int,
+        waba_id    : str,
+        value      : WhatsApp_IB_Value,
+    ) -> None :
+        """
+        Persist history chunks without adding their messages to the live queue.
+        """
+        business = self.storage.upsert_business(
+            waba_id              = waba_id,
+            phone_number_id      = value.metadata.phone_number_id,
+            display_phone_number = value.metadata.display_phone_number,
+        )
+        if not business :
+            raise RuntimeError(f"In {here()}: Unable to persist business")
+
+        for history_index, history in enumerate(value.history) :
+            metadata = history.metadata
+            errors   = [
+                error.model_dump( mode = "json")
+                for error in history.errors
+            ] or None
+            chunk = self.storage.insert_history_chunk(
+                phone_number = business["id"],
+                payload      = payload_id,
+                history_index = history_index,
+                phase         = metadata.phase if metadata else None,
+                chunk_order   = metadata.chunk_order if metadata else None,
+                progress      = metadata.progress if metadata else None,
+                errors        = errors,
+            )
+            if not chunk :
+                raise RuntimeError(
+                    f"In {here()}: Unable to persist history chunk"
+                )
+
+            for thread in history.threads :
+                contact = self.storage.upsert_contact(
+                    business = business["id"],
+                    wa_id    = thread.id,
+                    user_id  = None,
+                )
+                if not contact :
+                    raise RuntimeError(
+                        f"In {here()}: Unable to persist contact"
+                    )
+
+                for message in thread.messages :
+                    self.storage.insert_inbound_message(
+                        contact         = contact["id"],
+                        payload         = payload_id,
+                        is_echo         = (
+                            message.user == value.metadata.display_phone_number
+                        ),
+                        msg_id          = message.id,
+                        msg_ts          = _timestamp(message.timestamp),
+                        msg_type        = message.type,
+                        msg_data        = _message_data(message),
+                        history_chunk   = chunk["id"],
+                        history_context = message.history_context.model_dump(
+                            mode = "json"
+                        ),
+                    )
+
+        for message in value.messages :
+            existing = self.storage.get_inbound_message(message.id)
+            if not existing or existing.get("history_chunk") is None :
+                raise RuntimeError(
+                    f"In {here()}: History media placeholder "
+                    f"'{message.id}' was not found"
+                )
+
+            self.storage.insert_inbound_message(
+                contact         = existing["contact"],
+                payload         = existing["payload"],
+                is_echo         = existing["is_echo"],
+                msg_id          = message.id,
+                msg_ts          = _timestamp(message.timestamp),
+                msg_type        = message.type,
+                msg_data        = _message_data(message),
+                history_chunk   = existing["history_chunk"],
+                history_context = existing["history_context"],
+            )
+
+        return
     
     def _persist_valid_payload(
         self,
@@ -200,6 +294,13 @@ class WhatsAppDatabaseQueue :
                         event_type = value.event,
                         event_data = event_data,
                     )
+                    continue
+
+                elif (
+                    ( change.field == "history"              ) and
+                    isinstance( value, WhatsApp_IB_Value      )
+                ) :
+                    self._persist_history( payload_id, item.id, value)
                     continue
                 
                 elif not (
@@ -254,6 +355,7 @@ class WhatsAppDatabaseQueue :
                 )
                 for message, is_echo in messages :
                     message_row = self.storage.insert_inbound_message(
+                        contact  = contact["id"],
                         payload  = payload_row["id"],
                         is_echo  = is_echo,
                         msg_id   = message.id,
@@ -537,6 +639,93 @@ class AsyncWhatsAppDatabaseQueue :
                 { "msg_id" : msg_id },
             )
         )
+
+    async def _persist_history(
+        self,
+        payload_id : int,
+        waba_id    : str,
+        value      : WhatsApp_IB_Value,
+    ) -> None :
+        """
+        Persist history chunks without adding their messages to the live queue.
+        """
+        business = await self.storage.upsert_business(
+            waba_id              = waba_id,
+            phone_number_id      = value.metadata.phone_number_id,
+            display_phone_number = value.metadata.display_phone_number,
+        )
+        if not business :
+            raise RuntimeError(f"In {here()}: Unable to persist business")
+
+        for history_index, history in enumerate(value.history) :
+            metadata = history.metadata
+            errors   = [
+                error.model_dump( mode = "json")
+                for error in history.errors
+            ] or None
+            chunk = await self.storage.insert_history_chunk(
+                phone_number = business["id"],
+                payload      = payload_id,
+                history_index = history_index,
+                phase         = metadata.phase if metadata else None,
+                chunk_order   = metadata.chunk_order if metadata else None,
+                progress      = metadata.progress if metadata else None,
+                errors        = errors,
+            )
+            if not chunk :
+                raise RuntimeError(
+                    f"In {here()}: Unable to persist history chunk"
+                )
+
+            for thread in history.threads :
+                contact = await self.storage.upsert_contact(
+                    business = business["id"],
+                    wa_id    = thread.id,
+                    user_id  = None,
+                )
+                if not contact :
+                    raise RuntimeError(
+                        f"In {here()}: Unable to persist contact"
+                    )
+
+                for message in thread.messages :
+                    await self.storage.insert_inbound_message(
+                        contact         = contact["id"],
+                        payload         = payload_id,
+                        is_echo         = (
+                            message.user == value.metadata.display_phone_number
+                        ),
+                        msg_id          = message.id,
+                        msg_ts          = _timestamp(message.timestamp),
+                        msg_type        = message.type,
+                        msg_data        = _message_data(message),
+                        history_chunk   = chunk["id"],
+                        history_context = message.history_context.model_dump(
+                            mode = "json"
+                        ),
+                    )
+
+        for message in value.messages :
+            existing = await self.storage.get_inbound_message(message.id)
+            if not existing or existing.get("history_chunk") is None :
+                raise RuntimeError(
+                    f"In {here()}: History media placeholder "
+                    f"'{message.id}' was not found"
+                )
+
+            await self.storage.insert_inbound_message(
+                contact         = existing["contact"],
+                payload         = existing["payload"],
+                is_echo         = existing["is_echo"],
+                msg_id          = message.id,
+                msg_ts          = _timestamp(message.timestamp),
+                msg_type        = message.type,
+                msg_data        = _message_data(message),
+                history_chunk   = existing["history_chunk"],
+                history_context = existing["history_context"],
+            )
+
+        return
     
     async def _persist_valid_payload(
         self,
@@ -568,6 +757,13 @@ class AsyncWhatsAppDatabaseQueue :
                         event_type = value.event,
                         event_data = event_data,
                     )
+                    continue
+
+                elif (
+                    ( change.field == "history"              ) and
+                    isinstance( value, WhatsApp_IB_Value      )
+                ) :
+                    await self._persist_history( payload_id, item.id, value)
                     continue
                 
                 elif not (
@@ -622,6 +818,7 @@ class AsyncWhatsAppDatabaseQueue :
                 )
                 for message, is_echo in messages :
                     message_row = await self.storage.insert_inbound_message(
+                        contact  = contact["id"],
                         payload  = payload_row["id"],
                         is_echo  = is_echo,
                         msg_id   = message.id,

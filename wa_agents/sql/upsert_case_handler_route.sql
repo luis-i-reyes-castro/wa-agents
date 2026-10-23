@@ -1,22 +1,22 @@
 -- PARAMS:
-  -- business      : wa_api_businesses.id
+  -- phone_number  : wa_api_phone_numbers.id
   -- contact       : wa_api_contacts.id | None
   -- handler_key   : str
   -- handler_url   : str | None
 
 INSERT INTO public.wa_case_handler_routes AS rou (
-  business,
+  phone_number,
   contact,
   handler_key,
   handler_url
 )
 VALUES (
-  @business,
+  @phone_number,
   @contact,
   @handler_key,
   @handler_url
 )
-ON CONFLICT ( business, contact)
+ON CONFLICT ( phone_number, contact)
 DO
   UPDATE
 SET
@@ -25,7 +25,7 @@ SET
   updated_at    = now()
 RETURNING
   rou.id,
-  rou.business,
+  rou.phone_number,
   rou.contact,
   rou.handler_key,
   rou.handler_url,

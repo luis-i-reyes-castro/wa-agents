@@ -136,6 +136,7 @@ type WhatsAppMediaSHA256 = Annotated[
 type WhatsAppMessageType = Literal[
     "text",
     "interactive",
+    "template",
     "image",
     "video",
     "audio",
@@ -144,9 +145,30 @@ type WhatsAppMessageType = Literal[
     "reaction",
     "contacts",
     "location",
+    "media_placeholder",
+    "revoke",
     "unsupported",
 ]
 """ WhatsApp Message Type """
+
+type WhatsAppMessageStatus = Literal[
+    "delivered",
+    "failed",
+    "played",
+    "read",
+    "sent",
+]
+""" WhatsApp message delivery status """
+
+type WhatsAppHistoryMessageStatus = Literal[
+    "DELIVERED",
+    "ERROR",
+    "PENDING",
+    "PLAYED",
+    "READ",
+    "SENT",
+]
+""" WhatsApp imported-history message status """
 
 type WhatsApp_OB_MediaType = Literal[
     "image",
@@ -639,6 +661,15 @@ class WhatsApp_IB_UnsupportedData (BaseModel) :
     type     : NE_str
     raw_type : NE_str
 
+class WhatsApp_IB_Revoke (BaseModel) :
+    """
+    WhatsApp revoked-message reference
+        `original_message_id` : ID of the message removed by the sender
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    original_message_id : WhatsAppIdentity
+
 class WhatsApp_IB_Message (BaseModel) :
     """
     WhatsApp message payload
@@ -684,9 +715,12 @@ class WhatsApp_IB_Message (BaseModel) :
     contacts    : tuple[ WhatsAppContactCard, ...]      | None = None
     errors      : tuple[ WhatsApp_IB_MessageError, ...] | None = None
     interactive : WhatsApp_IB_InteractiveReply          | None = None
+    media_placeholder : dict[ str, Any] | None = None
     location    : WhatsAppLocation      | None = None
     reaction    : WhatsApp_IB_Reaction  | None = None
+    revoke      : WhatsApp_IB_Revoke    | None = None
     text        : WhatsAppText          | None = None
+    template    : dict[ str, Any]       | None = None
     unsupported : WhatsApp_IB_UnsupportedData | None = None
     
     audio       : WhatsApp_IB_MediaData | None = None
@@ -705,7 +739,8 @@ class WhatsApp_IB_Message (BaseModel) :
             )
         
         if not (
-            getattr( self, self.type, None) or ( self.type == "unsupported" )
+            getattr( self, self.type, None) or
+            ( self.type in { "media_placeholder", "unsupported" } )
         ) :
             raise ValueError(
                 f"Received {self.__class__.__name__} has field 'type' = '{self.type}' "
@@ -740,6 +775,67 @@ class WhatsApp_IB_MessageEcho (WhatsApp_IB_Message) :
             raise ValueError(
                 f"Received {self.__class__.__name__} is missing both fields "
                 f"'to' and 'to_user_id'"
+            )
+        
+        return self
+
+class WhatsApp_IB_HistoryContext (BaseModel) :
+    """
+    Delivery state captured when one historical message was synchronized
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    status : WhatsAppHistoryMessageStatus
+
+class WhatsApp_IB_HistoryMessage (WhatsApp_IB_Message) :
+    """
+    Message imported from a WhatsApp Business App conversation history
+    """
+    model_config = ConfigDict(
+        frozen           = True,
+        populate_by_name = True,
+    )
+    
+    to              : WhatsAppIdentity           | None = None
+    history_context : WhatsApp_IB_HistoryContext
+
+class WhatsApp_IB_HistoryMetadata (BaseModel) :
+    """
+    Position and progress metadata for one history synchronization chunk
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    phase       : Annotated[ int, Field( ge = 0, le = 2)]
+    chunk_order : Annotated[ int, Field( ge = 0)]
+    progress    : Annotated[ int, Field( ge = 0, le = 100)]
+
+class WhatsApp_IB_HistoryThread (BaseModel) :
+    """
+    Historical conversation with one WhatsApp user
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    id       : WhatsAppIdentity
+    messages : tuple[ WhatsApp_IB_HistoryMessage, ...] = ()
+
+class WhatsApp_IB_History (BaseModel) :
+    """
+    One successful history chunk or terminal history-sharing error
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    metadata : WhatsApp_IB_HistoryMetadata | None      = None
+    threads  : tuple[ WhatsApp_IB_HistoryThread, ...]  = ()
+    errors   : tuple[ WhatsApp_IB_MessageError, ...]   = ()
+    
+    @model_validator( mode = "after")
+    def validate_result(self) -> Self :
+        
+        has_chunk = ( self.metadata is not None ) and bool(self.threads)
+        has_error = bool(self.errors)
+        if has_chunk == has_error :
+            raise ValueError(
+                "History result must contain either metadata and threads, or errors"
             )
         
         return self
@@ -850,13 +946,7 @@ class WhatsApp_IB_Status (BaseModel) :
     id                : WhatsAppIdentity
     recipient_id      : WhatsAppIdentity | None = None # Receiver phone number
     recipient_user_id : WhatsAppIdentity | None = None # Receiver BSUID
-    status            : Literal[
-        "delivered",
-        "failed",
-        "played",
-        "read",
-        "sent",
-    ]
+    status            : WhatsAppMessageStatus
     
     timestamp    : UnixTS
     conversation : WhatsApp_IB_Conversation             | None = None
@@ -931,6 +1021,7 @@ class WhatsApp_IB_Value (BaseModel) :
         `messages`          : tuple[ WhatsApp_IB_Message,     ...]
         `statuses`          : tuple[ WhatsApp_IB_Status,      ...]
         `message_echoes`    : tuple[ WhatsApp_IB_MessageEcho, ...]
+        `history`           : tuple[ WhatsApp_IB_History,     ...]
     """
     
     model_config = ConfigDict( frozen = True)
@@ -938,18 +1029,24 @@ class WhatsApp_IB_Value (BaseModel) :
     messaging_product : Literal["whatsapp"] = "whatsapp"
     
     metadata       : WhatsApp_IB_MetaData
-    contacts       : tuple[ WhatsApp_IB_Contact ] # Exactly one item
+    contacts       : tuple[ WhatsApp_IB_Contact, ...]     = ()
     messages       : tuple[ WhatsApp_IB_Message,     ...] = ()
     statuses       : tuple[ WhatsApp_IB_Status,      ...] = ()
     message_echoes : tuple[ WhatsApp_IB_MessageEcho, ...] = ()
+    history        : tuple[ WhatsApp_IB_History,     ...] = ()
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
         
-        if not ( self.messages or self.statuses or self.message_echoes ) :
+        if not (
+            self.messages       or
+            self.statuses       or
+            self.message_echoes or
+            self.history
+        ) :
             raise ValueError(
-                f"Received {self.__class__.__name__} includes no messages, statuses, "
-                f"or message echoes"
+                f"Received {self.__class__.__name__} "
+                f"includes no messages, statuses, message echoes, or history."
             )
         
         return self
@@ -974,6 +1071,7 @@ class WhatsApp_IB_Change (BaseModel) :
             `flows`              : Flow status, endpoint-health, and client-error events
             `messages`           : Regular inbound messages
             `smb_message_echoes` : Human-originated outbound messages (mobile app)
+            `history`            : Historical conversation synchronization chunks
     """
     
     model_config = ConfigDict( frozen = True)
@@ -986,6 +1084,7 @@ class WhatsApp_IB_Change (BaseModel) :
     field : Literal[
                 "account_update",
                 "flows",
+                "history",
                 "messages",
                 "smb_message_echoes",
             ]
@@ -1003,6 +1102,17 @@ class WhatsApp_IB_Change (BaseModel) :
             raise ValueError(
                 f"Received {self.__class__.__name__} has 'field' = 'messages' "
                 f"but fields 'value.messages' and 'value.statuses' are both empty"
+            )
+        elif (
+            ( self.field == "history" ) and
+            (
+                ( not isinstance( self.value, WhatsApp_IB_Value) ) or
+                ( not ( self.value.history or self.value.messages ) )
+            )
+        ) :
+            raise ValueError(
+                f"Received {self.__class__.__name__} has 'field' = 'history' "
+                f"but fields 'value.history' and 'value.messages' are both empty"
             )
         elif (
             ( self.field == "smb_message_echoes" ) and
