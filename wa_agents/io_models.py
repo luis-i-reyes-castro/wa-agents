@@ -9,6 +9,7 @@ import base64
 import json
 
 from abc import ABC
+from datetime import datetime
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -43,6 +44,12 @@ from sofia_utils.printing import get_qualname as here
 # BASE TYPES
 
 # Strings constrained by regex pattern and/or length specs
+
+type WhatsAppCountryCode = Annotated[
+    str,
+    Field( pattern = r"^(?:[A-Z]{2}|[a-z]{2})$"),
+]
+""" WhatsApp country code """
 
 type WhatsAppIdentity = NO_WS_str
 r"""
@@ -1015,6 +1022,181 @@ class WhatsApp_IB_FlowEvent (BaseModel) :
     event   : NE_str
     flow_id : NumericID | None = None
 
+class WhatsApp_IB_AccountRestriction (BaseModel) :
+    """
+    WhatsApp Business Account restriction
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    restriction_type : NE_str
+    expiration       : int
+    remediation      : NE_str | None = None
+
+class WhatsApp_IB_AccountViolationInfo (BaseModel) :
+    """
+    WhatsApp Business Account policy violation
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    violation_type : NE_str
+
+class WhatsApp_IB_AccountWABAInfo (BaseModel) :
+    """
+    WhatsApp Business Account identifiers for non-partner account updates
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    waba_id           : WhatsAppIdentity
+    owner_business_id : WhatsAppIdentity
+    ad_account_linked : WhatsAppIdentity | None = None
+
+class WhatsApp_IB_AuthRateCountryException (BaseModel) :
+    """
+    Country-specific international authentication-rate start time
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    country_code : WhatsAppCountryCode
+    start_time   : int
+
+class WhatsApp_IB_AuthRateEligibility (BaseModel) :
+    """
+    International authentication-rate eligibility details
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    exception_countries : tuple[ WhatsApp_IB_AuthRateCountryException, ...]
+    start_time          : int
+
+class WhatsApp_IB_AccountBanInfo (BaseModel) :
+    """
+    WhatsApp Business Account ban state
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    waba_ban_state : Literal[
+        "DISABLE",
+        "REINSTATE",
+        "SCHEDULE_FOR_DISABLE",
+    ]
+    waba_ban_date  : NE_str
+
+class WhatsApp_IB_PartnerCertificationInfo (BaseModel) :
+    """
+    Partner-led business-verification result
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    client_business_id : WhatsAppIdentity
+    status             : Literal[
+        "APPROVED",
+        "DISCARDED",
+        "FAILED",
+        "PENDING",
+        "REVOKED",
+    ]
+    rejection_reasons  : tuple[ NE_str, ...]
+
+class WhatsApp_IB_VolumeTierInfo (BaseModel) :
+    """
+    Volume-based pricing tier details
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    tier_update_time : int
+    pricing_category : NE_str
+    tier             : NE_str
+    effective_month  : Annotated[
+        str,
+        Field( pattern = r"^[0-9]{4}-(0[1-9]|1[0-2])$"),
+    ]
+    region           : NE_str
+
+class WhatsApp_IB_AccountUpdate (BaseModel) :
+    """
+    Documented WhatsApp Business Account update other than partner-sharing events
+    Reference:
+        https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/account_update
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    event : Literal[
+        "ACCOUNT_DELETED",
+        "ACCOUNT_OFFBOARDED",
+        "ACCOUNT_RECONNECTED",
+        "ACCOUNT_RESTRICTION",
+        "ACCOUNT_VIOLATION",
+        "AD_ACCOUNT_LINKED",
+        "AUTH_INTL_PRICE_ELIGIBILITY_UPDATE",
+        "BUSINESS_PRIMARY_LOCATION_COUNTRY_UPDATE",
+        "DISABLED_UPDATE",
+        "MM_LITE_TERMS_SIGNED",
+        "PARTNER_CLIENT_CERTIFICATION_STATUS_UPDATE",
+        "VOLUME_BASED_PRICING_TIER_UPDATE",
+    ]
+    
+    waba_info    : WhatsApp_IB_AccountWABAInfo | None = None
+    phone_number : WhatsAppIdentity            | None = None
+    country      : WhatsAppCountryCode         | None = None
+    
+    auth_international_rate_eligibility : (
+        WhatsApp_IB_AuthRateEligibility | None
+    ) = None
+    ban_info : (
+        WhatsApp_IB_AccountBanInfo | None
+    ) = None
+    partner_client_certification_info : (
+        WhatsApp_IB_PartnerCertificationInfo | None
+    ) = None
+    restriction_info : (
+        Annotated[
+            tuple[ WhatsApp_IB_AccountRestriction, ...],
+            Field( min_length = 1),
+        ] | None
+    ) = None
+    violation_info   : (
+        WhatsApp_IB_AccountViolationInfo | None
+    ) = None
+    volume_tier_info : (
+        WhatsApp_IB_VolumeTierInfo | None
+    ) = None
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        required_field = {
+            "ACCOUNT_RESTRICTION"                        : "restriction_info",
+            "ACCOUNT_VIOLATION"                          : "violation_info",
+            "AD_ACCOUNT_LINKED"                          : "waba_info",
+            "AUTH_INTL_PRICE_ELIGIBILITY_UPDATE" : (
+                "auth_international_rate_eligibility"
+            ),
+            "BUSINESS_PRIMARY_LOCATION_COUNTRY_UPDATE"   : "country",
+            "DISABLED_UPDATE"                            : "ban_info",
+            "MM_LITE_TERMS_SIGNED"                       : "waba_info",
+            "PARTNER_CLIENT_CERTIFICATION_STATUS_UPDATE" : (
+                "partner_client_certification_info"
+            ),
+            "VOLUME_BASED_PRICING_TIER_UPDATE"           : "volume_tier_info",
+        }.get(self.event)
+        
+        if required_field and not getattr( self, required_field) :
+            raise ValueError(
+                f"Account update event '{self.event}' requires field "
+                f"'{required_field}'"
+            )
+        
+        if (
+            ( self.event == "AD_ACCOUNT_LINKED" ) and
+            self.waba_info and
+            ( not self.waba_info.ad_account_linked )
+        ) :
+            raise ValueError(
+                "Account update event 'AD_ACCOUNT_LINKED' requires field "
+                "'waba_info.ad_account_linked'"
+            )
+        
+        return self
+
 class WhatsApp_IB_PartnerWABAInfo (BaseModel) :
     """
     WhatsApp Business Account data included in partner updates
@@ -1028,13 +1210,35 @@ class WhatsApp_IB_PartnerWABAInfo (BaseModel) :
     waba_id           : WhatsAppIdentity
     owner_business_id : WhatsAppIdentity
     partner_app_id    : WhatsAppIdentity | None = None
+    solution_id       : WhatsAppIdentity | None = None
+    solution_partner_business_ids : tuple[ WhatsAppIdentity, ...] | None = None
+
+class WhatsApp_IB_PartnerDisconnectionInfo (BaseModel) :
+    """
+    WhatsApp partner disconnection details
+        `reason`       : "<disconnection reason>"
+        `initiated_by` : "<initiator>"
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    reason : Literal[
+        "ACCOUNT_DISCONNECTED",
+        "BUSINESS_DOWNGRADE",
+        "CHANGE_NUMBER",
+        "COMPANION_INACTIVITY",
+        "PRIMARY_INACTIVITY",
+        "USER_RE_REGISTERED",
+    ]
+    initiated_by : Literal[ "SYSTEM", "USER"]
 
 class WhatsApp_IB_PartnerUpdate (BaseModel) :
     """
     WhatsApp partner account update
         `event`     : "PARTNER_ADDED"   | "PARTNER_APP_INSTALLED" |
                       "PARTNER_REMOVED" | "PARTNER_APP_UNINSTALLED"
-        `waba_info` : WhatsApp_IB_PartnerWABAInfo
+        `waba_info`          : WhatsApp_IB_PartnerWABAInfo | null
+        `phone_number`       : "<business display phone number>" | null
+        `disconnection_info` : WhatsApp_IB_PartnerDisconnectionInfo | null
     """
     
     model_config = ConfigDict( frozen = True)
@@ -1045,7 +1249,60 @@ class WhatsApp_IB_PartnerUpdate (BaseModel) :
         "PARTNER_REMOVED",
         "PARTNER_APP_UNINSTALLED",
     ]
-    waba_info : WhatsApp_IB_PartnerWABAInfo
+    waba_info          : WhatsApp_IB_PartnerWABAInfo | None = None
+    phone_number       : WhatsAppIdentity            | None = None
+    disconnection_info : WhatsApp_IB_PartnerDisconnectionInfo | None = None
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        if self.waba_info :
+            return self
+        
+        if ( self.event == "PARTNER_REMOVED" ) and self.phone_number :
+            return self
+        
+        raise ValueError(
+            f"Partner update event '{self.event}' requires field 'waba_info'"
+        )
+
+class WhatsApp_IB_PhoneLinkActor (BaseModel) :
+    """
+    Business or system actor that changed a WhatsApp phone-number link
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    business_id   : WhatsAppIdentity | None = None
+    business_name : NE_str           | None = None
+    description   : NE_str           | None = None
+
+class WhatsApp_IB_PhoneLinkDetails (BaseModel) :
+    """
+    WhatsApp phone-number link change details
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    change_action   : NE_str
+    phone_number_id : WhatsAppIdentity
+
+class WhatsApp_IB_PhoneLinkUpdate (BaseModel) :
+    """
+    WhatsApp phone-number link update
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    event      : Literal["PHONE_LINK_CHANGED"]
+    event_time : datetime
+    actor      : WhatsApp_IB_PhoneLinkActor
+    details    : WhatsApp_IB_PhoneLinkDetails
+
+class WhatsApp_IB_PhoneNumberRemovedUpdate (BaseModel) :
+    """
+    WhatsApp phone-number removal update
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    event        : Literal["PHONE_NUMBER_REMOVED"]
+    phone_number : WhatsAppIdentity
 
 class WhatsApp_IB_Value (BaseModel) :
     """
@@ -1102,8 +1359,11 @@ class WhatsApp_IB_Change (BaseModel) :
     """
     WhatsApp change item
         `value` :
-            `WhatsApp_IB_FlowEvent`     |
-            `WhatsApp_IB_PartnerUpdate` |
+            `WhatsApp_IB_AccountUpdate`            |
+            `WhatsApp_IB_FlowEvent`                |
+            `WhatsApp_IB_PartnerUpdate`            |
+            `WhatsApp_IB_PhoneLinkUpdate`          |
+            `WhatsApp_IB_PhoneNumberRemovedUpdate` |
             `WhatsApp_IB_Value`
         `field` :
             `account_update`     : Partner account and app updates
@@ -1117,8 +1377,11 @@ class WhatsApp_IB_Change (BaseModel) :
     model_config = ConfigDict( frozen = True)
     
     value : (
-        WhatsApp_IB_FlowEvent     |
-        WhatsApp_IB_PartnerUpdate |
+        WhatsApp_IB_AccountUpdate           |
+        WhatsApp_IB_FlowEvent                |
+        WhatsApp_IB_PartnerUpdate            |
+        WhatsApp_IB_PhoneLinkUpdate          |
+        WhatsApp_IB_PhoneNumberRemovedUpdate |
         WhatsApp_IB_Value
     )
     field : Literal[
@@ -1180,11 +1443,21 @@ class WhatsApp_IB_Change (BaseModel) :
             )
         elif (
             ( self.field == "account_update" ) and
-            ( not isinstance( self.value, WhatsApp_IB_PartnerUpdate) )
+            (
+                not isinstance(
+                    self.value,
+                    (
+                        WhatsApp_IB_AccountUpdate,
+                        WhatsApp_IB_PartnerUpdate,
+                        WhatsApp_IB_PhoneLinkUpdate,
+                        WhatsApp_IB_PhoneNumberRemovedUpdate,
+                    ),
+                )
+            )
         ) :
             raise ValueError(
                 f"Received {self.__class__.__name__} has 'field' = 'account_update' "
-                f"but field 'value' is not a {WhatsApp_IB_PartnerUpdate.__name__}"
+                "but field 'value' is not a WhatsApp account update"
             )
         
         return self

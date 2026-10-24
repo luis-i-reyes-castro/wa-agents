@@ -7,6 +7,7 @@ from pydantic import (
 from sofia_utils.pydantic import NE_str
 
 from wa_agents.io_models import (
+    WhatsAppCountryCode,
     WhatsAppInteractiveOption,
     WhatsApp_IB_Message,
     WhatsApp_IB_MessageEcho,
@@ -46,6 +47,20 @@ def test_nonempty_string_accepts_internal_newlines() -> None :
     value = "First line\nSecond line"
 
     assert TypeAdapter(NE_str).validate_python(value) == value
+
+
+@pytest.mark.parametrize( "country_code", [ "EC", "ec" ] )
+def test_country_code_accepts_two_letters(country_code : str) -> None :
+    assert TypeAdapter(WhatsAppCountryCode).validate_python(country_code) == country_code
+
+
+@pytest.mark.parametrize(
+    "country_code",
+    [ "E", "ECU", "EC-extra", "extra-ec", "E1", "Ec", "eC" ],
+)
+def test_country_code_rejects_invalid_values(country_code : str) -> None :
+    with pytest.raises(ValidationError) :
+        TypeAdapter(WhatsAppCountryCode).validate_python(country_code)
 
 
 def test_media_captions_accept_internal_newlines() -> None :
@@ -339,6 +354,270 @@ def test_smb_app_state_sync_parses_contact_changes() -> None :
     assert state_sync[0].action == "add"
     assert state_sync[1].contact.full_name is None
     assert state_sync[1].action == "remove"
+
+
+def test_account_updates_parse_observed_variants() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "123456789",
+                "changes" : [
+                    {
+                        "field" : "account_update",
+                        "value" : {
+                            "event"     : "PARTNER_REMOVED",
+                            "waba_info" : {
+                                "waba_id"           : "123456789",
+                                "owner_business_id" : "987654321",
+                            },
+                            "disconnection_info" : {
+                                "reason"       : "ACCOUNT_DISCONNECTED",
+                                "initiated_by" : "USER",
+                            },
+                        },
+                    },
+                    {
+                        "field" : "account_update",
+                        "value" : {
+                            "event"      : "PHONE_LINK_CHANGED",
+                            "event_time" : "2026-10-24T01:35:02+0000",
+                            "actor" : {
+                                "business_id"   : "987654321",
+                                "business_name" : "Example Business",
+                            },
+                            "details" : {
+                                "change_action"   : "UNLINK",
+                                "phone_number_id" : "111222333",
+                            },
+                        },
+                    },
+                    {
+                        "field" : "account_update",
+                        "value" : {
+                            "event"      : "PHONE_LINK_CHANGED",
+                            "event_time" : "2026-10-24T01:37:05+0000",
+                            "actor"      : { "description" : "System actor" },
+                            "details" : {
+                                "change_action"   : "UNLINK",
+                                "phone_number_id" : "111222333",
+                            },
+                        },
+                    },
+                    {
+                        "field" : "account_update",
+                        "value" : {
+                            "event"        : "PHONE_NUMBER_REMOVED",
+                            "phone_number" : "15551234567",
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    changes = payload.entry[0].changes
+    assert changes[0].value.disconnection_info
+    assert changes[0].value.disconnection_info.initiated_by == "USER"
+    assert changes[1].value.actor.business_name == "Example Business"
+    assert changes[1].value.details.change_action == "UNLINK"
+    assert changes[2].value.actor.description == "System actor"
+    assert changes[3].value.phone_number == "15551234567"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        { "event" : "ACCOUNT_DELETED" },
+        { "event" : "ACCOUNT_OFFBOARDED" },
+        { "event" : "ACCOUNT_RECONNECTED" },
+        {
+            "event" : "ACCOUNT_RESTRICTION",
+            "phone_number" : "15550783881",
+            "restriction_info" : [
+                {
+                    "restriction_type" : "RESTRICTED_BIZ_INITIATED_MESSAGING",
+                    "expiration"       : 1641330498,
+                },
+                {
+                    "restriction_type" : "RESTRICTED_ADD_PHONE_NUMBER_ACTION",
+                    "expiration"       : 1641330498,
+                    "remediation"      : "Review messaging practices.",
+                },
+            ],
+        },
+        {
+            "event"          : "ACCOUNT_VIOLATION",
+            "violation_info" : { "violation_type" : "ADULT" },
+        },
+        {
+            "event" : "AD_ACCOUNT_LINKED",
+            "waba_info" : {
+                "waba_id"           : "980198427658004",
+                "owner_business_id" : "2329417887457253",
+                "ad_account_linked" : "980198427534243",
+            },
+        },
+        {
+            "event" : "AUTH_INTL_PRICE_ELIGIBILITY_UPDATE",
+            "auth_international_rate_eligibility" : {
+                "exception_countries" : [
+                    { "country_code" : "ID", "start_time" : 1751347424 },
+                ],
+                "start_time" : 1748780624,
+            },
+        },
+        {
+            "event"   : "BUSINESS_PRIMARY_LOCATION_COUNTRY_UPDATE",
+            "country" : "IN",
+        },
+        {
+            "event"    : "DISABLED_UPDATE",
+            "ban_info" : {
+                "waba_ban_state" : "REINSTATE",
+                "waba_ban_date"  : "April 17, 2025",
+            },
+        },
+        {
+            "event" : "MM_LITE_TERMS_SIGNED",
+            "waba_info" : {
+                "waba_id"           : "980198427658004",
+                "owner_business_id" : "2329417887457253",
+            },
+        },
+        {
+            "event" : "PARTNER_CLIENT_CERTIFICATION_STATUS_UPDATE",
+            "partner_client_certification_info" : {
+                "client_business_id" : "2729063490586005",
+                "status"             : "APPROVED",
+                "rejection_reasons"  : [ "NONE" ],
+            },
+        },
+        {
+            "event" : "VOLUME_BASED_PRICING_TIER_UPDATE",
+            "volume_tier_info" : {
+                "tier_update_time" : 1743451903,
+                "pricing_category" : "UTILITY",
+                "tier"             : "25000001:50000000",
+                "effective_month"  : "2025-11",
+                "region"           : "India",
+            },
+        },
+    ],
+)
+def test_account_updates_parse_documented_variants(
+    value : dict[str, object],
+) -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "entry" : [
+            {
+                "id"      : "123456789",
+                "changes" : [
+                    { "field" : "account_update", "value" : value },
+                ],
+            },
+        ],
+    })
+
+    assert payload.entry[0].changes[0].value.event == value["event"]
+
+
+def test_partner_update_parses_documented_multi_partner_fields() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "entry" : [
+            {
+                "id"      : "123456789",
+                "changes" : [
+                    {
+                        "field" : "account_update",
+                        "value" : {
+                            "event" : "PARTNER_ADDED",
+                            "waba_info" : {
+                                "waba_id"           : "980198427658004",
+                                "owner_business_id" : "2329417887457253",
+                                "solution_id"       : "1715120619246906",
+                                "solution_partner_business_ids" : [
+                                    "2949482758682047",
+                                    "520744086200222",
+                                ],
+                            },
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    value = payload.entry[0].changes[0].value
+    assert value.waba_info
+    assert value.waba_info.solution_id == "1715120619246906"
+    assert value.waba_info.solution_partner_business_ids == (
+        "2949482758682047",
+        "520744086200222",
+    )
+
+
+def test_partner_removed_parses_documented_phone_number_variant() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "entry" : [
+            {
+                "id"      : "123456789",
+                "changes" : [
+                    {
+                        "field" : "account_update",
+                        "value" : {
+                            "event"        : "PARTNER_REMOVED",
+                            "phone_number" : "15550783881",
+                            "disconnection_info" : {
+                                "reason"       : "PRIMARY_INACTIVITY",
+                                "initiated_by" : "SYSTEM",
+                            },
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    value = payload.entry[0].changes[0].value
+    assert value.waba_info is None
+    assert value.phone_number == "15550783881"
+    assert value.disconnection_info
+    assert value.disconnection_info.reason == "PRIMARY_INACTIVITY"
+
+
+def test_account_update_rejects_unknown_variant() -> None :
+    with pytest.raises(ValidationError) :
+        WhatsApp_IB_Payload.model_validate({
+            "entry" : [
+                {
+                    "id"      : "123456789",
+                    "changes" : [
+                        {
+                            "field" : "account_update",
+                            "value" : { "event" : "UNKNOWN_EVENT" },
+                        },
+                    ],
+                },
+            ],
+        })
+
+
+def test_documented_account_update_requires_event_details() -> None :
+    with pytest.raises(ValidationError) :
+        WhatsApp_IB_Payload.model_validate({
+            "entry" : [
+                {
+                    "id"      : "123456789",
+                    "changes" : [
+                        {
+                            "field" : "account_update",
+                            "value" : { "event" : "ACCOUNT_VIOLATION" },
+                        },
+                    ],
+                },
+            ],
+        })
 
 
 def test_revoke_message_parses_original_message_id() -> None :
