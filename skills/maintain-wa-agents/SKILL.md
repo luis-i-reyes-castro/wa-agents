@@ -96,8 +96,20 @@ sensitive. A wrong key stops the script at the first failed decryption.
 
 ## Verify Proportionally
 
-Read [references/verification.md](references/verification.md) before validating a
-persistence or queue change.
+Read [references/verification.md](references/verification.md) before validating a persistence or queue change.
+
+For every SQL change, run the schema-aware Postgres Language Server from the repository root against each affected file:
+
+```bash
+postgres-language-server check \
+  --config-path=postgres-language-server.jsonc \
+  --max-diagnostics=none \
+  wa_agents/sql/path/to/query.sql
+```
+
+If `postgres-language-server` is not on `PATH`, use Cursor's downloaded binary at `~/.config/Cursor/User/globalStorage/supabase.postgrestools/global-bin/postgres-language-server`.
+Do not substitute a generic SQL formatter or SQLFluff for this check: the configured server understands the live PostgreSQL schema and reports database type-inference errors.
+Explicitly cast named parameters used only in polymorphic functions such as `JSONB_BUILD_OBJECT`; choose the cast from the real column/domain type and keep the Python parameter contract synchronized.
 
 At minimum:
 
