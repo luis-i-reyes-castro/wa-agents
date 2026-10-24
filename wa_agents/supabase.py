@@ -154,6 +154,9 @@ SQL_GET_FLOW_SESSION                = _load_sql("get_flow_session.sql")
 SQL_GET_FLOW_WABA                   = _load_sql("get_flow_waba.sql")
 SQL_GET_INBOUND_MESSAGE             = _load_sql("get_inbound_message.sql")
 SQL_GET_INBOUND_PAYLOAD             = _load_sql("get_inbound_payload.sql")
+SQL_GET_INBOUND_PAYLOAD_BY_HASH     = _load_sql(
+    "get_inbound_payload_by_hash.sql"
+)
 SQL_GET_OPEN_CASE_MANIFEST          = _load_sql("get_open_case_manifest.sql")
 SQL_INSERT_CASE_HANDLER_MESSAGE     = _load_sql("insert_case_handler_message.sql")
 SQL_INSERT_CASE_MANIFEST            = _load_sql("insert_case_manifest.sql")
@@ -524,14 +527,25 @@ class SyncSupabaseStorage :
         data_hash : str | None = None,
     ) -> dict[str, Any] | None :
         
-        raw = _json_compatible(data_raw)
-        
-        return self._fetch_one(
+        raw          = _json_compatible(data_raw)
+        payload_hash = data_hash or _payload_hash(raw)
+        params       = {
+            "data_raw"  : Jsonb(raw),
+            "data_hash" : payload_hash,
+        }
+        row = self._fetch_one(
             SQL_INSERT_INBOUND_PAYLOAD,
-            {
-                "data_raw"  : Jsonb(raw),
-                "data_hash" : data_hash or _payload_hash(raw),
-            },
+            params,
+        )
+        if row :
+            return row
+        
+        # A concurrent ON CONFLICT can observe the competing insert while the
+        # statement snapshot cannot yet select it. A new statement sees the
+        # now-committed duplicate.
+        return self._fetch_one(
+            SQL_GET_INBOUND_PAYLOAD_BY_HASH,
+            { "data_hash" : payload_hash },
         )
     
     def get_inbound_payload(
@@ -1435,14 +1449,25 @@ class AsyncSupabaseStorage :
         data_hash : str | None = None,
     ) -> dict[str, Any] | None :
         
-        raw = _json_compatible(data_raw)
-        
-        return await self._fetch_one(
+        raw          = _json_compatible(data_raw)
+        payload_hash = data_hash or _payload_hash(raw)
+        params       = {
+            "data_raw"  : Jsonb(raw),
+            "data_hash" : payload_hash,
+        }
+        row = await self._fetch_one(
             SQL_INSERT_INBOUND_PAYLOAD,
-            {
-                "data_raw"  : Jsonb(raw),
-                "data_hash" : data_hash or _payload_hash(raw),
-            },
+            params,
+        )
+        if row :
+            return row
+        
+        # A concurrent ON CONFLICT can observe the competing insert while the
+        # statement snapshot cannot yet select it. A new statement sees the
+        # now-committed duplicate.
+        return await self._fetch_one(
+            SQL_GET_INBOUND_PAYLOAD_BY_HASH,
+            { "data_hash" : payload_hash },
         )
     
     async def get_inbound_payload(

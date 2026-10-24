@@ -35,8 +35,17 @@ class StubRequest :
 
 
 class StubQueue :
-    def __init__( self, error : Exception | None = None) -> None :
+    def __init__(
+        self,
+        error  : Exception | None = None,
+        result : dict[str, bool] | None = None,
+    ) -> None :
         self.error   = error
+        self.result  = (
+            result
+            if result is not None else
+            { "stored" : True, "enqueued" : True }
+        )
         self.payload : dict[str, Any] | None = None
         self.storage = object()
 
@@ -44,7 +53,7 @@ class StubQueue :
         self.payload = payload
         if self.error :
             raise self.error
-        return { "stored" : True, "enqueued" : True }
+        return self.result
 
 
 class LifespanQueue (StubQueue) :
@@ -102,6 +111,26 @@ def test_webhook_passes_payload_dict_to_queue() -> None :
         "status"   : "ok",
         "stored"   : True,
         "enqueued" : True,
+    }
+
+
+def test_webhook_acknowledges_duplicate_payload() -> None :
+    data = { "object" : "whatsapp_business_account", "entry" : [] }
+    queue = StubQueue(
+        result = { "stored" : False, "enqueued" : False },
+    )
+    server = WhatsAppAPIListener(
+        queue             = queue,
+        verify_app_secret = False,
+    )
+
+    response = asyncio.run(server.webhook(StubRequest(data)))
+
+    assert response.status_code == 200
+    assert response_data(response) == {
+        "status"   : "ok",
+        "stored"   : False,
+        "enqueued" : False,
     }
 
 

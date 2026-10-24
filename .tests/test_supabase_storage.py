@@ -215,6 +215,30 @@ def test_inbound_payload_is_bound_as_jsonb( monkeypatch) -> None :
     )
 
 
+def test_inbound_payload_recovers_concurrent_duplicate( monkeypatch) -> None :
+    storage      = supabase.SyncSupabaseStorage("postgresql://test")
+    payload_hash = supabase._payload_hash({ "hello" : "world" })
+    calls        = []
+
+    def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        if sql == supabase.SQL_INSERT_INBOUND_PAYLOAD :
+            return None
+        return { "id" : 7, "inserted" : False }
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+    row = storage.insert_inbound_payload({ "hello" : "world" })
+
+    assert row == { "id" : 7, "inserted" : False }
+    assert calls[0][0] == supabase.SQL_INSERT_INBOUND_PAYLOAD
+    assert calls[0][1]["data_raw"].obj == { "hello" : "world" }
+    assert calls[0][1]["data_hash"] == payload_hash
+    assert calls[1] == (
+        supabase.SQL_GET_INBOUND_PAYLOAD_BY_HASH,
+        { "data_hash" : payload_hash },
+    )
+
+
 def test_case_handler_message_round_trip_and_state_update( monkeypatch) -> None :
     storage = supabase.SyncSupabaseStorage("postgresql://test")
     message = ServerTextMsg( text = "hello", origin = "test")
@@ -340,6 +364,27 @@ def test_async_payload_insert_uses_same_contract( monkeypatch) -> None :
     assert row == { "id" : 8, "inserted" : True }
     assert calls[0][0] == supabase.SQL_INSERT_INBOUND_PAYLOAD
     assert calls[0][1]["data_raw"].obj == { "hello" : "async" }
+
+
+def test_async_payload_insert_recovers_concurrent_duplicate( monkeypatch) -> None :
+    storage      = supabase.AsyncSupabaseStorage("postgresql://test")
+    payload_hash = supabase._payload_hash({ "hello" : "async" })
+    calls        = []
+
+    async def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        if sql == supabase.SQL_INSERT_INBOUND_PAYLOAD :
+            return None
+        return { "id" : 8, "inserted" : False }
+
+    monkeypatch.setattr( storage, "_fetch_one", fake_fetch_one)
+    row = asyncio.run(storage.insert_inbound_payload({ "hello" : "async" }))
+
+    assert row == { "id" : 8, "inserted" : False }
+    assert calls[1] == (
+        supabase.SQL_GET_INBOUND_PAYLOAD_BY_HASH,
+        { "data_hash" : payload_hash },
+    )
 
 
 def test_media_object_key_uses_phone_user_and_ordinals() -> None :

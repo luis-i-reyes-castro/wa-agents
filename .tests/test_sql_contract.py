@@ -93,6 +93,7 @@ def test_raw_payload_audit_contract() -> None :
     assert "ALTER TABLE public.wa_api_inbound_payloads" in DDL
     assert "data_raw" in insert_payload
     assert "data_hash" in insert_payload
+    assert ( SQL_DIR / "get_inbound_payload_by_hash.sql").is_file()
 
 
 def test_payload_validation_result_has_explicit_updates() -> None :
