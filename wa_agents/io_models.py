@@ -1267,7 +1267,7 @@ class WhatsApp_IB_PartnerUpdate (BaseModel) :
 
 class WhatsApp_IB_PhoneLinkActor (BaseModel) :
     """
-    Business or system actor that changed a WhatsApp phone-number link
+    Business or system actor that changed a WhatsApp account setting
     """
     model_config = ConfigDict( frozen = True)
     
@@ -1294,6 +1294,26 @@ class WhatsApp_IB_PhoneLinkUpdate (BaseModel) :
     event_time : datetime
     actor      : WhatsApp_IB_PhoneLinkActor
     details    : WhatsApp_IB_PhoneLinkDetails
+
+class WhatsApp_IB_WebhookConfigDetails (BaseModel) :
+    """
+    WhatsApp webhook configuration change details
+    """
+    model_config = ConfigDict( frozen = True)
+
+    change_action : NE_str
+    field         : NE_str
+
+class WhatsApp_IB_WebhookConfigUpdate (BaseModel) :
+    """
+    WhatsApp webhook configuration update
+    """
+    model_config = ConfigDict( frozen = True)
+
+    event      : Literal["WEBHOOK_CONFIG_UPDATED"]
+    event_time : datetime
+    actor      : WhatsApp_IB_PhoneLinkActor
+    details    : WhatsApp_IB_WebhookConfigDetails
 
 class WhatsApp_IB_PhoneNumberRemovedUpdate (BaseModel) :
     """
@@ -1364,6 +1384,7 @@ class WhatsApp_IB_Change (BaseModel) :
             `WhatsApp_IB_PartnerUpdate`            |
             `WhatsApp_IB_PhoneLinkUpdate`          |
             `WhatsApp_IB_PhoneNumberRemovedUpdate` |
+            `WhatsApp_IB_WebhookConfigUpdate`      |
             `WhatsApp_IB_Value`
         `field` :
             `account_update`     : Partner account and app updates
@@ -1382,6 +1403,7 @@ class WhatsApp_IB_Change (BaseModel) :
         WhatsApp_IB_PartnerUpdate            |
         WhatsApp_IB_PhoneLinkUpdate          |
         WhatsApp_IB_PhoneNumberRemovedUpdate |
+        WhatsApp_IB_WebhookConfigUpdate      |
         WhatsApp_IB_Value
     )
     field : Literal[
@@ -1451,6 +1473,7 @@ class WhatsApp_IB_Change (BaseModel) :
                         WhatsApp_IB_PartnerUpdate,
                         WhatsApp_IB_PhoneLinkUpdate,
                         WhatsApp_IB_PhoneNumberRemovedUpdate,
+                        WhatsApp_IB_WebhookConfigUpdate,
                     ),
                 )
             )

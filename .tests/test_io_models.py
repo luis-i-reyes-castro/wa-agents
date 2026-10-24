@@ -411,6 +411,32 @@ def test_account_updates_parse_observed_variants() -> None :
                             "phone_number" : "15551234567",
                         },
                     },
+                    {
+                        "field" : "account_update",
+                        "value" : {
+                            "event" : "PARTNER_APP_INSTALLED",
+                            "waba_info" : {
+                                "waba_id"           : "1078065061686317",
+                                "owner_business_id" : "2748286302233297",
+                                "partner_app_id"    : "868440515682488",
+                            },
+                        },
+                    },
+                    {
+                        "field" : "account_update",
+                        "value" : {
+                            "event"      : "WEBHOOK_CONFIG_UPDATED",
+                            "event_time" : "2026-10-24T06:21:48+0000",
+                            "actor" : {
+                                "business_id"   : "2748286302233297",
+                                "business_name" : "Vibecoding SAS",
+                            },
+                            "details" : {
+                                "change_action" : "subscribe",
+                                "field"         : "subscribed_apps",
+                            },
+                        },
+                    },
                 ],
             },
         ],
@@ -423,6 +449,42 @@ def test_account_updates_parse_observed_variants() -> None :
     assert changes[1].value.details.change_action == "UNLINK"
     assert changes[2].value.actor.description == "System actor"
     assert changes[3].value.phone_number == "15551234567"
+    assert changes[4].value.waba_info.partner_app_id == "868440515682488"
+    assert changes[5].value.details.change_action == "subscribe"
+    assert changes[5].value.details.field == "subscribed_apps"
+
+
+def test_flow_endpoint_availability_parses_observed_variant() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "856535583972492",
+                "time"    : 1792823003,
+                "changes" : [
+                    {
+                        "field" : "flows",
+                        "value" : {
+                            "event"        : "ENDPOINT_AVAILABILITY",
+                            "message" : (
+                                "Flow endpoint availability successfully recovered."
+                            ),
+                            "flow_id"      : "1667950261438147",
+                            "availability" : 100,
+                            "threshold"    : 90,
+                            "alert_state"  : "DEACTIVATED",
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    value = payload.entry[0].changes[0].value
+    assert value.event == "ENDPOINT_AVAILABILITY"
+    assert value.availability == 100
+    assert value.threshold == 90
+    assert value.alert_state == "DEACTIVATED"
 
 
 @pytest.mark.parametrize(
