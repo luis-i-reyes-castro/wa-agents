@@ -120,6 +120,12 @@ type WhatsAppTextBody = Annotated[
 
 # Literal-constrained strings
 
+type WhatsAppAppDataSyncType = Literal[
+    "smb_app_state_sync",
+    "history",
+]
+""" WhatsApp post-Embedded Onboarding data sync type """
+
 type WhatsAppFlowAction = Literal[
     "ping",
     "INIT",
@@ -840,6 +846,35 @@ class WhatsApp_IB_History (BaseModel) :
         
         return self
 
+class WhatsApp_IB_SMBAppContact (BaseModel) :
+    """
+    Contact stored in the business's WhatsApp Business app address book
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    full_name    : str | None = None
+    first_name   : str | None = None
+    phone_number : WhatsAppIdentity
+
+class WhatsApp_IB_StateSyncMetadata (BaseModel) :
+    """
+    Timestamp for one WhatsApp Business app state change
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    timestamp : UnixTS
+
+class WhatsApp_IB_StateSync (BaseModel) :
+    """
+    One WhatsApp Business app address-book change
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    type     : Literal["contact"]
+    contact  : WhatsApp_IB_SMBAppContact
+    action   : Literal[ "add", "remove"]
+    metadata : WhatsApp_IB_StateSyncMetadata
+
 # =========================================================================================
 # INBOUND: STATUSES OF SENT MESSAGES
 
@@ -1022,6 +1057,7 @@ class WhatsApp_IB_Value (BaseModel) :
         `statuses`          : tuple[ WhatsApp_IB_Status,      ...]
         `message_echoes`    : tuple[ WhatsApp_IB_MessageEcho, ...]
         `history`           : tuple[ WhatsApp_IB_History,     ...]
+        `state_sync`        : tuple[ WhatsApp_IB_StateSync,   ...]
     """
     
     model_config = ConfigDict( frozen = True)
@@ -1034,6 +1070,7 @@ class WhatsApp_IB_Value (BaseModel) :
     statuses       : tuple[ WhatsApp_IB_Status,      ...] = ()
     message_echoes : tuple[ WhatsApp_IB_MessageEcho, ...] = ()
     history        : tuple[ WhatsApp_IB_History,     ...] = ()
+    state_sync     : tuple[ WhatsApp_IB_StateSync,   ...] = ()
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
@@ -1042,11 +1079,13 @@ class WhatsApp_IB_Value (BaseModel) :
             self.messages       or
             self.statuses       or
             self.message_echoes or
-            self.history
+            self.history        or
+            self.state_sync
         ) :
             raise ValueError(
                 f"Received {self.__class__.__name__} "
-                f"includes no messages, statuses, message echoes, or history."
+                "includes no messages, statuses, message echoes, history, "
+                "or state synchronization."
             )
         
         return self
@@ -1072,6 +1111,7 @@ class WhatsApp_IB_Change (BaseModel) :
             `messages`           : Regular inbound messages
             `smb_message_echoes` : Human-originated outbound messages (mobile app)
             `history`            : Historical conversation synchronization chunks
+            `smb_app_state_sync` : WhatsApp Business app address-book changes
     """
     
     model_config = ConfigDict( frozen = True)
@@ -1086,6 +1126,7 @@ class WhatsApp_IB_Change (BaseModel) :
                 "flows",
                 "history",
                 "messages",
+                "smb_app_state_sync",
                 "smb_message_echoes",
             ]
     
@@ -1113,6 +1154,18 @@ class WhatsApp_IB_Change (BaseModel) :
             raise ValueError(
                 f"Received {self.__class__.__name__} has 'field' = 'history' "
                 f"but fields 'value.history' and 'value.messages' are both empty"
+            )
+        elif (
+            ( self.field == "smb_app_state_sync" ) and
+            (
+                ( not isinstance( self.value, WhatsApp_IB_Value) ) or
+                ( not self.value.state_sync )
+            )
+        ) :
+            raise ValueError(
+                f"Received {self.__class__.__name__} has "
+                "'field' = 'smb_app_state_sync' but field "
+                "'value.state_sync' is empty"
             )
         elif (
             ( self.field == "smb_message_echoes" ) and

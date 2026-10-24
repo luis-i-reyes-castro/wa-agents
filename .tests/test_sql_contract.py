@@ -269,6 +269,22 @@ def test_history_chunks_and_messages_preserve_import_context() -> None :
     assert "msg.msg_type = 'media_placeholder'" in normalized_message
 
 
+def test_smb_app_contacts_update_existing_contact_and_sync_rows() -> None :
+    upsert = ( SQL_DIR / "upsert_smb_app_contact.sql").read_text(
+        encoding = "utf-8"
+    )
+    complete = ( SQL_DIR / "complete_smb_app_contact_sync.sql").read_text(
+        encoding = "utf-8"
+    )
+
+    assert "wa_api_smb_app_contacts" in DDL + upsert
+    assert "ON CONFLICT (contact)" in upsert
+    assert "smb.changed_at <= EXCLUDED.changed_at" in upsert
+    assert "'smb_app_state_sync'" in upsert + complete
+    assert ")::T_WHATSAPP_APP_DATA_SYNC_STATUS" in upsert
+    assert "sync_status  = 'completed'" in complete
+
+
 def test_case_manifests_are_bound_to_handler_id() -> None :
     insert_manifest = ( SQL_DIR / "insert_case_manifest.sql").read_text(
         encoding = "utf-8"

@@ -292,6 +292,55 @@ def test_history_webhook_parses_later_media_details() -> None :
     assert value.messages[0].image.id == "24230790383178626"
 
 
+def test_smb_app_state_sync_parses_contact_changes() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "123456789",
+                "changes" : [
+                    {
+                        "field" : "smb_app_state_sync",
+                        "value" : {
+                            "messaging_product" : "whatsapp",
+                            "metadata" : {
+                                "display_phone_number" : "593962939146",
+                                "phone_number_id"      : "987654321",
+                            },
+                            "state_sync" : [
+                                {
+                                    "type"    : "contact",
+                                    "action"  : "add",
+                                    "contact" : {
+                                        "full_name"    : "Pablo Morales",
+                                        "first_name"   : "Pablo",
+                                        "phone_number" : "16505551234",
+                                    },
+                                    "metadata" : { "timestamp" : "1738346006" },
+                                },
+                                {
+                                    "type"    : "contact",
+                                    "action"  : "remove",
+                                    "contact" : {
+                                        "phone_number" : "16505559876",
+                                    },
+                                    "metadata" : { "timestamp" : "1738346010" },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    state_sync = payload.entry[0].changes[0].value.state_sync
+    assert state_sync[0].contact.full_name == "Pablo Morales"
+    assert state_sync[0].action == "add"
+    assert state_sync[1].contact.full_name is None
+    assert state_sync[1].action == "remove"
+
+
 def test_revoke_message_parses_original_message_id() -> None :
     message = WhatsApp_IB_Message.model_validate({
         "from"      : "593995341161",

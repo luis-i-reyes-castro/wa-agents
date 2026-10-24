@@ -373,6 +373,45 @@ def test_subscribe_to_waba_requires_success_confirmation(monkeypatch) -> None :
         io_functions.subscribe_to_waba( "waba-id", "business-token")
 
 
+def test_request_app_data_sync_posts_json_and_returns_request_id(monkeypatch) -> None :
+    calls = []
+
+    def graph_request( **kwargs) :
+        calls.append(kwargs)
+        return { "request_id" : "sync-request-1" }
+
+    monkeypatch.setattr( io_functions, "graph_request", graph_request)
+
+    assert io_functions.request_app_data_sync(
+        phone_number_id = "phone-id",
+        business_token  = "business-token",
+        sync_type       = "history",
+    ) == "sync-request-1"
+    assert calls == [{
+        "method"       : "POST",
+        "path"         : "phone-id/smb_app_data",
+        "access_token" : "business-token",
+        "json_data" : {
+            "messaging_product" : "whatsapp",
+            "sync_type"         : "history",
+        },
+    }]
+
+
+def test_async_request_app_data_sync_requires_request_id(monkeypatch) -> None :
+    async def graph_request( **_kwargs) :
+        return { "messaging_product" : "whatsapp" }
+
+    monkeypatch.setattr( io_functions, "async_graph_request", graph_request)
+
+    with pytest.raises( io_functions.MetaGraphError, match = "request ID") :
+        asyncio.run(io_functions.async_request_app_data_sync(
+            phone_number_id = "phone-id",
+            business_token  = "business-token",
+            sync_type       = "smb_app_state_sync",
+        ))
+
+
 def test_write_text_payload_uses_outbound_model() -> None :
     
     assert write_payload( TO_NUMBER, "Hello") == {

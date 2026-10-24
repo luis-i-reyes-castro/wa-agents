@@ -166,6 +166,9 @@ SQL_INSERT_MEDIA                    = _load_sql("insert_media.sql")
 SQL_INSERT_OUTBOUND_MESSAGE         = _load_sql("insert_outbound_message.sql")
 SQL_INSERT_STATUS                   = _load_sql("insert_status.sql")
 SQL_COMPLETE_FLOW_SESSION           = _load_sql("complete_flow_session.sql")
+SQL_COMPLETE_SMB_APP_CONTACT_SYNC   = _load_sql(
+    "complete_smb_app_contact_sync.sql"
+)
 SQL_CREATE_FLOW_SESSION             = _load_sql("create_flow_session.sql")
 SQL_FINISH_FLOW_EXCHANGE            = _load_sql("finish_flow_exchange.sql")
 SQL_LINK_CASE_HANDLER_TO_API        = _load_sql("link_case_handler_to_api.sql")
@@ -182,6 +185,7 @@ SQL_UPDATE_INBOUND_PAYLOAD_METADATA = _load_sql(
 SQL_UPSERT_BUSINESS                 = _load_sql("upsert_business.sql")
 SQL_UPSERT_CONTACT                  = _load_sql("upsert_contact.sql")
 SQL_UPSERT_CONTACT_PROFILE          = _load_sql("upsert_contact_profile.sql")
+SQL_UPSERT_SMB_APP_CONTACT          = _load_sql("upsert_smb_app_contact.sql")
 SQL_UPSERT_FLOW                     = _load_sql("upsert_flow.sql")
 SQL_UPSERT_FLOW_WABA                = _load_sql("upsert_flow_waba.sql")
 
@@ -480,6 +484,38 @@ class SyncSupabaseStorage :
                 "profile_name"     : profile_name,
                 "profile_username" : profile_username,
             },
+        )
+    
+    def upsert_smb_app_contact(
+        self,
+        phone_number : int,
+        contact      : int,
+        full_name    : str | None,
+        first_name   : str | None,
+        is_active    : bool,
+        changed_at   : datetime,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_UPSERT_SMB_APP_CONTACT,
+            {
+                "phone_number" : phone_number,
+                "contact"      : contact,
+                "full_name"    : full_name,
+                "first_name"   : first_name,
+                "is_active"    : is_active,
+                "changed_at"   : changed_at,
+            },
+        )
+    
+    def complete_smb_app_contact_sync(
+        self,
+        phone_number : int,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_COMPLETE_SMB_APP_CONTACT_SYNC,
+            { "phone_number" : phone_number },
         )
     
     def insert_inbound_payload(
@@ -1359,6 +1395,38 @@ class AsyncSupabaseStorage :
                 "profile_name"     : profile_name,
                 "profile_username" : profile_username,
             },
+        )
+    
+    async def upsert_smb_app_contact(
+        self,
+        phone_number : int,
+        contact      : int,
+        full_name    : str | None,
+        first_name   : str | None,
+        is_active    : bool,
+        changed_at   : datetime,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_UPSERT_SMB_APP_CONTACT,
+            {
+                "phone_number" : phone_number,
+                "contact"      : contact,
+                "full_name"    : full_name,
+                "first_name"   : first_name,
+                "is_active"    : is_active,
+                "changed_at"   : changed_at,
+            },
+        )
+    
+    async def complete_smb_app_contact_sync(
+        self,
+        phone_number : int,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_COMPLETE_SMB_APP_CONTACT_SYNC,
+            { "phone_number" : phone_number },
         )
     
     async def insert_inbound_payload(

@@ -30,6 +30,7 @@ from .case_handler_models import (
 )
 from .io_models import (
     WhatsAppContactCard,
+    WhatsAppAppDataSyncType,
     WhatsAppLocation,
     WhatsAppText,
     WhatsApp_IB_MediaData,
@@ -153,6 +154,7 @@ def graph_request(
     path         : str,
     access_token : str | None = None,
     params       : dict[str, str] | None = None,
+    json_data    : dict[str, Any] | None = None,
 ) -> dict[str, Any] :
     """
     Make one synchronous request to the configured Meta Graph API version
@@ -166,13 +168,17 @@ def graph_request(
         if access_token else
         { }
     )
-    response = httpx.request(
-        method  = method,
-        url     = f"{META_GRAPH_API_URL}/{path.lstrip('/')}",
-        headers = headers,
-        params  = params,
-        timeout = META_GRAPH_API_REQUEST_TIMEOUT,
-    )
+    request_data : dict[str, Any] = {
+        "method"  : method,
+        "url"     : f"{META_GRAPH_API_URL}/{path.lstrip('/')}",
+        "headers" : headers,
+        "params"  : params,
+        "timeout" : META_GRAPH_API_REQUEST_TIMEOUT,
+    }
+    if json_data is not None :
+        request_data["json"] = json_data
+    
+    response = httpx.request(**request_data)
     
     return parse_graph_response(response)
 
@@ -182,6 +188,7 @@ async def async_graph_request(
     path         : str,
     access_token : str | None = None,
     params       : dict[str, str] | None = None,
+    json_data    : dict[str, Any] | None = None,
 ) -> dict[str, Any] :
     """
     Make one asynchronous request to the configured Meta Graph API version
@@ -198,12 +205,16 @@ async def async_graph_request(
     async with httpx.AsyncClient(
         timeout = META_GRAPH_API_REQUEST_TIMEOUT
     ) as client :
-        response = await client.request(
-            method  = method,
-            url     = f"{META_GRAPH_API_URL}/{path.lstrip('/')}",
-            headers = headers,
-            params  = params,
-        )
+        request_data : dict[str, Any] = {
+            "method"  : method,
+            "url"     : f"{META_GRAPH_API_URL}/{path.lstrip('/')}",
+            "headers" : headers,
+            "params"  : params,
+        }
+        if json_data is not None :
+            request_data["json"] = json_data
+        
+        response = await client.request(**request_data)
     
     return parse_graph_response(response)
 
@@ -1163,6 +1174,54 @@ async def async_list_phone_numbers_for_waba(
     data = payload.get("data")
     
     return data if isinstance( data, list) else [ ]
+
+
+def request_app_data_sync(
+    phone_number_id : str,
+    business_token  : str,
+    sync_type       : WhatsAppAppDataSyncType,
+) -> str :
+    """
+    Request one WhatsApp Business app contact or history synchronization
+    """
+    payload = graph_request(
+        method       = "POST",
+        path         = f"{phone_number_id}/smb_app_data",
+        access_token = business_token,
+        json_data    = {
+            "messaging_product" : "whatsapp",
+            "sync_type"         : sync_type,
+        },
+    )
+    request_id = str( payload.get("request_id") or "" ).strip()
+    if request_id :
+        return request_id
+    
+    raise MetaGraphError("Meta did not return an app-data synchronization request ID")
+
+
+async def async_request_app_data_sync(
+    phone_number_id : str,
+    business_token  : str,
+    sync_type       : WhatsAppAppDataSyncType,
+) -> str :
+    """
+    Request one WhatsApp Business app synchronization asynchronously
+    """
+    payload = await async_graph_request(
+        method       = "POST",
+        path         = f"{phone_number_id}/smb_app_data",
+        access_token = business_token,
+        json_data    = {
+            "messaging_product" : "whatsapp",
+            "sync_type"         : sync_type,
+        },
+    )
+    request_id = str( payload.get("request_id") or "" ).strip()
+    if request_id :
+        return request_id
+    
+    raise MetaGraphError("Meta did not return an app-data synchronization request ID")
 
 
 # -----------------------------------------------------------------------------------------

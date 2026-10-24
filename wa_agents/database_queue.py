@@ -264,6 +264,51 @@ class WhatsAppDatabaseQueue :
 
         return
     
+    def _persist_smb_app_contacts(
+        self,
+        waba_id : str,
+        value   : WhatsApp_IB_Value,
+    ) -> None :
+        """
+        Persist WhatsApp Business app address-book changes.
+        """
+        business = self.storage.upsert_business(
+            waba_id              = waba_id,
+            phone_number_id      = value.metadata.phone_number_id,
+            display_phone_number = value.metadata.display_phone_number,
+        )
+        if not business :
+            raise RuntimeError(f"In {here()}: Unable to persist business")
+        
+        for state in value.state_sync :
+            contact = self.storage.upsert_contact(
+                business = business["id"],
+                wa_id    = state.contact.phone_number,
+                user_id  = None,
+            )
+            if not contact :
+                raise RuntimeError(f"In {here()}: Unable to persist contact")
+            
+            smb_contact = self.storage.upsert_smb_app_contact(
+                phone_number = business["id"],
+                contact      = contact["id"],
+                full_name    = state.contact.full_name,
+                first_name   = state.contact.first_name,
+                is_active    = ( state.action == "add" ),
+                changed_at   = _timestamp(state.metadata.timestamp),
+            )
+            if not smb_contact :
+                raise RuntimeError(
+                    f"In {here()}: Unable to persist SMB app contact"
+                )
+        
+        if not self.storage.complete_smb_app_contact_sync(business["id"]) :
+            raise RuntimeError(
+                f"In {here()}: Unable to complete SMB app contact sync"
+            )
+        
+        return
+    
     def _persist_valid_payload(
         self,
         payload_id : int,
@@ -296,6 +341,13 @@ class WhatsAppDatabaseQueue :
                     )
                     continue
 
+                elif (
+                    ( change.field == "smb_app_state_sync"    ) and
+                    isinstance( value, WhatsApp_IB_Value       )
+                ) :
+                    self._persist_smb_app_contacts( item.id, value)
+                    continue
+                
                 elif (
                     ( change.field == "history"              ) and
                     isinstance( value, WhatsApp_IB_Value      )
@@ -727,6 +779,51 @@ class AsyncWhatsAppDatabaseQueue :
 
         return
     
+    async def _persist_smb_app_contacts(
+        self,
+        waba_id : str,
+        value   : WhatsApp_IB_Value,
+    ) -> None :
+        """
+        Persist WhatsApp Business app address-book changes.
+        """
+        business = await self.storage.upsert_business(
+            waba_id              = waba_id,
+            phone_number_id      = value.metadata.phone_number_id,
+            display_phone_number = value.metadata.display_phone_number,
+        )
+        if not business :
+            raise RuntimeError(f"In {here()}: Unable to persist business")
+        
+        for state in value.state_sync :
+            contact = await self.storage.upsert_contact(
+                business = business["id"],
+                wa_id    = state.contact.phone_number,
+                user_id  = None,
+            )
+            if not contact :
+                raise RuntimeError(f"In {here()}: Unable to persist contact")
+            
+            smb_contact = await self.storage.upsert_smb_app_contact(
+                phone_number = business["id"],
+                contact      = contact["id"],
+                full_name    = state.contact.full_name,
+                first_name   = state.contact.first_name,
+                is_active    = ( state.action == "add" ),
+                changed_at   = _timestamp(state.metadata.timestamp),
+            )
+            if not smb_contact :
+                raise RuntimeError(
+                    f"In {here()}: Unable to persist SMB app contact"
+                )
+        
+        if not await self.storage.complete_smb_app_contact_sync(business["id"]) :
+            raise RuntimeError(
+                f"In {here()}: Unable to complete SMB app contact sync"
+            )
+        
+        return
+    
     async def _persist_valid_payload(
         self,
         payload_id : int,
@@ -759,6 +856,13 @@ class AsyncWhatsAppDatabaseQueue :
                     )
                     continue
 
+                elif (
+                    ( change.field == "smb_app_state_sync"    ) and
+                    isinstance( value, WhatsApp_IB_Value       )
+                ) :
+                    await self._persist_smb_app_contacts( item.id, value)
+                    continue
+                
                 elif (
                     ( change.field == "history"              ) and
                     isinstance( value, WhatsApp_IB_Value      )

@@ -356,6 +356,47 @@ HISTORY_MEDIA_PAYLOAD = {
     ],
 }
 
+SMB_APP_STATE_SYNC_PAYLOAD = {
+    "object" : "whatsapp_business_account",
+    "entry"  : [
+        {
+            "id"      : "123456789",
+            "changes" : [
+                {
+                    "field" : "smb_app_state_sync",
+                    "value" : {
+                        "messaging_product" : "whatsapp",
+                        "metadata" : {
+                            "display_phone_number" : "15551234567",
+                            "phone_number_id"      : "987654321",
+                        },
+                        "state_sync" : [
+                            {
+                                "type"    : "contact",
+                                "action"  : "add",
+                                "contact" : {
+                                    "full_name"    : "Pablo Morales",
+                                    "first_name"   : "Pablo",
+                                    "phone_number" : "593995341161",
+                                },
+                                "metadata" : { "timestamp" : "1738346006" },
+                            },
+                            {
+                                "type"    : "contact",
+                                "action"  : "remove",
+                                "contact" : {
+                                    "phone_number" : "593995341162",
+                                },
+                                "metadata" : { "timestamp" : "1738346010" },
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    ],
+}
+
 
 class _PayloadStorageStub :
     def __init__( self, events : list[str], *, inserted : bool = True) -> None :
@@ -385,6 +426,7 @@ class _AsyncPayloadStorageStub :
         self.metadata     : dict[str, Any] | None = None
         self.history_chunk : dict[str, Any] | None = None
         self.messages      : list[dict[str, Any]] = []
+        self.smb_contacts  : list[dict[str, Any]] = []
 
     async def insert_inbound_payload(self, _data : Any) -> dict[str, Any] :
         self.events.append("insert_raw")
@@ -405,6 +447,18 @@ class _AsyncPayloadStorageStub :
     async def upsert_contact_profile(self, **_kwargs : Any) -> dict[str, Any] :
         self.events.append("upsert_profile")
         return { "id" : 17 }
+
+    async def upsert_smb_app_contact(self, **kwargs : Any) -> dict[str, Any] :
+        self.events.append("upsert_smb_app_contact")
+        self.smb_contacts.append(kwargs)
+        return { "contact" : kwargs["contact"] }
+
+    async def complete_smb_app_contact_sync(
+        self,
+        _phone_number : int,
+    ) -> dict[str, Any] :
+        self.events.append("complete_smb_app_contact_sync")
+        return { "id" : 31 }
 
     async def update_inbound_payload_metadata(
         self,
@@ -547,6 +601,39 @@ def test_async_queue_persists_history_without_enqueuing( monkeypatch) -> None :
     assert storage.messages[0]["history_chunk"] == 29
     assert storage.messages[0]["history_context"] == { "status" : "READ" }
     assert "history_context" not in storage.messages[0]["msg_data"]
+    assert result == { "stored" : True, "enqueued" : False }
+
+
+def test_async_queue_persists_smb_app_contacts_without_enqueuing(
+    monkeypatch,
+) -> None :
+    events        = []
+    storage       = _AsyncPayloadStorageStub(events)
+    queue         = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
+    queue.storage = storage
+
+    async def enqueue_message( _msg_id : str) -> bool :
+        raise AssertionError("Contact synchronization must not enter the live queue")
+
+    monkeypatch.setattr( queue, "_enqueue_message", enqueue_message)
+    result = asyncio.run(queue.enqueue(SMB_APP_STATE_SYNC_PAYLOAD))
+
+    assert events == [
+        "insert_raw",
+        "mark_valid",
+        "upsert_business",
+        "upsert_contact",
+        "upsert_smb_app_contact",
+        "upsert_contact",
+        "upsert_smb_app_contact",
+        "complete_smb_app_contact_sync",
+    ]
+    assert [ contact["is_active"] for contact in storage.smb_contacts ] == [
+        True,
+        False,
+    ]
+    assert storage.smb_contacts[0]["full_name"] == "Pablo Morales"
+    assert storage.smb_contacts[1]["full_name"] is None
     assert result == { "stored" : True, "enqueued" : False }
 
 
