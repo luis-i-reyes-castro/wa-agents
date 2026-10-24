@@ -1,6 +1,6 @@
 -- PARAMS:
-  -- handler_id    : wa_case_handler_routes.id | None
-  -- contact       : wa_api_contacts.id
+  -- handler_id    : case_handler_routes.id | None
+  -- contact       : api_contacts.id
   -- machine_state : str | None
   -- agent_names   : list[str]
 
@@ -8,12 +8,12 @@ WITH next_case AS (
   SELECT
     COALESCE( max(cas.case_index) + 1, 1 ) AS case_index
   FROM
-    public.wa_case_handler_case_manifests AS cas
+    wa_agents.case_handler_case_manifests AS cas
   WHERE
     ( cas.contact = @contact )
 ),
 manifest AS (
-  INSERT INTO public.wa_case_handler_case_manifests (
+  INSERT INTO wa_agents.case_handler_case_manifests (
     handler_id,
     contact,
     case_index,
@@ -41,7 +41,7 @@ manifest AS (
     silenced_until
 ),
 initial_state AS (
-  INSERT INTO public.wa_case_handler_state_histories (
+  INSERT INTO wa_agents.case_handler_state_histories (
     case_manifest,
     case_message,
     machine_state
@@ -56,7 +56,7 @@ initial_state AS (
     case_manifest
 ),
 initialized AS (
-  INSERT INTO public.wa_case_handler_agent_contexts (
+  INSERT INTO wa_agents.case_handler_agent_contexts (
     agent_name,
     context_index,
     case_manifest,

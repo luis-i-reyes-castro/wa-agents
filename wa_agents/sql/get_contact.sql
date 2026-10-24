@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- contact : wa_api_contacts.id
+  -- contact : api_contacts.id
 
 SELECT
   con.id,
@@ -11,13 +11,13 @@ SELECT
   pro.profile_name,
   pro.profile_username
 FROM
-  public.wa_api_contacts AS con
+  wa_agents.api_contacts AS con
 LEFT JOIN LATERAL (
   SELECT
     prf.profile_name,
     prf.profile_username
   FROM
-    public.wa_api_contact_profiles AS prf
+    wa_agents.api_contact_profiles AS prf
   WHERE
     ( prf.contact = con.id )
   ORDER BY

@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- business : wa_api_phone_numbers.id
+  -- business : api_phone_numbers.id
 
 SELECT
   num.id,
@@ -10,8 +10,8 @@ SELECT
   num.phone_number_id,
   num.display_phone_number
 FROM
-  public.wa_api_phone_numbers AS num
+  wa_agents.api_phone_numbers AS num
 JOIN
-  public.wa_api_businesses AS bus ON bus.id = num.business
+  wa_agents.api_businesses AS bus ON bus.id = num.business
 WHERE
   ( num.id = @business );

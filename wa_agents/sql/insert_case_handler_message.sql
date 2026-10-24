@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- case_id       : wa_case_handler_case_manifests.id
+  -- case_id       : case_handler_case_manifests.id
   -- ts            : datetime
   -- basemodel     : Message subclass name
   -- origin        : str | None
@@ -11,7 +11,7 @@
 
 WITH case_manifest AS (
   UPDATE
-    public.wa_case_handler_case_manifests
+    wa_agents.case_handler_case_manifests
   SET
     updated_at         = now(),
     next_message_index = next_message_index + 1,
@@ -26,7 +26,7 @@ WITH case_manifest AS (
     silenced_until          AS silenced_until
 ),
 inserted_message AS (
-  INSERT INTO public.wa_case_handler_messages (
+  INSERT INTO wa_agents.case_handler_messages (
     case_id,
     message_index,
     ts,
@@ -53,7 +53,7 @@ inserted_message AS (
     data
 ),
 state_history AS (
-  INSERT INTO public.wa_case_handler_state_histories (
+  INSERT INTO wa_agents.case_handler_state_histories (
     case_manifest,
     case_message,
     machine_state
@@ -86,7 +86,7 @@ current_agent_contexts AS (
   FROM
     changed_agent_names AS names
   LEFT JOIN
-    public.wa_case_handler_agent_contexts AS ctx
+    wa_agents.case_handler_agent_contexts AS ctx
   ON
     ( ctx.case_manifest = @case_id         ) AND
     ( ctx.agent_name    = names.agent_name )
@@ -94,7 +94,7 @@ current_agent_contexts AS (
     names.agent_name
 ),
 cleared_agent_contexts AS (
-  INSERT INTO public.wa_case_handler_agent_contexts (
+  INSERT INTO wa_agents.case_handler_agent_contexts (
     agent_name,
     context_index,
     case_manifest,
@@ -114,7 +114,7 @@ cleared_agent_contexts AS (
     agent_name
 ),
 extended_agent_contexts AS (
-  INSERT INTO public.wa_case_handler_agent_contexts (
+  INSERT INTO wa_agents.case_handler_agent_contexts (
     agent_name,
     context_index,
     case_manifest,

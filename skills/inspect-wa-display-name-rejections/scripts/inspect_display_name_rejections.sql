@@ -6,7 +6,7 @@ WITH name_updates AS (
     ( payload.errors IS NOT NULL ) AS has_validation_errors,
     change.value->'value' AS update_value
   FROM
-    public.wa_api_inbound_payloads AS payload
+    wa_agents.api_inbound_payloads AS payload
   CROSS JOIN LATERAL jsonb_path_query(
     payload.data_raw,
     '$.entry[*].changes[*] ? (@.field == "phone_number_name_update")'

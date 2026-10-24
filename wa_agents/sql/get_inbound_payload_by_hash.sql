@@ -14,6 +14,6 @@ SELECT
   errors,
   FALSE AS inserted
 FROM
-  public.wa_api_inbound_payloads
+  wa_agents.api_inbound_payloads
 WHERE
   data_hash = @data_hash;

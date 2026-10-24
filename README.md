@@ -84,7 +84,8 @@ lease, burst-debounce, and delayed-response lifecycle.
 
 Supabase credentials are mandatory because webhook audit storage and
 `WhatsAppDatabaseQueue` always use Postgres. Apply the schema in
-`wa_agents/sql/abc_DDL.sql` before running.
+`wa_agents/sql/abc_DDL.sql` before running. Package-owned tables live in the
+`wa_agents` PostgreSQL schema and are not intended for PostgREST exposure.
 
 ### S3-compatible bucket storage (required for media and legacy `s3` mode)
 
@@ -230,7 +231,7 @@ app = WhatsAppAPIServer(
 Manage routes directly in PostgreSQL for now:
 
 ```sql
-INSERT INTO public.wa_case_handler_routes ( business, contact, handler_key )
+INSERT INTO wa_agents.case_handler_routes ( business, contact, handler_key )
 VALUES ( 41, NULL, 'retail' )
 ON CONFLICT ( business, contact)
 DO UPDATE
@@ -243,7 +244,7 @@ Message echoes put the selected handler into silence mode. Configure a handler-s
 timeout in minutes with:
 
 ```sql
-INSERT INTO public.wa_case_handler_settings (
+INSERT INTO wa_agents.case_handler_settings (
   handler_key,
   silence_timeout_minutes
 )
@@ -281,9 +282,9 @@ SELECT
   count(*),
   min(que.created_at) AS oldest
 FROM
-  public.wa_api_to_case_handler_queue AS que
+  wa_agents.api_to_case_handler_queue AS que
 LEFT JOIN
-  public.wa_case_handler_routes AS rou ON rou.id = que.handler_id
+  wa_agents.case_handler_routes AS rou ON rou.id = que.handler_id
 WHERE
   que.msg_status IN ( 'pending', 'processing' )
 GROUP BY
@@ -371,7 +372,7 @@ and queues no callbacks. Remaining in a state does not rerun `on_enter`; its
 
 #### Debugging persisted state
 
-`wa_case_handler_state_histories` stores an append-only snapshot timeline. The first
+`case_handler_state_histories` stores an append-only snapshot timeline. The first
 row for a case has no `case_message` and records its initial state. Each subsequently
 persisted case-handler message adds one row containing the resulting state, including
 unchanged or `NULL` states. Manifest-only updates, such as closing a case, do not add
@@ -389,9 +390,9 @@ SELECT
   message.basemodel,
   message.origin
 FROM
-  public.wa_case_handler_state_histories AS history
+  wa_agents.case_handler_state_histories AS history
 LEFT JOIN
-  public.wa_case_handler_messages AS message ON
+  wa_agents.case_handler_messages AS message ON
     ( message.case_id = history.case_manifest ) AND
     ( message.id      = history.case_message  )
 WHERE
@@ -417,7 +418,7 @@ Loop shape:
 
 WhatsApp `send_text()`, `send_interactive()`, and `send_template()` require the
 persisted message returned by `apply_and_persist_message()`. Persisting first leaves
-a durable case-handler message without a `wa_case_handler_to_api` mapping when
+a durable case-handler message without a `case_handler_to_api_bridge` mapping when
 outbound sending does not complete.
 
 ## Non-WhatsApp Case Handlers
@@ -429,8 +430,8 @@ instantiate `CaseHandlerBase` or create WhatsApp API database records.
 
 A non-WhatsApp handler can reuse `CaseHandlerBase` or `AsyncCaseHandlerBase` when it
 needs persisted messages, case manifests, or FSM state. The current persistence
-schema identifies cases through `wa_api_contacts`, so this setup requires placeholder
-business and contact rows in `wa_api_businesses` and `wa_api_contacts`. Construct the
+schema identifies cases through `api_contacts`, so this setup requires placeholder
+business and contact rows in `api_businesses` and `api_contacts`. Construct the
 core handler with those rows or their IDs, then use `case_handler_models.Message`
 subclasses for the actual API input and output.
 
@@ -439,7 +440,7 @@ In this mode:
 - Implement `process_message()` as a no-op to satisfy the abstract interface.
 - Persist messages with `apply_and_persist_message()` and load them with `context_build()`.
 - Do not call `dedup_and_ingest_message()` or the WhatsApp `send_*()` methods.
-- No row is written to `wa_case_handler_to_api`; that mapping is populated only by
+- No row is written to `case_handler_to_api_bridge`; that mapping is populated only by
   the WhatsApp ingestion and sending paths.
 - Start a fresh case for every API call and close it in a `finally` block when the
   call completes. Before opening it, close or recover any case left open by an

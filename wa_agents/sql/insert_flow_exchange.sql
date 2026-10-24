@@ -1,13 +1,13 @@
 -- PARAMS:
-  -- flow_waba     : wa_api_flow_encryption_keys.id
-  -- session_id    : wa_api_flow_sessions.id | null
+  -- flow_waba     : api_flow_encryption_keys.id
+  -- session_id    : api_flow_sessions.id | null
   -- request_hash  : SHA-256 hex digest
   -- request_action : Flow endpoint action
   -- request_screen : Flow screen | null
   -- request_data  : canonical JSON string
   -- secret_key    : ENCRYPTION_KEY
 
-INSERT INTO public.wa_api_flow_data_exchanges (
+INSERT INTO wa_agents.api_flow_data_exchanges (
   flow_waba,
   session,
   request_hash,

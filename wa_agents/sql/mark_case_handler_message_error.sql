@@ -1,8 +1,8 @@
 -- PARAMS:
-  -- row_id : wa_api_to_case_handler_queue.id
+  -- row_id : api_to_case_handler_queue.id
 
 UPDATE
-  public.wa_api_to_case_handler_queue
+  wa_agents.api_to_case_handler_queue
 SET
   msg_status    = 'error',
   updated_at    = now(),

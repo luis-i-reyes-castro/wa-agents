@@ -1,7 +1,7 @@
 -- PARAMS:
-  -- contact             : wa_api_contacts.id
+  -- contact             : api_contacts.id
   -- owner_token         : UUID
-  -- after_row_id        : wa_api_to_case_handler_queue.id
+  -- after_row_id        : api_to_case_handler_queue.id
   -- handler_keys        : list[str]
   -- fallback_handler_key : str
 
@@ -10,7 +10,7 @@ WITH active_lease AS MATERIALIZED (
     lea.contact,
     lea.owner_token
   FROM
-    public.wa_case_handler_contact_leases AS lea
+    wa_agents.case_handler_contact_leases AS lea
   WHERE
     ( lea.contact     = @contact     ) AND
     ( lea.owner_token = @owner_token ) AND
@@ -26,15 +26,15 @@ candidate AS MATERIALIZED (
     COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key,
     settings.silence_timeout_minutes
   FROM
-    public.wa_api_inbound_messages      AS msg
+    wa_agents.api_inbound_messages      AS msg
   JOIN
-    public.wa_api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
+    wa_agents.api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
   JOIN
     active_lease                        AS lea ON lea.contact = msg.contact
   LEFT JOIN
-    public.wa_case_handler_routes       AS rou ON rou.id = que.handler_id
+    wa_agents.case_handler_routes       AS rou ON rou.id = que.handler_id
   LEFT JOIN
-    public.wa_case_handler_settings     AS settings ON
+    wa_agents.case_handler_settings     AS settings ON
       settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key )
   WHERE
     ( msg.contact    = @contact      ) AND
@@ -48,7 +48,7 @@ candidate AS MATERIALIZED (
 ),
 renewed AS (
   UPDATE
-    public.wa_case_handler_contact_leases AS lea
+    wa_agents.case_handler_contact_leases AS lea
   SET
     heartbeat_at = now(),
     expires_at   = now() + INTERVAL '90 seconds'
@@ -63,7 +63,7 @@ renewed AS (
     lea.owner_token
 )
 UPDATE
-  public.wa_api_to_case_handler_queue AS que
+  wa_agents.api_to_case_handler_queue AS que
 SET
   msg_status = 'processing',
   updated_at = now()

@@ -1,10 +1,10 @@
 -- PARAMS:
-  -- api_inbound_msg_id : wa_api_inbound_messages.id
+  -- api_inbound_msg_id : api_inbound_messages.id
 
 SELECT
   1
 FROM
-  public.wa_case_handler_to_api
+  wa_agents.case_handler_to_api_bridge
 WHERE
   ( api_inbound_msg_id = @api_inbound_msg_id )
 LIMIT 1;

@@ -1,6 +1,6 @@
 -- PARAMS:
-  -- case_id    : wa_case_handler_case_manifests.id
-  -- message_id : wa_case_handler_messages.id
+  -- case_id    : case_handler_case_manifests.id
+  -- message_id : case_handler_messages.id
 
 SELECT
   msg.id,
@@ -11,7 +11,7 @@ SELECT
   msg.origin,
   msg.data
 FROM
-  public.wa_case_handler_messages AS msg
+  wa_agents.case_handler_messages AS msg
 WHERE
   ( msg.case_id = @case_id    ) AND
   ( msg.id      = @message_id );

@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- exchange_id    : wa_api_flow_data_exchanges.id
+  -- exchange_id    : api_flow_data_exchanges.id
   -- response_data  : canonical JSON string | null
   -- exchange_status : T_WHATSAPP_FLOW_EXCHANGE_STATUS
   -- http_status    : HTTP response status
@@ -9,7 +9,7 @@
   -- secret_key     : ENCRYPTION_KEY
 
 UPDATE
-  public.wa_api_flow_data_exchanges AS exchange
+  wa_agents.api_flow_data_exchanges AS exchange
 SET
   completed_at    = now(),
   response_data   = CASE

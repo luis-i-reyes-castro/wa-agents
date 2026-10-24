@@ -329,11 +329,11 @@ class CaseHandlerBase (ABC) :
         """
         Initialize a transport-neutral handler for one persisted contact. \\
         Args:
-            business : Row ID `wa_api_phone_numbers.id` or DB record object.
-            contact  : Row ID `wa_api_contacts.id` or DB record object.
+            business : Row ID `api_phone_numbers.id` or DB record object.
+            contact  : Row ID `api_contacts.id` or DB record object.
             database_url  : Optional PostgreSQL URL override.
             debug         : Whether downstream components should emit debug output.
-            handler_id    : Optional `wa_case_handler_routes.id`.
+            handler_id    : Optional `case_handler_routes.id`.
             hydrate_media : Whether to hydrate media during `context_build()`.
             owner_token   : Token owning the contact lease.
             silence_timeout : Duration of message-echo silence mode.
@@ -887,12 +887,12 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         """
         Initialize a WhatsApp handler for one normalized contact. \\
         Args:
-            business : Row ID `wa_api_phone_numbers.id` or DB record object.
-            contact  : Row ID `wa_api_contacts.id` or DB record object.
-            api_inbound_msg_id : Current `wa_api_inbound_messages.id`, if any.
+            business : Row ID `api_phone_numbers.id` or DB record object.
+            contact  : Row ID `api_contacts.id` or DB record object.
+            api_inbound_msg_id : Current `api_inbound_messages.id`, if any.
             database_url       : Optional PostgreSQL URL override.
             debug              : Whether downstream components should emit debug output.
-            handler_id         : Optional `wa_case_handler_routes.id`.
+            handler_id         : Optional `case_handler_routes.id`.
             hydrate_media      : Whether to hydrate media during `context_build()`.
             owner_token        : Token owning the contact lease.
             silence_timeout    : Duration of message-echo silence mode.
@@ -1307,11 +1307,11 @@ class AsyncCaseHandlerBase (ABC) :
         """
         Initialize a transport-neutral handler for one persisted contact. \\
         Args:
-            business : Row ID `wa_api_phone_numbers.id` or DB record object.
-            contact  : Row ID `wa_api_contacts.id` or DB record object.
+            business : Row ID `api_phone_numbers.id` or DB record object.
+            contact  : Row ID `api_contacts.id` or DB record object.
             database_url  : Optional PostgreSQL URL override.
             debug         : Whether downstream components should emit debug output.
-            handler_id    : Optional `wa_case_handler_routes.id`.
+            handler_id    : Optional `case_handler_routes.id`.
             hydrate_media : Whether to hydrate media during `context_build()`.
             owner_token   : Token owning the contact lease.
             silence_timeout : Duration of message-echo silence mode.
@@ -1866,12 +1866,12 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         """
         Initialize an asynchronous WhatsApp handler for one normalized contact. \\
         Args:
-            business : Row ID `wa_api_phone_numbers.id` or DB record object.
-            contact  : Row ID `wa_api_contacts.id` or DB record object.
-            api_inbound_msg_id : Current `wa_api_inbound_messages.id`, if any.
+            business : Row ID `api_phone_numbers.id` or DB record object.
+            contact  : Row ID `api_contacts.id` or DB record object.
+            api_inbound_msg_id : Current `api_inbound_messages.id`, if any.
             database_url       : Optional PostgreSQL URL override.
             debug              : Whether downstream components should emit debug output.
-            handler_id         : Optional `wa_case_handler_routes.id`.
+            handler_id         : Optional `case_handler_routes.id`.
             hydrate_media      : Whether to hydrate media during `context_build()`.
             owner_token        : Token owning the contact lease.
             silence_timeout    : Duration of message-echo silence mode.

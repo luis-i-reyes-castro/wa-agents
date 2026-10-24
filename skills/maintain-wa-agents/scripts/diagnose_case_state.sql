@@ -24,13 +24,15 @@ WITH target_contact AS (
     con.wa_id                AS contact_wa_id,
     con.user_id              AS contact_user_id,
     bus.id                   AS business_id,
-    bus.display_phone_number AS business_phone_number
+    phn.display_phone_number AS business_phone_number
   FROM
-    public.wa_api_businesses AS bus
+    wa_agents.api_businesses AS bus
   JOIN
-    public.wa_api_contacts AS con ON con.business = bus.id
+    wa_agents.api_phone_numbers AS phn ON phn.business = bus.id
+  JOIN
+    wa_agents.api_contacts AS con ON con.phone_number = phn.id
   WHERE
-    ( bus.display_phone_number = :'business_display_phone_number' ) AND
+    ( phn.display_phone_number = :'business_display_phone_number' ) AND
     ( con.wa_id                = :'contact_wa_id'                  )
 ),
 message_stats AS (
@@ -38,7 +40,7 @@ message_stats AS (
     msg.case_id,
     count(*) AS message_count
   FROM
-    public.wa_case_handler_messages AS msg
+    wa_agents.case_handler_messages AS msg
   GROUP BY
     msg.case_id
 ),
@@ -48,7 +50,7 @@ history_stats AS (
     count(*)                                          AS snapshot_count,
     count(*) FILTER (WHERE his.case_message IS NULL) AS initial_snapshot_count
   FROM
-    public.wa_case_handler_state_histories AS his
+    wa_agents.case_handler_state_histories AS his
   GROUP BY
     his.case_manifest
 )
@@ -88,11 +90,11 @@ SELECT
 FROM
   target_contact AS tar
 JOIN
-  public.wa_case_handler_case_manifests AS cas ON cas.contact = tar.contact_id
+  wa_agents.case_handler_case_manifests AS cas ON cas.contact = tar.contact_id
 LEFT JOIN
-  public.wa_case_handler_routes AS rou ON rou.id = cas.handler_id
+  wa_agents.case_handler_routes AS rou ON rou.id = cas.handler_id
 LEFT JOIN
-  public.wa_case_handler_contact_leases AS lea ON lea.contact = tar.contact_id
+  wa_agents.case_handler_contact_leases AS lea ON lea.contact = tar.contact_id
 LEFT JOIN
   message_stats AS msg ON msg.case_id = cas.id
 LEFT JOIN
@@ -102,7 +104,7 @@ LEFT JOIN LATERAL (
     state.created_at,
     state.machine_state
   FROM
-    public.wa_case_handler_state_histories AS state
+    wa_agents.case_handler_state_histories AS state
   WHERE
     ( state.case_manifest = cas.id )
   ORDER BY
@@ -125,15 +127,17 @@ WITH target_cases AS (
     cas.handler_id,
     rou.handler_key
   FROM
-    public.wa_api_businesses AS bus
+    wa_agents.api_businesses AS bus
   JOIN
-    public.wa_api_contacts AS con ON con.business = bus.id
+    wa_agents.api_phone_numbers AS phn ON phn.business = bus.id
   JOIN
-    public.wa_case_handler_case_manifests AS cas ON cas.contact = con.id
+    wa_agents.api_contacts AS con ON con.phone_number = phn.id
+  JOIN
+    wa_agents.case_handler_case_manifests AS cas ON cas.contact = con.id
   LEFT JOIN
-    public.wa_case_handler_routes AS rou ON rou.id = cas.handler_id
+    wa_agents.case_handler_routes AS rou ON rou.id = cas.handler_id
   WHERE
-    ( bus.display_phone_number = :'business_display_phone_number' ) AND
+    ( phn.display_phone_number = :'business_display_phone_number' ) AND
     ( con.wa_id                = :'contact_wa_id'                  )
 ),
 case_events AS (
@@ -147,7 +151,7 @@ case_events AS (
   FROM
     target_cases AS cas
   LEFT JOIN
-    public.wa_case_handler_state_histories AS his ON
+    wa_agents.case_handler_state_histories AS his ON
       ( his.case_manifest = cas.id ) AND
       ( his.case_message IS NULL   )
 
@@ -163,9 +167,9 @@ case_events AS (
   FROM
     target_cases AS cas
   JOIN
-    public.wa_case_handler_messages AS msg ON msg.case_id = cas.id
+    wa_agents.case_handler_messages AS msg ON msg.case_id = cas.id
   LEFT JOIN
-    public.wa_case_handler_state_histories AS his ON
+    wa_agents.case_handler_state_histories AS his ON
       ( his.case_manifest = cas.id ) AND
       ( his.case_message  = msg.id )
 )
@@ -211,17 +215,17 @@ SELECT
 FROM
   case_events AS evt
 LEFT JOIN
-  public.wa_case_handler_messages AS msg ON
+  wa_agents.case_handler_messages AS msg ON
     ( msg.case_id = evt.id              ) AND
     ( msg.id      = evt.case_message_id )
 LEFT JOIN
-  public.wa_case_handler_to_api AS map ON map.case_handler_msg_id = msg.id
+  wa_agents.case_handler_to_api_bridge AS map ON map.case_handler_msg_id = msg.id
 LEFT JOIN
-  public.wa_api_inbound_messages AS api_in ON api_in.id = map.api_inbound_msg_id
+  wa_agents.api_inbound_messages AS api_in ON api_in.id = map.api_inbound_msg_id
 LEFT JOIN
-  public.wa_api_outbound_messages AS api_out ON api_out.id = map.api_outbound_msg_id
+  wa_agents.api_outbound_messages AS api_out ON api_out.id = map.api_outbound_msg_id
 LEFT JOIN
-  public.wa_api_to_case_handler_queue AS que ON que.msg_id = api_in.msg_id
+  wa_agents.api_to_case_handler_queue AS que ON que.msg_id = api_in.msg_id
 ORDER BY
   evt.case_index  ASC,
   evt.id          ASC,
@@ -234,13 +238,15 @@ WITH target_cases AS (
     cas.id,
     cas.case_index
   FROM
-    public.wa_api_businesses AS bus
+    wa_agents.api_businesses AS bus
   JOIN
-    public.wa_api_contacts AS con ON con.business = bus.id
+    wa_agents.api_phone_numbers AS phn ON phn.business = bus.id
   JOIN
-    public.wa_case_handler_case_manifests AS cas ON cas.contact = con.id
+    wa_agents.api_contacts AS con ON con.phone_number = phn.id
+  JOIN
+    wa_agents.case_handler_case_manifests AS cas ON cas.contact = con.id
   WHERE
-    ( bus.display_phone_number = :'business_display_phone_number' ) AND
+    ( phn.display_phone_number = :'business_display_phone_number' ) AND
     ( con.wa_id                = :'contact_wa_id'                  )
 ),
 contexts AS (
@@ -255,7 +261,7 @@ contexts AS (
   FROM
     target_cases AS cas
   JOIN
-    public.wa_case_handler_agent_contexts AS ctx ON ctx.case_manifest = cas.id
+    wa_agents.case_handler_agent_contexts AS ctx ON ctx.case_manifest = cas.id
 )
 SELECT
   ctx.case_manifest,
@@ -275,11 +281,11 @@ SELECT
 FROM
   contexts AS ctx
 LEFT JOIN
-  public.wa_case_handler_messages AS msg ON
+  wa_agents.case_handler_messages AS msg ON
     ( msg.case_id = ctx.case_manifest ) AND
     ( msg.id      = ctx.case_message  )
 LEFT JOIN
-  public.wa_case_handler_state_histories AS his ON
+  wa_agents.case_handler_state_histories AS his ON
     ( his.case_manifest = ctx.case_manifest ) AND
     ( his.case_message  = ctx.case_message  )
 ORDER BY

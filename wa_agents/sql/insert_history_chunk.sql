@@ -1,6 +1,6 @@
 -- PARAMS:
-  -- phone_number : wa_api_phone_numbers.id
-  -- payload      : wa_api_inbound_payloads.id
+  -- phone_number : api_phone_numbers.id
+  -- payload      : api_inbound_payloads.id
   -- history_index : int
   -- phase        : int | None
   -- chunk_order  : int | None
@@ -8,7 +8,7 @@
   -- errors       : list[dict] | None
 
 WITH sync AS (
-  INSERT INTO public.wa_api_embedded_signup_syncs AS syn (
+  INSERT INTO wa_agents.api_embedded_signup_syncs AS syn (
     phone_number,
     sync_type,
     sync_status,
@@ -50,7 +50,7 @@ WITH sync AS (
   RETURNING
     syn.id
 )
-INSERT INTO public.wa_api_history_chunks AS chunk (
+INSERT INTO wa_agents.api_history_chunks AS chunk (
   sync,
   payload,
   history_index,

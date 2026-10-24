@@ -1,8 +1,8 @@
 -- PARAMS:
-  -- payload_id : wa_api_inbound_payloads.id
+  -- payload_id : api_inbound_payloads.id
 
 UPDATE
-  public.wa_api_inbound_payloads
+  wa_agents.api_inbound_payloads
 SET
   validated = TRUE,
   errors    = NULL

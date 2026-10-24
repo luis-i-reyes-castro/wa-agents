@@ -1,13 +1,13 @@
 -- PARAMS:
-  -- contact     : wa_api_contacts.id
-  -- after_row_id : wa_api_to_case_handler_queue.id
+  -- contact     : api_contacts.id
+  -- after_row_id : api_to_case_handler_queue.id
 
 SELECT
   que.id
 FROM
-  public.wa_api_inbound_messages      AS msg
+  wa_agents.api_inbound_messages      AS msg
 JOIN
-  public.wa_api_to_case_handler_queue AS que ON msg.msg_id = que.msg_id
+  wa_agents.api_to_case_handler_queue AS que ON msg.msg_id = que.msg_id
 WHERE
   ( msg.contact    = @contact      ) AND
   ( msg.is_echo                    ) AND

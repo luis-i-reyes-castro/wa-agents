@@ -1,11 +1,11 @@
 -- PARAMS:
-  -- business : wa_api_phone_numbers.id
+  -- business : api_phone_numbers.id
   -- wa_id    : NumericID | None
   -- user_id  : WhatsAppBSUID | None
 
 WITH updated AS (
   UPDATE
-    public.wa_api_contacts AS con
+    wa_agents.api_contacts AS con
   SET
     wa_id        = COALESCE( con.wa_id,   @wa_id   ),
     user_id      = COALESCE( con.user_id, @user_id ),
@@ -25,7 +25,7 @@ WITH updated AS (
     con.user_id
 ),
 inserted AS (
-  INSERT INTO public.wa_api_contacts (
+  INSERT INTO wa_agents.api_contacts (
     phone_number,
     wa_id,
     user_id

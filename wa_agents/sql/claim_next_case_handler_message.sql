@@ -12,13 +12,13 @@ WITH candidate AS MATERIALIZED (
     COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key,
     settings.silence_timeout_minutes
   FROM
-    public.wa_api_inbound_messages      AS msg
+    wa_agents.api_inbound_messages      AS msg
   JOIN
-    public.wa_api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
+    wa_agents.api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
   LEFT JOIN
-    public.wa_case_handler_routes       AS rou ON rou.id = que.handler_id
+    wa_agents.case_handler_routes       AS rou ON rou.id = que.handler_id
   LEFT JOIN
-    public.wa_case_handler_settings     AS settings ON
+    wa_agents.case_handler_settings     AS settings ON
       settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key )
   WHERE
     ( que.msg_status = 'pending' ) AND
@@ -29,7 +29,7 @@ WITH candidate AS MATERIALIZED (
       SELECT
         1
       FROM
-        public.wa_case_handler_contact_leases AS old
+        wa_agents.case_handler_contact_leases AS old
       WHERE
         ( old.contact    = msg.contact ) AND
         ( old.expires_at > now()       )
@@ -41,7 +41,7 @@ WITH candidate AS MATERIALIZED (
   FOR UPDATE OF que SKIP LOCKED
 ),
 leased AS (
-  INSERT INTO public.wa_case_handler_contact_leases (
+  INSERT INTO wa_agents.case_handler_contact_leases (
     contact,
     owner_token,
     acquired_at,
@@ -65,13 +65,13 @@ leased AS (
     heartbeat_at = EXCLUDED.heartbeat_at,
     expires_at   = EXCLUDED.expires_at
   WHERE
-    ( wa_case_handler_contact_leases.expires_at <= now() )
+    ( case_handler_contact_leases.expires_at <= now() )
   RETURNING
     contact,
     owner_token
 )
 UPDATE
-  public.wa_api_to_case_handler_queue AS que
+  wa_agents.api_to_case_handler_queue AS que
 SET
   msg_status = 'processing',
   updated_at = now()

@@ -1,8 +1,8 @@
 -- PARAMS:
-  -- flow                 : wa_api_flows.id
-  -- business             : wa_api_phone_numbers.id
-  -- contact              : wa_api_contacts.id
-  -- case_handler_message : wa_case_handler_messages.id | null
+  -- flow                 : api_flows.id
+  -- business             : api_phone_numbers.id
+  -- contact              : api_contacts.id
+  -- case_handler_message : case_handler_messages.id | null
   -- flow_token           : opaque session token
   -- flow_token_hash      : SHA-256 hex digest
   -- session_state        : JSON string | null
@@ -10,7 +10,7 @@
 
 WITH superseded AS (
   UPDATE
-    public.wa_api_flow_sessions AS session
+    wa_agents.api_flow_sessions AS session
   SET
     updated_at     = now(),
     session_status = 'superseded'
@@ -19,7 +19,7 @@ WITH superseded AS (
     ( session.contact = @contact ) AND
     ( session.session_status IN ( 'created', 'sent', 'active') )
 )
-INSERT INTO public.wa_api_flow_sessions (
+INSERT INTO wa_agents.api_flow_sessions (
   flow,
   phone_number,
   contact,

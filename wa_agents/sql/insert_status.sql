@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- payload      : wa_api_inbound_payloads.id
+  -- payload      : api_inbound_payloads.id
   -- msg_id       : WhatsAppMessageID
   -- msg_status   : WhatsApp_IB_Status
   -- status_ts    : datetime
@@ -7,7 +7,7 @@
   -- pricing      : dict | None
   -- errors       : list[dict] | None
 
-INSERT INTO public.wa_api_statuses (
+INSERT INTO wa_agents.api_statuses (
   payload,
   msg_id,
   msg_status,

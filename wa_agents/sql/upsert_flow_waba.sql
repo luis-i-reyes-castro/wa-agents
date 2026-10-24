@@ -5,7 +5,7 @@
   -- private_key            : PEM private key
   -- secret_key             : ENCRYPTION_KEY
 
-INSERT INTO public.wa_api_flow_encryption_keys AS fw (
+INSERT INTO wa_agents.api_flow_encryption_keys AS fw (
   business,
   public_key,
   public_key_fingerprint,
@@ -17,7 +17,7 @@ SELECT
   @public_key_fingerprint,
   encrypt_text( @private_key, @secret_key)
 FROM
-  public.wa_api_businesses AS bus
+  wa_agents.api_businesses AS bus
 WHERE
   ( bus.waba_id = @waba_id )
 ON CONFLICT (business)

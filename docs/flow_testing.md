@@ -11,11 +11,11 @@ Flow testing uses two categories of database records.
 
 Persistent configuration:
 
-- `wa_api_businesses`: configured WhatsApp businesses and phone numbers.
-- `wa_case_handler_routes`: business-wide and contact-specific handler routing.
-- `wa_api_flow_encryption_keys`: the public key and encrypted private key used by
+- `api_businesses`: configured WhatsApp businesses and phone numbers.
+- `case_handler_routes`: business-wide and contact-specific handler routing.
+- `api_flow_encryption_keys`: the public key and encrypted private key used by
   a WABA.
-- `wa_api_flows`: Meta Flow IDs, handler keys, versions, endpoint URIs, and status.
+- `api_flows`: Meta Flow IDs, handler keys, versions, endpoint URIs, and status.
 
 Contact test state:
 
@@ -29,7 +29,7 @@ Routine testing should reset only the contact test state. Do not use
 truncates both categories, including the WABA key pair and Flow definitions.
 Use [`reset_contact.sql`](../.scripts/danger_zone/reset_contact.sql) instead.
 
-Deleting one `wa_api_contacts` row is sufficient because the dependent records
+Deleting one `api_contacts` row is sufficient because the dependent records
 use `ON DELETE CASCADE`. It preserves the business, its business-wide route,
 WABA keys, Flow definitions, WABA-level health exchanges, and Flow webhook
 events. A contact-specific route necessarily disappears with its contact.
@@ -52,7 +52,7 @@ Use this order for a new endpoint-backed Flow:
    ```
 
    Provisioning generates a key pair, stores the private key encrypted in
-   `wa_api_flow_encryption_keys`, uploads the public key to Meta, and verifies its
+   `api_flow_encryption_keys`, uploads the public key to Meta, and verifies its
    signature status.
 3. Create the Flow in Flow Builder and load the Flow JSON.
 4. Configure the endpoint URI as:
@@ -63,7 +63,7 @@ Use this order for a new endpoint-backed Flow:
 
 5. Run Flow Builder's endpoint health check.
 6. Publish the Flow and record the Meta Flow ID.
-7. Register the published Flow in `wa_api_flows`, including its stable
+7. Register the published Flow in `api_flows`, including its stable
    application `flow_key`, `handler_key`, versions, endpoint URI, and
    `PUBLISHED` status.
 8. Confirm that the business or contact route selects the registered handler.
@@ -73,7 +73,7 @@ Provisioning and Flow registration are separate operations. A successful
 health check proves that Meta and the endpoint share a working key pair; it does
 not register the Flow for application launch. Likewise, a
 `FLOW_STATUS_CHANGE` webhook is currently an audit event and does not create or
-update `wa_api_flows` automatically.
+update `api_flows` automatically.
 
 ## Flow Builder Validation Lessons
 
@@ -107,13 +107,13 @@ The response format identifies which layer rejected the request:
 - nginx HTML `502`: nginx matched the route but could not reach the backend.
   Check container status, the published port, and the nginx upstream.
 - Plain-text `404 Unknown WABA`: nginx and FastAPI routing work, but the WABA
-  provisioning row is absent. Check `wa_api_flow_encryption_keys` and reprovision
+  provisioning row is absent. Check `api_flow_encryption_keys` and reprovision
   it.
 - Plain-text decryption error: A WABA row exists, but Meta's public key and the
   stored private key do not match, or the envelope is invalid. Reprovision the
   key pair and retry the health check.
 - Encrypted HTTP `200`: The endpoint decrypted and processed the request.
-  Confirm the recorded result in `wa_api_flow_data_exchanges`.
+  Confirm the recorded result in `api_flow_data_exchanges`.
 
 A wrong or missing FastAPI route normally produces FastAPI's JSON `404`; it
 does not produce nginx's HTML `403`.
@@ -173,7 +173,7 @@ private key available to the endpoint.
 Webhook changes with `field: "flows"` are accepted as
 `WhatsApp_IB_FlowEvent`. Known examples include `FLOW_STATUS_CHANGE` and
 `ENDPOINT_AVAILABILITY`. Event-specific fields are preserved and the event is
-stored in `wa_api_flow_events`.
+stored in `api_flow_events`.
 
 These events are operational audit data. They currently do not provision keys,
 register definitions, update Flow status, or repair endpoint availability.

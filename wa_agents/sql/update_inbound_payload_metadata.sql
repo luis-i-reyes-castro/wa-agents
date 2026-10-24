@@ -1,12 +1,12 @@
 -- PARAMS:
-  -- payload_id   : wa_api_inbound_payloads.id
+  -- payload_id   : api_inbound_payloads.id
   -- item_index   : int      | None
   -- item_ts      : datetime | None
   -- change_index : int      | None
-  -- contact      : wa_api_contacts.id
+  -- contact      : api_contacts.id
 
 UPDATE
-  public.wa_api_inbound_payloads AS pay
+  wa_agents.api_inbound_payloads AS pay
 SET
   item_index   = COALESCE( @item_index,   0     ),
   item_ts      = COALESCE( @item_ts,      now() ),

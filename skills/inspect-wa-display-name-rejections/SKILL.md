@@ -1,6 +1,6 @@
 ---
 name: inspect-wa-display-name-rejections
-description: Inspect audited WhatsApp `phone_number_name_update` webhook payloads in the Supabase database selected by a consumer dotenv file, identify display-name decisions and rejection reasons, interpret known reason codes, and suggest evidence-backed replacement names. Use when a WhatsApp Business display name is rejected, pending, unexpectedly approved, or missing from application processing, especially for Sofia deployments backed by `wa_api_inbound_payloads`.
+description: Inspect audited WhatsApp `phone_number_name_update` webhook payloads in the Supabase database selected by a consumer dotenv file, identify display-name decisions and rejection reasons, interpret known reason codes, and suggest evidence-backed replacement names. Use when a WhatsApp Business display name is rejected, pending, unexpectedly approved, or missing from application processing, especially for Sofia deployments backed by `api_inbound_payloads`.
 ---
 
 # Inspect WhatsApp Display Name Rejections

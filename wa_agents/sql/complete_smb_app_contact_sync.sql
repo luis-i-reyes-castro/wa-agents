@@ -1,8 +1,8 @@
 -- PARAMS:
-  -- phone_number : wa_api_phone_numbers.id
+  -- phone_number : api_phone_numbers.id
 
 UPDATE
-  public.wa_api_embedded_signup_syncs AS syn
+  wa_agents.api_embedded_signup_syncs AS syn
 SET
   updated_at   = now(),
   sync_status  = 'completed',

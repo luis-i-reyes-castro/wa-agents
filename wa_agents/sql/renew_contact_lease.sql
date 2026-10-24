@@ -1,9 +1,9 @@
 -- PARAMS:
-  -- contact     : wa_api_contacts.id
+  -- contact     : api_contacts.id
   -- owner_token : UUID
 
 UPDATE
-  public.wa_case_handler_contact_leases
+  wa_agents.case_handler_contact_leases
 SET
   heartbeat_at = now(),
   expires_at   = now() + INTERVAL '90 seconds'

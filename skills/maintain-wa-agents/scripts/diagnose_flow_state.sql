@@ -37,13 +37,17 @@ WITH target_contact AS (
     con.id                   AS contact_id,
     con.wa_id                AS contact_wa_id,
     bus.id                   AS business_id,
-    bus.display_phone_number AS business_phone_number
+    bus.waba_id              AS waba_id,
+    phn.id                   AS phone_number_id,
+    phn.display_phone_number AS business_phone_number
   FROM
-    public.wa_api_businesses AS bus
+    wa_agents.api_businesses AS bus
   JOIN
-    public.wa_api_contacts AS con ON con.business = bus.id
+    wa_agents.api_phone_numbers AS phn ON phn.business = bus.id
+  JOIN
+    wa_agents.api_contacts AS con ON con.phone_number = phn.id
   WHERE
-    ( bus.display_phone_number = :'business_display_phone_number' ) AND
+    ( phn.display_phone_number = :'business_display_phone_number' ) AND
     ( con.wa_id                = :'contact_wa_id'                  )
 )
 SELECT
@@ -67,7 +71,7 @@ SELECT
   flo.flow_json_version        AS flow_json_version,
   flo.data_api_version         AS data_api_version,
   flo.endpoint_uri             AS endpoint_uri,
-  wba.waba_id                  AS waba_id,
+  tar.waba_id                  AS waba_id,
   ses.flow_token_hash          AS flow_token_hash,
   ses.case_handler_message     AS launch_case_message_id,
   ( launch_case.data - 'flow_token' ) AS launch_case_message_data,
@@ -97,21 +101,21 @@ SELECT
 FROM
   target_contact AS tar
 JOIN
-  public.wa_api_flow_sessions AS ses ON
-    ( ses.business = tar.business_id ) AND
-    ( ses.contact  = tar.contact_id  )
+  wa_agents.api_flow_sessions AS ses ON
+    ( ses.phone_number = tar.phone_number_id ) AND
+    ( ses.contact      = tar.contact_id      )
 JOIN
-  public.wa_api_flows AS flo ON flo.id = ses.flow
+  wa_agents.api_flows AS flo ON flo.id = ses.flow
 JOIN
-  public.wa_api_flow_encryption_keys AS wba ON wba.id = flo.flow_waba
+  wa_agents.api_flow_encryption_keys AS wba ON wba.id = flo.flow_waba
 LEFT JOIN
-  public.wa_case_handler_messages AS launch_case
+  wa_agents.case_handler_messages AS launch_case
   ON launch_case.id = ses.case_handler_message
 LEFT JOIN
-  public.wa_api_outbound_messages AS launch_api
+  wa_agents.api_outbound_messages AS launch_api
   ON launch_api.id = ses.outbound_message
 LEFT JOIN
-  public.wa_api_inbound_messages AS completion
+  wa_agents.api_inbound_messages AS completion
   ON completion.id = ses.completion_message
 ORDER BY
   ses.created_at ASC,
@@ -126,17 +130,19 @@ WITH target_sessions AS (
     flo.flow_id,
     flo.flow_key
   FROM
-    public.wa_api_businesses AS bus
+    wa_agents.api_businesses AS bus
   JOIN
-    public.wa_api_contacts AS con ON con.business = bus.id
+    wa_agents.api_phone_numbers AS phn ON phn.business = bus.id
   JOIN
-    public.wa_api_flow_sessions AS ses ON
-      ( ses.business = bus.id ) AND
-      ( ses.contact  = con.id )
+    wa_agents.api_contacts AS con ON con.phone_number = phn.id
   JOIN
-    public.wa_api_flows AS flo ON flo.id = ses.flow
+    wa_agents.api_flow_sessions AS ses ON
+      ( ses.phone_number = phn.id ) AND
+      ( ses.contact      = con.id )
+  JOIN
+    wa_agents.api_flows AS flo ON flo.id = ses.flow
   WHERE
-    ( bus.display_phone_number = :'business_display_phone_number' ) AND
+    ( phn.display_phone_number = :'business_display_phone_number' ) AND
     ( con.wa_id                = :'contact_wa_id'                  )
 )
 SELECT
@@ -171,7 +177,7 @@ SELECT
 FROM
   target_sessions AS ses
 JOIN
-  public.wa_api_flow_data_exchanges AS exc ON exc.session = ses.id
+  wa_agents.api_flow_data_exchanges AS exc ON exc.session = ses.id
 ORDER BY
   ses.created_at ASC,
   ses.id         ASC,

@@ -67,8 +67,8 @@ class WhatsAppDatabaseRecord (BaseModel) :
 class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsApp_IB_MetaData) :
     """
     Normalized WhatsApp Business Record:
-        `row_id` : `wa_api_phone_numbers.id`
-        `api_id` : `wa_api_phone_numbers.phone_number_id`
+        `row_id` : `api_phone_numbers.id`
+        `api_id` : `api_phone_numbers.phone_number_id`
     """
     model_config = ConfigDict( frozen = False)
     
@@ -83,8 +83,8 @@ class WhatsAppDatabaseRecord_Business ( WhatsAppDatabaseRecord, WhatsApp_IB_Meta
 class WhatsAppDatabaseRecord_Contact ( WhatsAppDatabaseRecord, WhatsApp_IB_Contact) :
     """
     Normalized WhatsApp Contact record:
-        `row_id` : `wa_api_contacts.id`
-        `api_id` : `wa_api_contacts.wa_id` | `wa_api_contacts.user_id`
+        `row_id` : `api_contacts.id`
+        `api_id` : `api_contacts.wa_id` | `api_contacts.user_id`
     """
     model_config = ConfigDict( frozen = False)
     

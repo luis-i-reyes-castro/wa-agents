@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- session_id      : wa_api_flow_sessions.id
+  -- session_id      : api_flow_sessions.id
   -- session_status  : T_WHATSAPP_FLOW_SESSION_STATUS
   -- session_state   : JSON string | null
   -- completion_data : JSON string | null
@@ -7,7 +7,7 @@
   -- secret_key      : ENCRYPTION_KEY
 
 UPDATE
-  public.wa_api_flow_sessions AS session
+  wa_agents.api_flow_sessions AS session
 SET
   updated_at      = now(),
   activated_at    = CASE

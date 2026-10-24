@@ -1,7 +1,7 @@
 -- PARAMS:
   -- msg_id : WhatsAppMessageID
 
-INSERT INTO public.wa_api_to_case_handler_queue (
+INSERT INTO wa_agents.api_to_case_handler_queue (
   msg_id,
   handler_id
 )
@@ -10,14 +10,14 @@ SELECT
   msg.msg_id,
   rou.id
 FROM
-  public.wa_api_inbound_messages AS msg
+  wa_agents.api_inbound_messages AS msg
 JOIN
-  public.wa_api_contacts         AS con ON con.id = msg.contact
+  wa_agents.api_contacts         AS con ON con.id = msg.contact
 LEFT JOIN LATERAL (
   SELECT
     rte.id
   FROM
-    public.wa_case_handler_routes AS rte
+    wa_agents.case_handler_routes AS rte
   WHERE
     ( rte.phone_number = con.phone_number ) AND
     (

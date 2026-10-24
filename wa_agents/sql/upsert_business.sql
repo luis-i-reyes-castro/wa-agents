@@ -4,7 +4,7 @@
   -- display_phone_number : NumericID
 
 WITH business AS (
-  INSERT INTO public.wa_api_businesses AS bus (
+  INSERT INTO wa_agents.api_businesses AS bus (
     waba_id
   )
   VALUES (
@@ -20,7 +20,7 @@ WITH business AS (
     bus.waba_id
 ),
 phone_number AS (
-  INSERT INTO public.wa_api_phone_numbers AS num (
+  INSERT INTO wa_agents.api_phone_numbers AS num (
     business,
     display_phone_number,
     phone_number_id

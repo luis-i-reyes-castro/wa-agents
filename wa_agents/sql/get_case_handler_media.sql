@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- case_handler_msg_id : wa_case_handler_messages.id
+  -- case_handler_msg_id : case_handler_messages.id
 
 SELECT
   med.id,
@@ -11,9 +11,9 @@ SELECT
   med.caption,
   med.filename
 FROM
-  public.wa_case_handler_to_api AS map
+  wa_agents.case_handler_to_api_bridge AS map
 JOIN
-  public.wa_api_media AS med ON
+  wa_agents.api_media AS med ON
     ( med.inbound_msg_id  = map.api_inbound_msg_id  ) OR
     ( med.outbound_msg_id = map.api_outbound_msg_id )
 WHERE

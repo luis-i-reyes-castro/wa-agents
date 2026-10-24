@@ -1,13 +1,13 @@
 -- PARAMS:
-  -- phone_number : wa_api_phone_numbers.id
-  -- contact      : wa_api_contacts.id
+  -- phone_number : api_phone_numbers.id
+  -- contact      : api_contacts.id
   -- full_name    : str | None
   -- first_name   : str | None
   -- is_active    : bool
   -- changed_at   : datetime
 
 WITH sync AS (
-  INSERT INTO public.wa_api_embedded_signup_syncs AS syn (
+  INSERT INTO wa_agents.api_embedded_signup_syncs AS syn (
     phone_number,
     sync_type,
     sync_status,
@@ -36,7 +36,7 @@ WITH sync AS (
     syn.id
 ),
 upserted AS (
-  INSERT INTO public.wa_api_smb_app_contacts AS smb (
+  INSERT INTO wa_agents.api_smb_app_contacts AS smb (
     contact,
     full_name,
     first_name,
@@ -88,7 +88,7 @@ UNION ALL
     smb.is_active,
     smb.changed_at
   FROM
-    public.wa_api_smb_app_contacts AS smb
+    wa_agents.api_smb_app_contacts AS smb
   WHERE
     smb.contact = @contact
     AND

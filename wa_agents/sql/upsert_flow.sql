@@ -13,13 +13,13 @@ WITH flow_waba AS (
   SELECT
     fw.id
   FROM
-    public.wa_api_flow_encryption_keys AS fw
+    wa_agents.api_flow_encryption_keys AS fw
   JOIN
-    public.wa_api_businesses AS bus ON bus.id = fw.business
+    wa_agents.api_businesses AS bus ON bus.id = fw.business
   WHERE
     ( bus.waba_id = @waba_id )
 )
-INSERT INTO public.wa_api_flows (
+INSERT INTO wa_agents.api_flows (
   flow_waba,
   flow_key,
   flow_id,

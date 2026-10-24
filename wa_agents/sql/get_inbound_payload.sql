@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- payload_id : wa_api_inbound_payloads.id
+  -- payload_id : api_inbound_payloads.id
 
 SELECT
   id,
@@ -13,6 +13,6 @@ SELECT
   validated,
   errors
 FROM
-  public.wa_api_inbound_payloads
+  wa_agents.api_inbound_payloads
 WHERE
   ( id = @payload_id );

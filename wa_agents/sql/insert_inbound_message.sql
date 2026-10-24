@@ -1,15 +1,15 @@
 -- PARAMS:
-  -- contact         : wa_api_contacts.id
-  -- payload         : wa_api_inbound_payloads.id
+  -- contact         : api_contacts.id
+  -- payload         : api_inbound_payloads.id
   -- is_echo         : bool | None
   -- msg_id          : WhatsAppMessageID
   -- msg_ts          : datetime
   -- msg_type        : WhatsAppMessageType
   -- msg_data        : dict
-  -- history_chunk   : wa_api_history_chunks.id | None
+  -- history_chunk   : api_history_chunks.id | None
   -- history_context : dict | None
 
-INSERT INTO public.wa_api_inbound_messages AS msg (
+INSERT INTO wa_agents.api_inbound_messages AS msg (
   contact,
   payload,
   is_echo,

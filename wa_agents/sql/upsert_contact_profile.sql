@@ -1,11 +1,11 @@
 -- PARAMS:
-  -- contact          : wa_api_contacts.id
+  -- contact          : api_contacts.id
   -- profile_name     : str
   -- profile_username : WhatsAppUsername | None
 
 WITH updated AS (
   UPDATE
-    public.wa_api_contact_profiles AS pro
+    wa_agents.api_contact_profiles AS pro
   SET
     last_seen_at = now()
   WHERE
@@ -22,7 +22,7 @@ WITH updated AS (
     pro.profile_username
 ),
 inserted AS (
-  INSERT INTO public.wa_api_contact_profiles (
+  INSERT INTO wa_agents.api_contact_profiles (
     contact,
     profile_name,
     profile_username
@@ -37,7 +37,7 @@ inserted AS (
     FROM
       updated
   )
-  ON CONFLICT ON CONSTRAINT wa_api_contact_profile_unique
+  ON CONFLICT ON CONSTRAINT api_contact_profile_unique
   DO
     UPDATE
   SET

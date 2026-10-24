@@ -21,19 +21,19 @@ SELECT
   pro.profile_name          AS profile_name,
   pro.profile_username      AS profile_username
 FROM
-  public.wa_api_inbound_messages AS msg
+  wa_agents.api_inbound_messages AS msg
 JOIN
-  public.wa_api_contacts AS con ON con.id = msg.contact
+  wa_agents.api_contacts AS con ON con.id = msg.contact
 JOIN
-  public.wa_api_phone_numbers AS num ON num.id = con.phone_number
+  wa_agents.api_phone_numbers AS num ON num.id = con.phone_number
 JOIN
-  public.wa_api_businesses AS bus ON bus.id = num.business
+  wa_agents.api_businesses AS bus ON bus.id = num.business
 LEFT JOIN LATERAL (
   SELECT
     prf.profile_name,
     prf.profile_username
   FROM
-    public.wa_api_contact_profiles AS prf
+    wa_agents.api_contact_profiles AS prf
   WHERE
     ( prf.contact = con.id )
   ORDER BY

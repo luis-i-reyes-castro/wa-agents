@@ -1,9 +1,9 @@
 -- PARAMS:
-  -- payload_id : wa_api_inbound_payloads.id
+  -- payload_id : api_inbound_payloads.id
   -- errors     : list[dict] | dict
 
 UPDATE
-  public.wa_api_inbound_payloads
+  wa_agents.api_inbound_payloads
 SET
   validated = FALSE,
   errors    = @errors

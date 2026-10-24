@@ -5,12 +5,12 @@
 SELECT
   flow.*
 FROM
-  public.wa_api_flows AS flow
+  wa_agents.api_flows AS flow
 INNER JOIN
-  public.wa_api_flow_encryption_keys AS fw
+  wa_agents.api_flow_encryption_keys AS fw
   ON ( fw.id = flow.flow_waba )
 INNER JOIN
-  public.wa_api_businesses AS bus
+  wa_agents.api_businesses AS bus
   ON ( bus.id = fw.business )
 WHERE
   ( bus.waba_id = @waba_id ) AND

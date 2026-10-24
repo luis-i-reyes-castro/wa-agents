@@ -1,10 +1,10 @@
 -- PARAMS:
-  -- phone_number  : wa_api_phone_numbers.id
-  -- contact       : wa_api_contacts.id | None
+  -- phone_number  : api_phone_numbers.id
+  -- contact       : api_contacts.id | None
   -- handler_key   : str
   -- handler_url   : str | None
 
-INSERT INTO public.wa_case_handler_routes AS rou (
+INSERT INTO wa_agents.case_handler_routes AS rou (
   phone_number,
   contact,
   handler_key,

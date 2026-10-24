@@ -85,7 +85,7 @@ class LanguageRegionData (BaseModel) :
 class UserData (BaseModel) :
     """
     User data class
-        `id`           : wa_api_contacts.id
+        `id`           : api_contacts.id
         `name`         : "<name>"              | null
         `username`     : "<WhatsApp username>" | null
         `lan_reg_data` : <LanguageRegionData>  | null
@@ -112,7 +112,7 @@ class UserData (BaseModel) :
 class Message ( BaseModel, ABC) :
     """
     Message abstract base class.
-        `id`            : wa_case_handler_messages.id | null
+        `id`            : case_handler_messages.id | null
         `message_index` : one-based index within its case | null
         `ts`            : <timestamp>
         `basemodel`     : "<class name>"              | null
@@ -591,16 +591,16 @@ class ToolResultsMsg (Message) :
 class CaseManifest (BaseModel) :
     """
     Case Manifest
-        `id`             : wa_case_handler_case_manifests.id
-        `handler_id`     : wa_case_handler_routes.id | null
-        `contact`        : wa_case_handler_case_manifests.contact
+        `id`             : case_handler_case_manifests.id
+        `handler_id`     : case_handler_routes.id | null
+        `contact`        : case_handler_case_manifests.contact
         `case_index`     : one-based index for the contact
         `created_at`     : <timestamp>
         `updated_at`     : <timestamp> | null
         `is_open`        : bool
         `machine_state`  : "<optional string>" | null
         `silenced_until` : <timestamp> | null
-        `message_ids`    : list of `wa_case_handler_messages.id`
+        `message_ids`    : list of `case_handler_messages.id`
     """
     id             : PositiveInt
     handler_id     : PositiveInt | None = None

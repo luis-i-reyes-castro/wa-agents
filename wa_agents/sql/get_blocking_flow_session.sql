@@ -1,16 +1,16 @@
 -- PARAMS:
-  -- contact         : wa_api_contacts.id
-  -- inbound_message : wa_api_inbound_messages.id
+  -- contact         : api_contacts.id
+  -- inbound_message : api_inbound_messages.id
 
 SELECT
   session.*
 FROM
-  public.wa_api_flow_sessions     AS session
+  wa_agents.api_flow_sessions     AS session
 INNER JOIN
-  public.wa_api_inbound_messages  AS message ON
+  wa_agents.api_inbound_messages  AS message ON
     session.contact = message.contact
 INNER JOIN
-  public.wa_api_inbound_payloads  AS payload ON
+  wa_agents.api_inbound_payloads  AS payload ON
     payload.id = message.payload
 WHERE
   ( session.contact = @contact                ) AND

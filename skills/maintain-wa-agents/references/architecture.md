@@ -44,7 +44,7 @@ before editing. The schema and APIs may evolve after this reference is written.
 Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
 
 - All structured data lives in PostgreSQL. Only media bytes live in S3.
-- `wa_api_inbound_payloads` combines raw audit data and resolved metadata.
+- `api_inbound_payloads` combines raw audit data and resolved metadata.
   `contact` must remain nullable so malformed or otherwise unresolvable payloads can
   still be persisted with validation errors.
 - Treat each `WhatsApp_IB_Value` as carrying at most one contact identity. Do not
@@ -67,7 +67,7 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
   atomically with message persistence.
 - Case manifests persist `machine_state` so rebuilding a handler does not require
   replay merely to recover its current state.
-- `wa_case_handler_state_histories` stores the initial state and one resulting-state
+- `case_handler_state_histories` stores the initial state and one resulting-state
   snapshot per persisted case message. A null `case_message` identifies the initial
   snapshot; manifest-only updates do not create history rows.
 - A case-handler message may map to multiple outbound WhatsApp rows because text can

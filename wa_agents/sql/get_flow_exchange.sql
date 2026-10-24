@@ -1,5 +1,5 @@
 -- PARAMS:
-  -- session_id  : wa_api_flow_sessions.id
+  -- session_id  : api_flow_sessions.id
   -- request_hash : SHA-256 hex digest
   -- secret_key  : ENCRYPTION_KEY
 
@@ -10,7 +10,7 @@ SELECT
     ELSE decrypt_text( exchange.response_data, @secret_key)
   END AS response_data_decrypted
 FROM
-  public.wa_api_flow_data_exchanges AS exchange
+  wa_agents.api_flow_data_exchanges AS exchange
 WHERE
   ( exchange.session = @session_id ) AND
   ( exchange.request_hash = @request_hash );
