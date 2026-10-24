@@ -160,6 +160,7 @@ type WhatsAppMessageType = Literal[
     "location",
     "media_placeholder",
     "revoke",
+    "errors",
     "unsupported",
 ]
 """ WhatsApp Message Type """
@@ -174,12 +175,12 @@ type WhatsAppMessageStatus = Literal[
 """ WhatsApp message delivery status """
 
 type WhatsAppHistoryMessageStatus = Literal[
-    "DELIVERED",
-    "ERROR",
-    "PENDING",
-    "PLAYED",
-    "READ",
-    "SENT",
+    "delivered",
+    "error",
+    "pending",
+    "played",
+    "read",
+    "sent",
 ]
 """ WhatsApp imported-history message status """
 
@@ -844,11 +845,11 @@ class WhatsApp_IB_History (BaseModel) :
     @model_validator( mode = "after")
     def validate_result(self) -> Self :
         
-        has_chunk = ( self.metadata is not None ) and bool(self.threads)
+        has_chunk = self.metadata is not None
         has_error = bool(self.errors)
         if has_chunk == has_error :
             raise ValueError(
-                "History result must contain either metadata and threads, or errors"
+                "History result must contain either metadata or errors"
             )
         
         return self

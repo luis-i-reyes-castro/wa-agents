@@ -188,7 +188,7 @@ def test_history_webhook_parses_messages_and_placeholders() -> None :
                                                         "body" : "Previous message"
                                                     },
                                                     "history_context" : {
-                                                        "status" : "READ"
+                                                        "status" : "read"
                                                     },
                                                 },
                                                 {
@@ -198,7 +198,7 @@ def test_history_webhook_parses_messages_and_placeholders() -> None :
                                                     "timestamp" : "1788724270",
                                                     "type"      : "media_placeholder",
                                                     "history_context" : {
-                                                        "status" : "DELIVERED"
+                                                        "status" : "delivered"
                                                     },
                                                 },
                                             ],
@@ -221,6 +221,74 @@ def test_history_webhook_parses_messages_and_placeholders() -> None :
     assert history.threads[0].messages[0].text.body == "Previous message"
     assert history.threads[0].messages[1].type == "media_placeholder"
     assert history.threads[0].messages[1].to == "593995341161"
+
+
+def test_history_webhook_parses_error_message_and_completion_marker() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "123456789",
+                "changes" : [
+                    {
+                        "field" : "history",
+                        "value" : {
+                            "metadata" : {
+                                "display_phone_number" : "593962939146",
+                                "phone_number_id"      : "987654321",
+                            },
+                            "history" : [
+                                {
+                                    "metadata" : {
+                                        "phase"       : 1,
+                                        "chunk_order" : 1,
+                                        "progress"    : 100,
+                                    },
+                                    "threads" : [
+                                        {
+                                            "id"       : "447710173736",
+                                            "messages" : [
+                                                {
+                                                    "from"      : "447710173736",
+                                                    "id"        : "wamid.history-error",
+                                                    "timestamp" : "1792822797",
+                                                    "errors" : [
+                                                        {
+                                                            "code" : 131051,
+                                                            "title" : (
+                                                                "Message type unknown"
+                                                            ),
+                                                        },
+                                                    ],
+                                                    "type" : "errors",
+                                                    "history_context" : {
+                                                        "status" : "pending"
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                {
+                                    "metadata" : {
+                                        "phase"       : 2,
+                                        "chunk_order" : 1,
+                                        "progress"    : 100,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    history = payload.entry[0].changes[0].value.history
+    assert history[0].threads[0].messages[0].type == "errors"
+    assert history[0].threads[0].messages[0].history_context.status == "pending"
+    assert history[1].metadata and history[1].metadata.phase == 2
+    assert history[1].threads == ()
 
 
 def test_history_webhook_parses_declined_sharing() -> None :

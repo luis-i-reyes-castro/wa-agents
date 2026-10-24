@@ -31,13 +31,14 @@ phone_number AS (
     @phone_number_id
   FROM
     business AS bus
-  ON CONFLICT (phone_number_id)
+  -- Meta can issue a new phone_number_id when the same number reconnects.
+  ON CONFLICT (display_phone_number)
   DO
     UPDATE
   SET
-    business             = EXCLUDED.business,
-    display_phone_number = EXCLUDED.display_phone_number,
-    last_seen_at         = now()
+    business        = EXCLUDED.business,
+    phone_number_id = EXCLUDED.phone_number_id,
+    last_seen_at    = now()
   RETURNING
     num.id,
     num.created_at,

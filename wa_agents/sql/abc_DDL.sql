@@ -25,6 +25,7 @@ CREATE TYPE T_WHATSAPP_MESSAGE AS ENUM (
   'location',
   'media_placeholder',
   'revoke',
+  'errors',
   'unsupported'
 );
 CREATE TYPE T_WHATSAPP_STATUS AS ENUM (

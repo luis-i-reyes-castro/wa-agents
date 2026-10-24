@@ -149,7 +149,8 @@ def test_frequently_refreshed_rows_update_before_insert() -> None :
 
     assert "INSERT INTO public.wa_api_businesses AS bus" in business
     assert "ON CONFLICT (waba_id)" in business
-    assert "ON CONFLICT (phone_number_id)" in business
+    assert "ON CONFLICT (display_phone_number)" in business
+    assert "phone_number_id = EXCLUDED.phone_number_id" in business
     assert "last_seen_at = now()" in business
 
     assert profile.index("WITH updated AS ( UPDATE") < profile.index(
@@ -268,6 +269,7 @@ def test_history_chunks_and_messages_preserve_import_context() -> None :
     assert "history_chunk" in normalized_message
     assert "history_context" in normalized_message
     assert "msg.msg_type = 'media_placeholder'" in normalized_message
+    assert "'errors'" in DDL.partition("CREATE TYPE T_WHATSAPP_STATUS")[0]
 
 
 def test_smb_app_contacts_update_existing_contact_and_sync_rows() -> None :

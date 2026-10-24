@@ -1,5 +1,6 @@
 import asyncio
 
+from copy import deepcopy
 from typing import Any
 from uuid import UUID
 
@@ -294,7 +295,7 @@ HISTORY_PAYLOAD = {
                                                     "body" : "Previous message"
                                                 },
                                                 "history_context" : {
-                                                    "status" : "READ"
+                                                    "status" : "read"
                                                 },
                                             },
                                             {
@@ -304,7 +305,24 @@ HISTORY_PAYLOAD = {
                                                 "timestamp" : "1788724270",
                                                 "type" : "media_placeholder",
                                                 "history_context" : {
-                                                    "status" : "DELIVERED"
+                                                    "status" : "delivered"
+                                                },
+                                            },
+                                            {
+                                                "from" : "593995341161",
+                                                "id"   : "wamid.history-error",
+                                                "timestamp" : "1788724271",
+                                                "errors" : [
+                                                    {
+                                                        "code" : 131051,
+                                                        "title" : (
+                                                            "Message type unknown"
+                                                        ),
+                                                    },
+                                                ],
+                                                "type" : "errors",
+                                                "history_context" : {
+                                                    "status" : "pending"
                                                 },
                                             },
                                         ],
@@ -489,7 +507,7 @@ class _AsyncPayloadStorageStub :
             "msg_id"          : msg_id,
             "msg_type"        : "media_placeholder",
             "history_chunk"   : 29,
-            "history_context" : { "status" : "PLAYED" },
+            "history_context" : { "status" : "played" },
         }
 
 
@@ -584,6 +602,7 @@ def test_async_queue_persists_history_without_enqueuing( monkeypatch) -> None :
         "upsert_contact",
         "insert_message",
         "insert_message",
+        "insert_message",
     ]
     assert storage.history_chunk == {
         "phone_number" : 11,
@@ -597,10 +616,61 @@ def test_async_queue_persists_history_without_enqueuing( monkeypatch) -> None :
     assert [ message["is_echo"] for message in storage.messages ] == [
         False,
         True,
+        False,
     ]
     assert storage.messages[0]["history_chunk"] == 29
-    assert storage.messages[0]["history_context"] == { "status" : "READ" }
+    assert storage.messages[0]["history_context"] == { "status" : "read" }
     assert "history_context" not in storage.messages[0]["msg_data"]
+    assert storage.messages[2]["msg_type"] == "errors"
+    assert storage.messages[2]["msg_data"] == {
+        "errors" : [
+            {
+                "code"    : 131051,
+                "title"   : "Message type unknown",
+            },
+        ],
+    }
+    assert result == { "stored" : True, "enqueued" : False }
+
+
+def test_async_queue_persists_history_completion_marker( monkeypatch) -> None :
+    events        = []
+    storage       = _AsyncPayloadStorageStub(events)
+    queue         = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
+    queue.storage = storage
+    payload       = deepcopy(HISTORY_PAYLOAD)
+    payload["entry"][0]["changes"][0]["value"]["history"] = [
+        {
+            "metadata" : {
+                "phase"       : 2,
+                "chunk_order" : 1,
+                "progress"    : 100,
+            },
+        },
+    ]
+
+    async def enqueue_message( _msg_id : str) -> bool :
+        raise AssertionError("History messages must not enter the live queue")
+
+    monkeypatch.setattr( queue, "_enqueue_message", enqueue_message)
+    result = asyncio.run(queue.enqueue(payload))
+
+    assert events == [
+        "insert_raw",
+        "mark_valid",
+        "upsert_business",
+        "insert_history_chunk",
+    ]
+    assert storage.history_chunk == {
+        "phone_number"  : 11,
+        "payload"       : 7,
+        "history_index" : 0,
+        "phase"         : 2,
+        "chunk_order"   : 1,
+        "progress"      : 100,
+        "errors"        : None,
+    }
+    assert storage.messages == []
     assert result == { "stored" : True, "enqueued" : False }
 
 
@@ -674,7 +744,7 @@ def test_async_queue_upgrades_history_media_placeholder( monkeypatch) -> None :
                 },
             },
             "history_chunk"   : 29,
-            "history_context" : { "status" : "PLAYED" },
+            "history_context" : { "status" : "played" },
         }
     ]
     assert result == { "stored" : True, "enqueued" : False }
