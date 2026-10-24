@@ -95,6 +95,14 @@ class MetaGraphError (RuntimeError) :
         return
 
 
+class WhatsAppApp(TypedDict) :
+    """
+    One configured Meta app.
+    """
+    id     : str
+    secret : str
+
+
 class WhatsAppSendResult (TypedDict) :
     """
     One accepted outbound message and the data required to persist it.
@@ -106,6 +114,45 @@ class WhatsAppSendResult (TypedDict) :
 
 # =========================================================================================
 # INFRASTRUCTURE
+
+def load_whatsapp_apps() -> tuple[ WhatsAppApp, ...] :
+    """
+    Load the ordered Meta app definitions from `WA_APPS`.
+    """
+    configured = os.getenv("WA_APPS")
+    if not configured :
+        raise RuntimeError("Environment variable 'WA_APPS' was not found")
+    
+    try :
+        apps = json.loads(configured)
+    except json.JSONDecodeError as ex :
+        raise RuntimeError("Environment variable 'WA_APPS' is invalid JSON") from ex
+    
+    if not (
+        isinstance( apps, list) and
+        apps                    and
+        all(
+            isinstance( app, dict)              and
+            isinstance( app.get("id"), str)     and
+            bool(app["id"].strip())             and
+            isinstance( app.get("secret"), str) and
+            bool(app["secret"].strip())
+            for app in apps
+        )
+    ) :
+        raise RuntimeError(
+            "Environment variable 'WA_APPS' must be a non-empty JSON list of "
+            "objects with non-empty string 'id' and 'secret' fields"
+        )
+    
+    return tuple(
+        WhatsAppApp(
+            id     = app["id"].strip(),
+            secret = app["secret"].strip(),
+        )
+        for app in apps
+    )
+
 
 def collect_send_results(
     payload  : dict[str, Any],

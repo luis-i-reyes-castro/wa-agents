@@ -102,7 +102,7 @@ Supabase credentials are mandatory because webhook audit storage and
 
 | Variable | Description |
 | --- | --- |
-| `WA_APPS` | Optional JSON list of Meta apps with `id` and `secret` fields. Webhook signatures are accepted when any configured secret matches. Takes precedence over `WA_APP_SECRET`. |
+| `WA_APPS` | Ordered JSON list of Meta apps with `id` and `secret` fields. Webhook signatures are accepted when any configured secret matches. Takes precedence over `WA_APP_SECRET`. |
 | `WA_APP_SECRET` | Single Meta app secret used as the webhook-signature fallback when `WA_APPS` is unset. |
 | `WA_TOKEN` | Graph API access token |
 | `WA_VERIFY_TOKEN` | Token used by webhook verification endpoint |

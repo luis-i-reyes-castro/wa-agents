@@ -31,7 +31,10 @@ from sofia_utils.printing import (
 )
 
 from .database_queue import AsyncWhatsAppDatabaseQueue
-from .io_functions import verify_app_secret
+from .io_functions import (
+    load_whatsapp_apps,
+    verify_app_secret,
+)
 
 
 def _load_app_secrets() -> tuple[ str, ...] :
@@ -47,29 +50,9 @@ def _load_app_secrets() -> tuple[ str, ...] :
             "Environment variables 'WA_APPS' and 'WA_APP_SECRET' were not found"
         )
     
-    try :
-        apps = json.loads(configured)
-    except json.JSONDecodeError as ex :
-        raise RuntimeError("Environment variable 'WA_APPS' is invalid JSON") from ex
-    
-    if not (
-        isinstance( apps, list) and
-        apps                    and
-        all(
-            isinstance( app, dict)              and
-            isinstance( app.get("id"), str)     and
-            bool(app["id"])                     and
-            isinstance( app.get("secret"), str) and
-            bool(app["secret"])
-            for app in apps
-        )
-    ) :
-        raise RuntimeError(
-            "Environment variable 'WA_APPS' must be a non-empty JSON list of "
-            "objects with non-empty string 'id' and 'secret' fields"
-        )
-    
-    return tuple( dict.fromkeys( app["secret"] for app in apps) )
+    return tuple(
+        dict.fromkeys( app["secret"] for app in load_whatsapp_apps() )
+    )
 
 
 class WhatsAppAPIListener (FastAPI) :
