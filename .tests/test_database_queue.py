@@ -397,7 +397,7 @@ SMB_APP_STATE_SYNC_PAYLOAD = {
                                     "first_name"   : "Pablo",
                                     "phone_number" : "593995341161",
                                 },
-                                "metadata" : { "timestamp" : "1738346006" },
+                                "metadata" : { "timestamp" : "1738346006000" },
                             },
                             {
                                 "type"    : "contact",
@@ -405,7 +405,7 @@ SMB_APP_STATE_SYNC_PAYLOAD = {
                                 "contact" : {
                                     "phone_number" : "593995341162",
                                 },
-                                "metadata" : { "timestamp" : "1738346010" },
+                                "metadata" : { "timestamp" : "1738346010000" },
                             },
                         ],
                     },
@@ -433,6 +433,10 @@ class _PayloadStorageStub :
     ) -> dict[str, Any] :
         self.events.append("mark_invalid")
         self.errors = errors
+        return { "id" : 7 }
+
+    def mark_inbound_payload_valid(self, _payload_id : int) -> dict[str, Any] :
+        self.events.append("mark_valid")
         return { "id" : 7 }
 
 
@@ -555,13 +559,13 @@ def test_async_queue_validates_normalizes_and_enqueues_payload(
     assert events == [
         "insert_raw",
         "validate",
-        "mark_valid",
         "upsert_business",
         "upsert_contact",
         "upsert_profile",
         "update_metadata",
         "insert_message",
         "enqueue_message",
+        "mark_valid",
     ]
     assert storage.metadata and storage.metadata["item_index"] == 0
     assert storage.metadata["change_index"] == 0
@@ -578,8 +582,46 @@ def test_async_queue_does_not_normalize_duplicate_payload( monkeypatch) -> None 
 
     result = asyncio.run(queue.enqueue(VALID_PAYLOAD))
 
-    assert events == [ "insert_raw", "validate", "mark_valid" ]
+    assert events == [ "insert_raw", "validate" ]
     assert result == { "stored" : False, "enqueued" : False }
+
+
+def test_sync_queue_reprocesses_duplicate_embedded_sync( monkeypatch) -> None :
+    events        = []
+    storage       = _PayloadStorageStub( events, inserted = False)
+    queue         = database_queue.WhatsAppDatabaseQueue("postgresql://test")
+    queue.storage = storage
+    _track_validation( monkeypatch, events)
+
+    def persist( _payload_id : int, _payload : WhatsApp_IB_Payload) -> bool :
+        events.append("normalize")
+        return False
+
+    monkeypatch.setattr( queue, "_persist_valid_payload", persist)
+    result = queue.enqueue(SMB_APP_STATE_SYNC_PAYLOAD)
+
+    assert events == [ "insert_raw", "validate", "normalize", "mark_valid" ]
+    assert result == { "stored" : False, "enqueued" : False }
+
+
+def test_sync_queue_does_not_mark_payload_valid_when_normalization_fails(
+    monkeypatch,
+) -> None :
+    events        = []
+    storage       = _PayloadStorageStub(events)
+    queue         = database_queue.WhatsAppDatabaseQueue("postgresql://test")
+    queue.storage = storage
+    _track_validation( monkeypatch, events)
+
+    def persist( _payload_id : int, _payload : WhatsApp_IB_Payload) -> bool :
+        events.append("normalize")
+        raise RuntimeError("persistence failed")
+
+    monkeypatch.setattr( queue, "_persist_valid_payload", persist)
+    with pytest.raises( RuntimeError, match = "persistence failed") :
+        queue.enqueue(VALID_PAYLOAD)
+
+    assert events == [ "insert_raw", "validate", "normalize" ]
 
 
 def test_async_queue_persists_history_without_enqueuing( monkeypatch) -> None :
@@ -596,13 +638,13 @@ def test_async_queue_persists_history_without_enqueuing( monkeypatch) -> None :
 
     assert events == [
         "insert_raw",
-        "mark_valid",
         "upsert_business",
         "insert_history_chunk",
         "upsert_contact",
         "insert_message",
         "insert_message",
         "insert_message",
+        "mark_valid",
     ]
     assert storage.history_chunk == {
         "phone_number" : 11,
@@ -635,7 +677,7 @@ def test_async_queue_persists_history_without_enqueuing( monkeypatch) -> None :
 
 def test_async_queue_persists_history_completion_marker( monkeypatch) -> None :
     events        = []
-    storage       = _AsyncPayloadStorageStub(events)
+    storage       = _AsyncPayloadStorageStub( events, inserted = False)
     queue         = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
     queue.storage = storage
     payload       = deepcopy(HISTORY_PAYLOAD)
@@ -657,9 +699,9 @@ def test_async_queue_persists_history_completion_marker( monkeypatch) -> None :
 
     assert events == [
         "insert_raw",
-        "mark_valid",
         "upsert_business",
         "insert_history_chunk",
+        "mark_valid",
     ]
     assert storage.history_chunk == {
         "phone_number"  : 11,
@@ -671,7 +713,7 @@ def test_async_queue_persists_history_completion_marker( monkeypatch) -> None :
         "errors"        : None,
     }
     assert storage.messages == []
-    assert result == { "stored" : True, "enqueued" : False }
+    assert result == { "stored" : False, "enqueued" : False }
 
 
 def test_async_queue_persists_smb_app_contacts_without_enqueuing(
@@ -690,13 +732,13 @@ def test_async_queue_persists_smb_app_contacts_without_enqueuing(
 
     assert events == [
         "insert_raw",
-        "mark_valid",
         "upsert_business",
         "upsert_contact",
         "upsert_smb_app_contact",
         "upsert_contact",
         "upsert_smb_app_contact",
         "complete_smb_app_contact_sync",
+        "mark_valid",
     ]
     assert [ contact["is_active"] for contact in storage.smb_contacts ] == [
         True,
@@ -704,7 +746,37 @@ def test_async_queue_persists_smb_app_contacts_without_enqueuing(
     ]
     assert storage.smb_contacts[0]["full_name"] == "Pablo Morales"
     assert storage.smb_contacts[1]["full_name"] is None
+    assert storage.smb_contacts[0]["changed_at"] == database_queue._timestamp(
+        "1738346006"
+    )
     assert result == { "stored" : True, "enqueued" : False }
+
+
+def test_async_queue_reprocesses_duplicate_smb_app_contacts(
+    monkeypatch,
+) -> None :
+    events        = []
+    storage       = _AsyncPayloadStorageStub( events, inserted = False)
+    queue         = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
+    queue.storage = storage
+
+    async def enqueue_message( _msg_id : str) -> bool :
+        raise AssertionError("Contact synchronization must not enter the live queue")
+
+    monkeypatch.setattr( queue, "_enqueue_message", enqueue_message)
+    result = asyncio.run(queue.enqueue(SMB_APP_STATE_SYNC_PAYLOAD))
+
+    assert events == [
+        "insert_raw",
+        "upsert_business",
+        "upsert_contact",
+        "upsert_smb_app_contact",
+        "upsert_contact",
+        "upsert_smb_app_contact",
+        "complete_smb_app_contact_sync",
+        "mark_valid",
+    ]
+    assert result == { "stored" : False, "enqueued" : False }
 
 
 def test_async_queue_upgrades_history_media_placeholder( monkeypatch) -> None :
@@ -721,10 +793,10 @@ def test_async_queue_upgrades_history_media_placeholder( monkeypatch) -> None :
 
     assert events == [
         "insert_raw",
-        "mark_valid",
         "upsert_business",
         "get_message",
         "insert_message",
+        "mark_valid",
     ]
     assert storage.messages == [
         {

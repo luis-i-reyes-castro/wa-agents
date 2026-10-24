@@ -122,14 +122,35 @@ def _value_contact( value : WhatsApp_IB_Value) -> WhatsApp_IB_Contact :
     raise RuntimeError(f"In {here()}: WhatsApp value has no contact identity")
 
 
-def _timestamp( value : int | str) -> datetime :
+def _timestamp(
+    value        : int | str,
+    milliseconds : bool = False,
+) -> datetime :
     
-    return datetime.fromtimestamp( int(value), UTC)
+    timestamp = int(value)
+    if milliseconds :
+        timestamp /= 1000
+    
+    return datetime.fromtimestamp( timestamp, UTC)
 
 
 def _validation_errors( ex : ValidationError) -> list[dict[str, Any]] :
     
     return json.loads(ex.json(include_url = False))
+
+
+def _requires_normalization(
+    payload : WhatsApp_IB_Payload,
+    stored  : bool,
+) -> bool :
+    """
+    Normalize new payloads and replay idempotent Embedded Signup data syncs.
+    """
+    return stored or any(
+        change.field in { "history", "smb_app_state_sync" }
+        for item in payload.entry
+        for change in item.changes
+    )
 
 
 class WhatsAppDatabaseQueue :
@@ -295,7 +316,10 @@ class WhatsAppDatabaseQueue :
                 full_name    = state.contact.full_name,
                 first_name   = state.contact.first_name,
                 is_active    = ( state.action == "add" ),
-                changed_at   = _timestamp(state.metadata.timestamp),
+                changed_at   = _timestamp(
+                    state.metadata.timestamp,
+                    milliseconds = True,
+                ),
             )
             if not smb_contact :
                 raise RuntimeError(
@@ -485,18 +509,21 @@ class WhatsAppDatabaseQueue :
                 ) from ex
             raise
         
-        valid = self.storage.mark_inbound_payload_valid(payload_id)
-        if not valid :
-            raise RuntimeError(
-                f"In {here()}: Unable to mark inbound payload as valid"
-            )
+        normalize = _requires_normalization( payload, stored)
+        enqueued  = (
+            self._persist_valid_payload( payload_id, payload)
+            if normalize else False
+        )
+        if normalize :
+            valid = self.storage.mark_inbound_payload_valid(payload_id)
+            if not valid :
+                raise RuntimeError(
+                    f"In {here()}: Unable to mark inbound payload as valid"
+                )
         
         return {
             "stored"   : stored,
-            "enqueued" : (
-                self._persist_valid_payload( payload_id, payload)
-                if stored else False
-            ),
+            "enqueued" : enqueued,
         }
     
     def claim_next(
@@ -810,7 +837,10 @@ class AsyncWhatsAppDatabaseQueue :
                 full_name    = state.contact.full_name,
                 first_name   = state.contact.first_name,
                 is_active    = ( state.action == "add" ),
-                changed_at   = _timestamp(state.metadata.timestamp),
+                changed_at   = _timestamp(
+                    state.metadata.timestamp,
+                    milliseconds = True,
+                ),
             )
             if not smb_contact :
                 raise RuntimeError(
@@ -1000,18 +1030,21 @@ class AsyncWhatsAppDatabaseQueue :
                 ) from ex
             raise
         
-        valid = await self.storage.mark_inbound_payload_valid(payload_id)
-        if not valid :
-            raise RuntimeError(
-                f"In {here()}: Unable to mark inbound payload as valid"
-            )
+        normalize = _requires_normalization( payload, stored)
+        enqueued  = (
+            await self._persist_valid_payload( payload_id, payload)
+            if normalize else False
+        )
+        if normalize :
+            valid = await self.storage.mark_inbound_payload_valid(payload_id)
+            if not valid :
+                raise RuntimeError(
+                    f"In {here()}: Unable to mark inbound payload as valid"
+                )
         
         return {
             "stored"   : stored,
-            "enqueued" : (
-                await self._persist_valid_payload( payload_id, payload)
-                if stored else False
-            ),
+            "enqueued" : enqueued,
         }
     
     async def claim_next(
