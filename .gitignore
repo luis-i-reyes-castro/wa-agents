@@ -1,4 +1,4 @@
 __pycache__/
 *.egg-info/
-abc_dev_prompt.md
 postgres-language-server.jsonc
+wa_agents/sql/.migrations
