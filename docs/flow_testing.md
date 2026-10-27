@@ -11,15 +11,17 @@ Flow testing uses two categories of database records.
 
 Persistent configuration:
 
-- `api_businesses`: configured WhatsApp businesses and phone numbers.
-- `case_handler_routes`: business-wide and contact-specific handler routing.
-- `api_flow_encryption_keys`: the public key and encrypted private key used by
+- `wa_agents.api_businesses` and `wa_agents.api_phone_numbers`: configured
+  WhatsApp businesses and phone numbers.
+- `wa_agents.case_handler_routes`: phone-wide and contact-specific handler routing.
+- `wa_agents.api_flow_encryption_keys`: the public key and encrypted private key used by
   a WABA.
-- `api_flows`: Meta Flow IDs, handler keys, versions, endpoint URIs, and status.
+- `wa_agents.api_flows`: Meta Flow IDs, handler keys, versions, endpoint URIs,
+  and status.
 
 Contact test state:
 
-- contacts and contact profiles;
+- contact profiles;
 - inbound and outbound messages, statuses, media metadata, and queue rows;
 - case-handler manifests, messages, state histories, contexts, and leases;
 - Flow sessions and their session-bound data exchanges.
@@ -27,12 +29,15 @@ Contact test state:
 Routine testing should reset only the contact test state. Do not use
 `.scripts/danger_zone/clean_slate.sql` for this: that script intentionally
 truncates both categories, including the WABA key pair and Flow definitions.
-Use [`reset_contact.sql`](../.scripts/danger_zone/reset_contact.sql) instead.
+Use [`reset_contact.sql`](../.scripts/danger_zone/reset_contact.sql) for one
+contact, or
+[`reset_phone_number.sql`](../.scripts/danger_zone/reset_phone_number.sql) for
+every contact under one WhatsApp phone number.
 
-Deleting one `api_contacts` row is sufficient because the dependent records
-use `ON DELETE CASCADE`. It preserves the business, its business-wide route,
-WABA keys, Flow definitions, WABA-level health exchanges, and Flow webhook
-events. A contact-specific route necessarily disappears with its contact.
+Both scripts preserve businesses, phone numbers, contacts, synchronized
+WhatsApp Business app contact metadata, routes, WABA keys, Flow definitions,
+WABA-level health exchanges, and Flow webhook events. They delete only the
+matching contacts' transient messaging and case-handler state.
 
 The reset affects database state only. It does not delete messages from the
 user's WhatsApp client or media bytes from external object storage.
