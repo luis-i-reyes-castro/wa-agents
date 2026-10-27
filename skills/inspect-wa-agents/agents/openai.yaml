@@ -1,0 +1,4 @@
+interface:
+  display_name: "Inspect wa-agents"
+  short_description: "Inspect wa-agents consumers read-only"
+  default_prompt: "Use $inspect-wa-agents to inspect a wa-agents consumer or diagnose its persisted WhatsApp state without modifying wa-agents."

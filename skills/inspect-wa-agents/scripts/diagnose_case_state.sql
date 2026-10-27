@@ -3,7 +3,7 @@
 --   psql "$DATABASE_URL" \
 --     -v business_display_phone_number=593962939146 \
 --     -v contact_wa_id=593995341161 \
---     -f skills/maintain-wa-agents/scripts/diagnose_case_state.sql
+--     -f skills/inspect-wa-agents/scripts/diagnose_case_state.sql
 
 \if :{?business_display_phone_number}
 \else

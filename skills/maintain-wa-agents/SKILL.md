@@ -1,6 +1,6 @@
 ---
 name: maintain-wa-agents
-description: Maintain and refactor the wa-agents Python package across webhook ingestion, Meta payload models, PostgreSQL persistence, queue claiming and contact leases, case-handler/FSM state, and S3 media storage. Use when reviewing or changing files under wa_agents/, its SQL schema and query scripts, its case-handler examples, or consumer integration in repositories such as sofia-server and da-assistant; also use when diagnosing payload-validation, queue-worker, persistence, or media-path failures caused by this package.
+description: Maintain and refactor the wa-agents Python package across webhook ingestion, Meta payload models, PostgreSQL persistence, queue claiming and contact leases, case-handler/FSM state, and S3 media storage. Use when reviewing or changing files under wa_agents/, its SQL schema and query scripts, or its case-handler examples, including package-level payload-validation, queue-worker, persistence, and media-path failures or consumer changes required by a package interface change.
 ---
 
 # Maintain wa-agents
@@ -9,6 +9,13 @@ Keep changes small and trace each behavior vertically from the external payload 
 consumer call through Python, SQL, and storage. Treat current source files as
 canonical; use the bundled architecture notes for invariants and navigation, not as
 a substitute for reading affected code.
+
+Use `$inspect-wa-agents` as necessary during development to inspect package
+contracts, consumer integrations, and persisted runtime state without changing this
+repository. Before editing `wa-agents`, confirm that the task actually requires a
+package change. If read-only inspection can complete the task, or the request appears
+to invoke this skill when `$inspect-wa-agents` was intended, use that skill and leave
+`wa-agents` unchanged.
 
 ## Establish Context
 
@@ -32,48 +39,11 @@ a substitute for reading affected code.
 - Use `case_handler_models.py` for stored conversation models and
   `case_handler_base.py` for contact-bound context, FSM state, deduplication, sending,
   and media orchestration.
-- For persisted FSM or agent-context diagnosis, run
-  `scripts/diagnose_case_state.sql` with the business `display_phone_number` and
-  contact `wa_id`. Treat a reported chatbot number as the former and review all case
-  manifests, ordered messages/state snapshots, and context generations together.
-- For Flow session or data-exchange diagnosis, run
-  `scripts/diagnose_flow_state.sql` with the same business/contact identifiers. It
-  reads `ENCRYPTION_KEY` from the client environment and decrypts Flow data only in
-  the query result; it never prints the Flow token.
 - Use `S3_bucket_storage.py` and `S3_bucket_io.py` only for media bytes and object
   operations. Store media metadata in PostgreSQL.
 - Inspect consumer construction and overrides when changing a public signature.
   Search at least `~/sofia-server` and relevant local bots for `from wa_agents` and
   direct imports of the changed symbol.
-
-## Diagnostic Scripts
-
-Both diagnostic scripts are read-only and require `psql`. Run them from the
-repository root against the intended database.
-
-Inspect regular message, case, FSM, and agent-context state with:
-
-```bash
-psql "$DATABASE_URL" \
-  -v business_display_phone_number=593962939146 \
-  -v contact_wa_id=593995341161 \
-  -f skills/maintain-wa-agents/scripts/diagnose_case_state.sql
-```
-
-Inspect Flow sessions and their decrypted endpoint exchanges with:
-
-```bash
-# ENCRYPTION_KEY must already be exported in the client environment.
-psql "$DATABASE_URL" \
-  -v business_display_phone_number=593962939146 \
-  -v contact_wa_id=593995341161 \
-  -f skills/maintain-wa-agents/scripts/diagnose_flow_state.sql
-```
-
-The Flow script reads `ENCRYPTION_KEY` directly from the client environment; do not
-pass it with `-v`, put it in the script, or commit it. Its result contains decrypted
-customer data. Do not redirect, retain, or share the output without treating it as
-sensitive. A wrong key stops the script at the first failed decryption.
 
 ## Implement Coherently
 

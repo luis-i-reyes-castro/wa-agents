@@ -1,4 +1,0 @@
-interface:
-  display_name: "Inspect WA Display Name Rejections"
-  short_description: "Find and interpret WhatsApp name rejections"
-  default_prompt: "Use $inspect-wa-display-name-rejections to find the latest WhatsApp display-name decision and explain its rejection reason."

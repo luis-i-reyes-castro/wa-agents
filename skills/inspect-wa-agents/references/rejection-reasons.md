@@ -5,6 +5,32 @@ Meta sends these values in
 `phone_number_name_update`. Treat the field as an open string because production can lead the
 public documentation.
 
+## Inspect stored decisions
+
+For Sofia, run the bundled read-only query through the safe runtime helper:
+
+```bash
+~/pe/bin/python \
+  ~/sofia-server/skills/inspect-sofia-runtime/scripts/query_database.py \
+  --env-file ~/sofia-server/.env \
+  --max-rows 100 \
+  --format json \
+  < ~/wa-agents/skills/inspect-wa-agents/scripts/inspect_display_name_rejections.sql
+```
+
+The query returns only the audit ID, receipt time, requested display name, decision,
+rejection reason, and validation state. It omits phone numbers, WABA IDs, hashes, and
+complete payload and error bodies.
+
+If the expected row is absent:
+
+1. Confirm the selected dotenv contains the intended database connection variable by
+   key name only; never print its value.
+2. Confirm Meta sent a `phone_number_name_update` subscription event.
+3. Inspect bounded, redacted webhook logs with `$inspect-sofia-runtime`.
+4. Do not infer a reason from `name_status = DECLINED`; use the webhook's
+   `rejection_reason` value.
+
 ## Publicly documented values
 
 | Value | Meaning | Suggested response |
@@ -48,7 +74,24 @@ documentation changes and repeated production patterns discoverable.
 
 ## Recommendation heuristic
 
-The safest next attempt is normally the exact, shortest brand name visibly used on the official
-website. A phrase such as `Brand Customer Service` is weaker unless the whole phrase appears as a
-public-facing identity; a page navigation heading named “Customer service” does not necessarily
-establish that compound phrase as a brand.
+Review prior name-update rows for a name already approved for the same integration,
+then verify spelling and capitalization against public brand evidence. Prefer the
+shortest exact public brand name. Add a qualifier only when the complete phrase is
+publicly used.
+
+Avoid promotional language, generic-only names, URLs, phone numbers, emojis,
+unsupported third-party brands, and decorative capitalization. A phrase such as
+`Brand Customer Service` is weak unless the whole phrase appears as a public-facing
+identity. Present a replacement as a best next attempt, never guaranteed approval.
+
+## Interpretation and reporting
+
+- Report the exact rejection code before its catalog meaning and provenance. Label
+  codes absent from this catalog as undocumented; do not infer a more specific policy
+  violation from an enum name.
+- If `validated` is false, report that the raw webhook was audited but rejected by the
+  current payload model. Inspect validation errors only when necessary and redact
+  identifiers.
+- Include the audit ID and receipt time, requested name, decision, exact code and
+  provenance, validation result, and one evidence-based next name when appropriate.
+- Confirm that inspection was read-only.
