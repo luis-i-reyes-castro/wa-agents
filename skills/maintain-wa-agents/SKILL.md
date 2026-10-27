@@ -19,7 +19,7 @@ to invoke this skill when `$inspect-wa-agents` was intended, use that skill and 
 
 ## Establish Context
 
-1. Read `~/vscode/.cursor/rules.mdc` and the language rules relevant to the task.
+1. Read `~/vscode/AGENTS.md` and the language rules relevant to the task.
 2. Read `README.md` and check `git status --short --branch` before editing.
 3. Inspect staged changes first when present. Preserve all user work and leave agent
    edits unstaged.

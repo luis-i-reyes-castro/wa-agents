@@ -12,7 +12,7 @@ Never print database URLs, access tokens, full raw payloads, WABA IDs, or phone 
 
 ## Establish Context
 
-1. Read `~/vscode/.cursor/rules.mdc`, the consumer repository's `README.md`, and `~/wa-agents/README.md`.
+1. Read `~/vscode/AGENTS.md`, the consumer repository's `README.md`, and `~/wa-agents/README.md`.
 2. Check `git status --short --branch` in every repository being inspected. Preserve user work and leave agent edits unstaged.
 3. Identify the consumer, target environment, handler key, business display phone number, contact WhatsApp ID, and approximate event time as applicable.
 4. Read both the consumer call site and the current `wa-agents` implementation of every interface it uses. Inspect `wa_agents/sql/abc_DDL.sql` with persistence code.
