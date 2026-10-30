@@ -19,6 +19,7 @@ from typing import (
 )
 from uuid import UUID
 
+from psycopg import Error as PsycopgError
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -141,6 +142,7 @@ SQL_ACQUIRE_CONTACT_LEASE           = _load_sql("acquire_contact_lease.sql")
 SQL_CASE_HANDLER_MESSAGE_EXISTS     = _load_sql("case_handler_message_exists.sql")
 SQL_GET_AGENT_CONTEXTS              = _load_sql("get_agent_contexts.sql")
 SQL_GET_BUSINESS                    = _load_sql("get_business.sql")
+SQL_GET_BUSINESS_TOKEN              = _load_sql("get_business_token.sql")
 SQL_GET_CASE_HANDLER_MEDIA          = _load_sql("get_case_handler_media.sql")
 SQL_GET_CASE_HANDLER_MESSAGE        = _load_sql("get_case_handler_message.sql")
 SQL_GET_CASE_HANDLER_MESSAGES       = _load_sql("get_case_handler_messages.sql")
@@ -398,6 +400,53 @@ class SyncSupabaseStorage :
             SQL_GET_BUSINESS,
             { "business" : business },
         )
+    
+    def get_business_token( self, phone_number_id : str) -> str | None :
+        """
+        Resolve the sending number's ES token, or None for a non-ES number.
+        Unknown numbers and unusable ES credentials raise instead of falling back.
+        """
+        secret_key = os.getenv("ENCRYPTION_KEY")
+        try :
+            row = self._fetch_one(
+                SQL_GET_BUSINESS_TOKEN,
+                {
+                    "phone_number_id" : phone_number_id,
+                    "secret_key"      : secret_key,
+                },
+            )
+        except PsycopgError :
+            raise RuntimeError(
+                f"In {here()}: Unable to read/decrypt WhatsApp credentials; "
+                "check database access and ENCRYPTION_KEY"
+            ) from None
+        
+        if not row :
+            raise ValueError(
+                f"In {here()}: Sending phone number is not registered"
+            )
+        
+        if row["es_business"] is None :
+            return None
+        
+        if row["connection_status"] != "connected" :
+            raise RuntimeError(
+                f"In {here()}: Embedded Signup connection is "
+                f"'{row['connection_status']}'; reconnect before messaging"
+            )
+        
+        if not secret_key :
+            raise RuntimeError(
+                f"In {here()}: ENCRYPTION_KEY is required for ES messaging"
+            )
+        
+        token = row["business_token"]
+        if not ( token and token.strip() ):
+            raise RuntimeError(
+                f"In {here()}: Embedded Signup business token is missing"
+            )
+        
+        return token
     
     def get_contact( self, contact : int) -> dict[ str, Any] | None :
         
@@ -1317,6 +1366,53 @@ class AsyncSupabaseStorage :
             SQL_GET_BUSINESS,
             { "business" : business },
         )
+    
+    async def get_business_token( self, phone_number_id : str) -> str | None :
+        """
+        Resolve the sending number's ES token, or None for a non-ES number.
+        Unknown numbers and unusable ES credentials raise instead of falling back.
+        """
+        secret_key = os.getenv("ENCRYPTION_KEY")
+        try :
+            row = await self._fetch_one(
+                SQL_GET_BUSINESS_TOKEN,
+                {
+                    "phone_number_id" : phone_number_id,
+                    "secret_key"      : secret_key,
+                },
+            )
+        except PsycopgError :
+            raise RuntimeError(
+                f"In {here()}: Unable to read/decrypt WhatsApp credentials; "
+                "check database access and ENCRYPTION_KEY"
+            ) from None
+        
+        if not row :
+            raise ValueError(
+                f"In {here()}: Sending phone number is not registered"
+            )
+        
+        if row["es_business"] is None :
+            return None
+        
+        if row["connection_status"] != "connected" :
+            raise RuntimeError(
+                f"In {here()}: Embedded Signup connection is "
+                f"'{row['connection_status']}'; reconnect before messaging"
+            )
+        
+        if not secret_key :
+            raise RuntimeError(
+                f"In {here()}: ENCRYPTION_KEY is required for ES messaging"
+            )
+        
+        token = row["business_token"]
+        if not token or not token.strip() :
+            raise RuntimeError(
+                f"In {here()}: Embedded Signup business token is missing"
+            )
+        
+        return token
     
     async def get_contact(
         self,

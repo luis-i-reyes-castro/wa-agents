@@ -604,7 +604,11 @@ class WhatsAppAPIWorker (FastAPI) :
             handler      = self._handler(job)
             
             media_content = (
-                await async_fetch_media(message.media_data)
+                await async_fetch_media(
+                    message.media_data,
+                    operator_id  = job.operator.api_id,
+                    database_url = self.queue.storage.database_url,
+                )
                 if message.media_data else None
             )
             respond = await self._call_handler_method(

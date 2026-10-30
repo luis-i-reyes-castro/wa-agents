@@ -55,6 +55,11 @@ from .io_models import (
     WhatsApp_OB_TextMessage,
 )
 
+from .supabase import (
+    AsyncSupabaseStorage,
+    SyncSupabaseStorage,
+)
+
 
 # =========================================================================================
 # CONSTANTS
@@ -303,15 +308,26 @@ def write_headers(
     """
     Compose Graph API headers with auth and optional JSON content-type \\
     Args:
-        content_type : When True, include `Content-Type: application/json`
+        content_type   : When True, include `Content-Type: application/json`
+        business_token : Resolved ES token; only None permits WA_TOKEN fallback.
     Returns:
         Headers dictionary for Graph API HTTP calls
     """
+    using_bt = business_token is not None
+    ev_name  = "WA_TOKEN"
     
-    if not ( WA_TOKEN := business_token or os.getenv("WA_TOKEN") ) :
-        raise RuntimeError("Environment variable 'WA_TOKEN' was not found")
+    token = business_token if using_bt else os.getenv(ev_name)
+    if not ( token and token.strip() ) :
+        source = (
+            "business token"
+            if using_bt else
+            f"environment variable '{ev_name}'"
+        )
+        raise RuntimeError(
+            f"In {here()}: WhatsApp {source} is missing or empty"
+        )
     
-    headers = { "Authorization": f"Bearer {WA_TOKEN}" }
+    headers = { "Authorization": f"Bearer {token}" }
     if content_type :
         headers["Content-Type"] = "application/json"
     
@@ -321,17 +337,35 @@ def write_headers(
 # =========================================================================================
 # INBOUND MEDIA
 
-def fetch_media( media_data : WhatsApp_IB_MediaData) -> bytes :
+def fetch_media(
+    media_data : WhatsApp_IB_MediaData,
+    *,
+    operator_id  : str,
+    database_url : str | None = None,
+) -> bytes :
     """
     Download WhatsApp media content using its media id \\
     Args:
-        media_data : WhatsApp media metadata payload
+        media_data   : WhatsApp media metadata payload
+        operator_id  : Business phone-number ID used to resolve ES credentials.
+        database_url : Optional PostgreSQL URL override.
     Returns:
         Raw media bytes
     """
-    req_url  = f"{META_GRAPH_API_URL}/{media_data.id}"
-    req_head = write_headers( content_type = False)
-    response = httpx.get( req_url, headers = req_head)
+    business_token = SyncSupabaseStorage(
+        database_url = database_url,
+    ).get_business_token(
+        phone_number_id = operator_id,
+    )
+    business_token_header = write_headers(
+        content_type   = False,
+        business_token = business_token,
+    )
+    
+    response = httpx.get(
+        url     = f"{META_GRAPH_API_URL}/{media_data.id}",
+        headers = business_token_header,
+    )
     response.raise_for_status()
 
     response_data = response.json()
@@ -344,24 +378,44 @@ def fetch_media( media_data : WhatsApp_IB_MediaData) -> bytes :
             f"In {here()}: Graph media response did not contain a URL"
         )
 
-    response = httpx.get( media_url, headers = req_head)
+    response = httpx.get(
+        url     = media_url,
+        headers = business_token_header,
+    )
     response.raise_for_status()
 
     return verify_media_content( media_data, response.content)
 
-async def async_fetch_media( media_data : WhatsApp_IB_MediaData) -> bytes :
+async def async_fetch_media(
+    media_data : WhatsApp_IB_MediaData,
+    *,
+    operator_id  : str,
+    database_url : str | None = None,
+) -> bytes :
     """
     Download WhatsApp media content using its media id \\
     Args:
-        media_data : WhatsApp media metadata payload
+        media_data   : WhatsApp media metadata payload
+        operator_id  : Business phone-number ID used to resolve ES credentials.
+        database_url : Optional PostgreSQL URL override.
     Returns:
         Raw media bytes
     """
-    req_url  = f"{META_GRAPH_API_URL}/{media_data.id}"
-    req_head = write_headers( content_type = False)
+    business_token = await AsyncSupabaseStorage(
+        database_url = database_url,
+    ).get_business_token(
+        phone_number_id = operator_id,
+    )
+    business_token_header = write_headers(
+        content_type   = False,
+        business_token = business_token,
+    )
     
     async with httpx.AsyncClient() as client :
-        response = await client.get( req_url, headers = req_head)
+        response = await client.get(
+            url     = f"{META_GRAPH_API_URL}/{media_data.id}",
+            headers = business_token_header,
+        )
         response.raise_for_status()
         
         response_data = response.json()
@@ -374,7 +428,10 @@ async def async_fetch_media( media_data : WhatsApp_IB_MediaData) -> bytes :
                 f"In {here()}: Graph media response did not contain a URL"
             )
         
-        response = await client.get( media_url, headers = req_head)
+        response = await client.get(
+            url     = media_url,
+            headers = business_token_header,
+        )
         response.raise_for_status()
     
     return verify_media_content( media_data, response.content)
@@ -621,6 +678,8 @@ def send_whatsapp_text(
     to_number   : str,
     text        : str,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> list[WhatsAppSendResult] :
     """
     Send a text-only WhatsApp message \\
@@ -629,7 +688,11 @@ def send_whatsapp_text(
         to_number   : Recipient phone number
         text        : Message body
         debug       : Whether to emit response diagnostics
+        database_url : Optional PostgreSQL URL for per-number credential selection.
     """
+    business_token = SyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     
     results : list[WhatsAppSendResult] = []
     
@@ -638,7 +701,7 @@ def send_whatsapp_text(
         payload  = write_payload( to_number, _text_)
         response = httpx.post(
             url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-            headers = write_headers(),
+            headers = write_headers( business_token = business_token),
             json    = payload,
         )
         
@@ -651,6 +714,8 @@ async def async_send_whatsapp_text(
     to_number   : str,
     text        : str,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> list[WhatsAppSendResult] :
     """
     Send a text-only WhatsApp message asynchronously \\
@@ -659,7 +724,11 @@ async def async_send_whatsapp_text(
         to_number   : Recipient phone number
         text        : Message body
         debug       : Whether to emit response diagnostics
+        database_url : Optional PostgreSQL URL for per-number credential selection.
     """
+    business_token = await AsyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     async with httpx.AsyncClient() as client :
         
         results : list[WhatsAppSendResult] = []
@@ -668,7 +737,7 @@ async def async_send_whatsapp_text(
             payload  = write_payload( to_number, _text_)
             response = await client.post(
                 url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-                headers = write_headers(),
+                headers = write_headers( business_token = business_token),
                 json    = payload,
             )
             results.extend( collect_send_results( payload, response, debug) )
@@ -684,6 +753,8 @@ def send_whatsapp_interactive(
     to_number   : str,
     message     : ServerInteractiveOptsMsg,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp interactive responses (buttons/lists) \\
@@ -692,11 +763,15 @@ def send_whatsapp_interactive(
         to_number   : Recipient phone number
         message     : Interactive options payload
         debug       : Whether to emit response diagnostics
+        database_url : Optional PostgreSQL URL for per-number credential selection.
     """
+    business_token = SyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     payload  = write_payload( to_number, message)
     response = httpx.post(
         url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-        headers = write_headers(),
+        headers = write_headers( business_token = business_token),
         json    = payload,
     )
     return collect_send_results( payload, response, debug)
@@ -706,6 +781,8 @@ async def async_send_whatsapp_interactive(
     to_number   : str,
     message     : ServerInteractiveOptsMsg,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp interactive responses asynchronously \\
@@ -714,13 +791,17 @@ async def async_send_whatsapp_interactive(
         to_number   : Recipient phone number
         message     : Interactive options payload
         debug       : Whether to emit response diagnostics
+        database_url : Optional PostgreSQL URL for per-number credential selection.
     """
+    business_token = await AsyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     payload = write_payload( to_number, message)
     
     async with httpx.AsyncClient() as client :
         response = await client.post(
             url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-            headers = write_headers(),
+            headers = write_headers( business_token = business_token),
             json    = payload,
         )
     
@@ -735,14 +816,19 @@ def send_whatsapp_flow(
     to_number   : str,
     message     : ServerFlowMsg,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp Flow launch message.
     """
+    business_token = SyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     payload  = write_payload( to_number, message)
     response = httpx.post(
         url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-        headers = write_headers(),
+        headers = write_headers( business_token = business_token),
         json    = payload,
     )
     return collect_send_results( payload, response, debug)
@@ -752,15 +838,20 @@ async def async_send_whatsapp_flow(
     to_number   : str,
     message     : ServerFlowMsg,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp Flow launch message asynchronously.
     """
+    business_token = await AsyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     payload = write_payload( to_number, message)
     async with httpx.AsyncClient() as client :
         response = await client.post(
             url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-            headers = write_headers(),
+            headers = write_headers( business_token = business_token),
             json    = payload,
         )
     return collect_send_results( payload, response, debug)
@@ -774,6 +865,8 @@ def send_whatsapp_template(
     to_number   : str,
     message     : ServerTemplateMsg,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp template messages \\
@@ -782,11 +875,15 @@ def send_whatsapp_template(
         to_number   : Recipient phone number
         message     : Approved template payload
         debug       : Whether to emit response diagnostics
+        database_url : Optional PostgreSQL URL for per-number credential selection.
     """
+    business_token = SyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     payload     = write_payload( to_number, message)
     response    = httpx.post(
         url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-        headers = write_headers(),
+        headers = write_headers( business_token = business_token),
         json    = payload,
     )
     return collect_send_results( payload, response, debug)
@@ -796,6 +893,8 @@ async def async_send_whatsapp_template(
     to_number   : str,
     message     : ServerTemplateMsg,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> list[WhatsAppSendResult] :
     """
     Send WhatsApp template messages asynchronously \\
@@ -804,13 +903,17 @@ async def async_send_whatsapp_template(
         to_number   : Recipient phone number
         message     : Approved template payload
         debug       : Whether to emit response diagnostics
+        database_url : Optional PostgreSQL URL for per-number credential selection.
     """
+    business_token = await AsyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     payload = write_payload( to_number, message)
     
     async with httpx.AsyncClient() as client :
         response = await client.post(
             url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-            headers = write_headers(),
+            headers = write_headers( business_token = business_token),
             json    = payload,
         )
     
@@ -825,6 +928,8 @@ def send_whatsapp_content(
     to_number   : str,
     content     : WhatsAppContactCard | WhatsAppLocation,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp content message \\
@@ -833,11 +938,15 @@ def send_whatsapp_content(
         to_number   : Recipient phone number
         content     : WhatsApp contact or location
         debug       : Whether to emit response diagnostics
+        database_url : Optional PostgreSQL URL for per-number credential selection.
     """
+    business_token = SyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     payload  = write_payload( to_number, content)
     response = httpx.post(
         url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-        headers = write_headers(),
+        headers = write_headers( business_token = business_token),
         json    = payload,
     )
     return collect_send_results( payload, response, debug)
@@ -847,6 +956,8 @@ async def async_send_whatsapp_content(
     to_number   : str,
     content     : WhatsAppContactCard | WhatsAppLocation,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> list[WhatsAppSendResult] :
     """
     Send a WhatsApp content message asynchronously \\
@@ -855,13 +966,17 @@ async def async_send_whatsapp_content(
         to_number   : Recipient phone number
         content     : WhatsApp contact or location
         debug       : Whether to emit response diagnostics
+        database_url : Optional PostgreSQL URL for per-number credential selection.
     """
+    business_token = await AsyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     payload = write_payload( to_number, content)
     
     async with httpx.AsyncClient() as client :
         response = await client.post(
             url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-            headers = write_headers(),
+            headers = write_headers( business_token = business_token),
             json    = payload,
         )
     
@@ -876,6 +991,8 @@ def send_whatsapp_media(
     to_number   : str,
     media       : ServerMediaMsg,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> bool :
     """
     Upload media and send it to the given WhatsApp number \\
@@ -884,9 +1001,13 @@ def send_whatsapp_media(
         to_number   : Recipient phone number
         media       : ServerMediaMsg describing the file to send
         debug       : Whether to emit response diagnostics
+        database_url : Optional PostgreSQL URL for per-number credential selection.
     Returns:
         True if upload/send succeeded; else False.
     """
+    business_token = SyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     
     # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media/
     
@@ -902,7 +1023,10 @@ def send_whatsapp_media(
         stage           = "upload"
         upload_response = httpx.post(
             url     = f"{META_GRAPH_API_URL}/{operator_id}/media",
-            headers = write_headers( content_type = False),
+            headers = write_headers(
+                content_type   = False,
+                business_token = business_token,
+            ),
             data    = {
                 "messaging_product": "whatsapp"
             },
@@ -936,7 +1060,7 @@ def send_whatsapp_media(
         payload  = write_payload( to_number, media)
         response = httpx.post(
             url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-            headers = write_headers(),
+            headers = write_headers( business_token = business_token),
             json    = payload,
             timeout = WHATSAPP_MEDIA_TIMEOUT,
         )
@@ -957,6 +1081,8 @@ async def async_send_whatsapp_media(
     to_number   : str,
     media       : ServerMediaMsg,
     debug       : bool = False,
+    *,
+    database_url : str | None = None,
 ) -> bool :
     """
     Upload media and send it to the given WhatsApp number asynchronously \\
@@ -965,9 +1091,13 @@ async def async_send_whatsapp_media(
         to_number   : Recipient phone number
         media       : ServerMediaMsg describing the file to send
         debug       : Whether to emit response diagnostics
+        database_url : Optional PostgreSQL URL for per-number credential selection.
     Returns:
         True if upload/send succeeded; else False.
     """
+    business_token = await AsyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
     
     stage = "validation"
     try :
@@ -983,7 +1113,10 @@ async def async_send_whatsapp_media(
             stage           = "upload"
             upload_response = await client.post(
                 url     = f"{META_GRAPH_API_URL}/{operator_id}/media",
-                headers = write_headers( content_type = False),
+                headers = write_headers(
+                    content_type   = False,
+                    business_token = business_token,
+                ),
                 data    = {
                     "messaging_product": "whatsapp"
                 },
@@ -1014,7 +1147,7 @@ async def async_send_whatsapp_media(
             payload     = write_payload( to_number, media)
             response    = await client.post(
                 url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
-                headers = write_headers(),
+                headers = write_headers( business_token = business_token),
                 json    = payload,
             )
         

@@ -1151,10 +1151,11 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         
         try :
             results = send_whatsapp_flow(
-                self.operator_id,
-                self.user_id,
-                message,
-                debug = self.debug,
+                operator_id  = self.operator_id,
+                to_number    = self.user_id,
+                message      = message,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
             )
             outbound_ids = self._persist_outbound_messages( message.id, results)
             
@@ -1186,10 +1187,11 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         
         try :
             results = send_whatsapp_template(
-                self.operator_id,
-                self.user_id,
-                message,
-                debug = self.debug,
+                operator_id  = self.operator_id,
+                to_number    = self.user_id,
+                message      = message,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
             )
             self._persist_outbound_messages( case_handler_msg_id, results)
             return True
@@ -1218,10 +1220,11 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             ) :
                 results.extend(
                     send_whatsapp_text(
-                        self.operator_id,
-                        self.user_id,
-                        message.text,
-                        debug = self.debug,
+                        operator_id  = self.operator_id,
+                        to_number    = self.user_id,
+                        text         = message.text,
+                        debug        = self.debug,
+                        database_url = self.storage.database_url,
                     )
                 )
             self._persist_outbound_messages( case_handler_msg_id, results)
@@ -1244,10 +1247,11 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         
         try :
             results = send_whatsapp_interactive(
-                self.operator_id,
-                self.user_id,
-                message,
-                debug = self.debug,
+                operator_id  = self.operator_id,
+                to_number    = self.user_id,
+                message      = message,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
             )
             self._persist_outbound_messages( case_handler_msg_id, results)
             return True
@@ -2130,10 +2134,11 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         
         try :
             results = await async_send_whatsapp_flow(
-                self.operator_id,
-                self.user_id,
-                message,
-                debug = self.debug,
+                operator_id  = self.operator_id,
+                to_number    = self.user_id,
+                message      = message,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
             )
             outbound_ids = await self._persist_outbound_messages(
                 message.id,
@@ -2168,10 +2173,11 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         
         try :
             results = await async_send_whatsapp_template(
-                self.operator_id,
-                self.user_id,
-                message,
-                debug = self.debug,
+                operator_id  = self.operator_id,
+                to_number    = self.user_id,
+                message      = message,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
             )
             await self._persist_outbound_messages( case_handler_msg_id, results)
             return True
@@ -2200,10 +2206,11 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             ) :
                 results.extend(
                     await async_send_whatsapp_text(
-                        self.operator_id,
-                        self.user_id,
-                        message.text,
-                        debug = self.debug,
+                        operator_id  = self.operator_id,
+                        to_number    = self.user_id,
+                        text         = message.text,
+                        debug        = self.debug,
+                        database_url = self.storage.database_url,
                     )
                 )
             await self._persist_outbound_messages( case_handler_msg_id, results)
@@ -2226,10 +2233,11 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         
         try :
             results = await async_send_whatsapp_interactive(
-                self.operator_id,
-                self.user_id,
-                message,
-                debug = self.debug,
+                operator_id  = self.operator_id,
+                to_number    = self.user_id,
+                message      = message,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
             )
             await self._persist_outbound_messages( case_handler_msg_id, results)
             return True

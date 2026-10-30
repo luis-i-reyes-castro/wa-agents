@@ -105,8 +105,19 @@ Supabase credentials are mandatory because webhook audit storage and
 | --- | --- |
 | `WA_APPS` | Ordered JSON list of Meta apps with `id` and `secret` fields. Webhook signatures are accepted when any configured secret matches. Takes precedence over `WA_APP_SECRET`. |
 | `WA_APP_SECRET` | Single Meta app secret used as the webhook-signature fallback when `WA_APPS` is unset. |
-| `WA_TOKEN` | Graph API access token |
+| `WA_TOKEN` | Graph API fallback token for registered numbers without an Embedded Signup record. |
+| `ENCRYPTION_KEY` | Required to decrypt stored customer business tokens for Embedded Signup numbers. |
 | `WA_VERIFY_TOKEN` | Token used by webhook verification endpoint |
+
+Messaging helpers resolve credentials from the sending `phone_number_id`, joining its WABA to `api_embedded_signup_data`.
+Connected ES accounts use their encrypted business token.
+Missing tokens, disconnected accounts, and decryption failures stop the request; they never fall back to `WA_TOKEN`.
+Numbers without an ES record use `WA_TOKEN`.
+The sending number must exist in `api_phone_numbers`.
+
+This selection applies to text, templates, interactive messages, Flow launches, contacts, locations, and media uploads/downloads, including direct helper calls.
+Helpers accept `database_url` when the caller uses a database other than the default.
+`fetch_media()` and `async_fetch_media()` require the sending number's Graph API ID as the keyword argument `operator_id`; the queue worker supplies it automatically.
 
 ### LLM keys (optional, only if using `Agent`)
 
@@ -693,7 +704,7 @@ from wa_agents.io_functions import async_fetch_media
 reply = message.interactive.nfm_reply
 items = reply.media.get( "photo_picker", []) if reply else []
 files = await asyncio.gather(
-    *( async_fetch_media(item) for item in items )
+    *( async_fetch_media( item, operator_id = self.operator_id) for item in items )
 )
 ```
 
