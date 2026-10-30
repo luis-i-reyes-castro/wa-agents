@@ -432,6 +432,42 @@ persisted message returned by `apply_and_persist_message()`. Persisting first le
 a durable case-handler message without a `case_handler_to_api_bridge` mapping when
 outbound sending does not complete.
 
+### Document templates
+
+Use an approved template with a `DOCUMENT` header.
+`ServerTemplateMsg.document` accepts a `WhatsApp_OB_TemplateDocument` containing exactly one of `id` (an uploaded PDF's media ID) or `link` (a PDF URL accessible to Meta), plus an optional `filename`.
+Omit `parameters` when the approved body has no variables.
+
+For a generated PDF, upload its bytes first, then persist and send the template:
+```python
+from wa_agents.case_handler_models import ServerDocumentMsg, ServerTemplateMsg
+from wa_agents.io_functions import async_upload_whatsapp_media
+from wa_agents.io_models import WhatsApp_OB_TemplateDocument
+
+media_id = await async_upload_whatsapp_media(
+    operator_id  = self.operator_id,
+    media        = ServerDocumentMsg( filepath = "invoice.pdf", content = pdf_bytes),
+    database_url = self.storage.database_url,
+)
+message = await self.apply_and_persist_message(
+    ServerTemplateMsg(
+        name       = "invoice_document",  # Approved template name in this account.
+        language   = "es_EC",
+        parameters = [ customer_name ],    # Match the approved body's variables.
+        document   = WhatsApp_OB_TemplateDocument( id = media_id, filename = "invoice.pdf"),
+    )
+)
+await self.send_template(message)
+```
+
+For an existing hosted PDF, supply `link = "https://example.com/invoice.pdf"` instead of `id` and skip the upload.
+Synchronous handlers use `upload_whatsapp_media()` and their existing synchronous persistence/send methods.
+Uploads and sends select credentials using the same ES lookup rule.
+
+The persisted message and outbound audit contain the document reference and filename.
+The upload helper does not archive PDF bytes in S3 or Supabase; retain the original document in the application's document storage if it is needed later.
+Media IDs must belong to the sending account and remain valid when sending.
+
 ## Non-WhatsApp Case Handlers
 
 The models in `case_handler_models.py` and the `Agent` classes are not tied to a

@@ -50,6 +50,7 @@ from .io_models import (
     WhatsAppInteractiveOption,
     WhatsAppMediaCaption,
     WhatsAppTemplateLanguageCode,
+    WhatsApp_OB_TemplateDocument,
 )
 from .phone_numbers import get_country_and_language
 
@@ -451,11 +452,12 @@ class ServerTemplateMsg ( ServerMsg, StructuredDataMsg) :
     parameters : Annotated[
                     list[NE_str] | dict[ NE_var_name, NE_str],
                     Field( min_length = 1),
-                 ]
+                 ] | None = None
+    document   : WhatsApp_OB_TemplateDocument | None = None
     
     def as_text(self) -> str :
         return self.model_dump_json(
-            include = { "name", "language", "parameters" },
+            include = { "name", "language", "parameters", "document" },
             exclude_none = True,
         )
 

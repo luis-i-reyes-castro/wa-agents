@@ -49,6 +49,8 @@ from .io_models import (
     WhatsApp_OB_MediaMessage,
     WhatsApp_OB_TemplateBodyComponent,
     WhatsApp_OB_TemplateData,
+    WhatsApp_OB_TemplateDocumentParameter,
+    WhatsApp_OB_TemplateHeaderComponent,
     WhatsApp_OB_TemplateLanguageObject,
     WhatsApp_OB_TemplateMessage,
     WhatsApp_OB_TemplateTextParameter,
@@ -599,6 +601,21 @@ def write_payload(
         
         # Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/overview
         
+        components : list[
+            WhatsApp_OB_TemplateBodyComponent |
+            WhatsApp_OB_TemplateHeaderComponent
+        ] = []
+        if content.document is not None :
+            components.append(
+                WhatsApp_OB_TemplateHeaderComponent(
+                    parameters = [
+                        WhatsApp_OB_TemplateDocumentParameter(
+                            document = content.document,
+                        ),
+                    ],
+                )
+            )
+        
         if isinstance( content.parameters, list) :
             parameters = [
                 WhatsApp_OB_TemplateTextParameter( text = param)
@@ -610,8 +627,12 @@ def write_payload(
                     parameter_name = param_name,
                     text           = param_val,
                 )
-                for param_name, param_val in content.parameters.items()
+                for param_name, param_val in ( content.parameters or {} ).items()
             ]
+        if parameters :
+            components.append(
+                WhatsApp_OB_TemplateBodyComponent( parameters = parameters)
+            )
         
         return WhatsApp_OB_TemplateMessage(
             to       = to_number,
@@ -620,13 +641,9 @@ def write_payload(
                 language   = WhatsApp_OB_TemplateLanguageObject(
                     code = content.language,
                 ),
-                components = [
-                    WhatsApp_OB_TemplateBodyComponent(
-                        parameters = parameters,
-                    ),
-                ],
+                components = components or None,
             ),
-        ).model_dump()
+        ).model_dump( mode = "json")
     
     elif isinstance( content, ServerMediaMsg) :
         
@@ -986,6 +1003,96 @@ async def async_send_whatsapp_content(
 # -----------------------------------------------------------------------------------------
 # OUTBOUND: Media
 
+def upload_whatsapp_media(
+    operator_id : str,
+    media       : ServerMediaMsg,
+    debug       : bool = False,
+    *,
+    database_url : str | None = None,
+) -> str :
+    """
+    Upload media without sending a message; return its Graph media ID.
+    Supply bytes in `media.content`. Uses the sending number's ES credentials.
+    Raises on missing content, upload failure, or a missing media ID.
+    """
+    if not media.content :
+        raise ValueError(f"In {here()}: Missing media content")
+    
+    business_token = SyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
+    if debug :
+        print_sep()
+        print(f"Uploading media: {media.filepath}")
+    
+    response = httpx.post(
+        url     = f"{META_GRAPH_API_URL}/{operator_id}/media",
+        headers = write_headers(
+            content_type   = False,
+            business_token = business_token,
+        ),
+        data    = {
+            "messaging_product" : "whatsapp",
+        },
+        files   = {
+            "file" : ( media.filepath, media.content, media.mime),
+        },
+        timeout = WHATSAPP_MEDIA_TIMEOUT,
+    )
+    upload_data = parse_graph_response(response)
+    upload_id   = upload_data.get("id")
+    if not ( isinstance( upload_id, str) and upload_id.isdecimal() ):
+        raise RuntimeError(
+            f"In {here()}: Media upload did not return a numeric media ID"
+        )
+    
+    return upload_id
+
+async def async_upload_whatsapp_media(
+    operator_id : str,
+    media       : ServerMediaMsg,
+    debug       : bool = False,
+    *,
+    database_url : str | None = None,
+) -> str :
+    """
+    Upload media without sending a message; return its Graph media ID.
+    Supply bytes in `media.content`. Uses the sending number's ES credentials.
+    Raises on missing content, upload failure, or a missing media ID.
+    """
+    if not media.content :
+        raise ValueError(f"In {here()}: Missing media content")
+    
+    business_token = await AsyncSupabaseStorage(database_url).get_business_token(
+        phone_number_id = operator_id,
+    )
+    if debug :
+        print_sep()
+        print(f"Uploading media: {media.filepath}")
+    
+    async with httpx.AsyncClient( timeout = WHATSAPP_MEDIA_TIMEOUT) as client :
+        response = await client.post(
+            url     = f"{META_GRAPH_API_URL}/{operator_id}/media",
+            headers = write_headers(
+                content_type   = False,
+                business_token = business_token,
+            ),
+            data    = {
+                "messaging_product" : "whatsapp",
+            },
+            files   = {
+                "file" : ( media.filepath, media.content, media.mime),
+            },
+        )
+    upload_data = parse_graph_response(response)
+    upload_id   = upload_data.get("id")
+    if not ( isinstance( upload_id, str) and upload_id.isdecimal() ) :
+        raise RuntimeError(
+            f"In {here()}: Media upload did not return a numeric media ID"
+        )
+    
+    return upload_id
+
 def send_whatsapp_media(
     operator_id : str,
     to_number   : str,
@@ -1005,58 +1112,19 @@ def send_whatsapp_media(
     Returns:
         True if upload/send succeeded; else False.
     """
-    business_token = SyncSupabaseStorage(database_url).get_business_token(
-        phone_number_id = operator_id,
-    )
-    
-    # Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media/
-    
-    stage = "validation"
+    stage = "upload"
     try :
-        if not media.content :
-            raise ValueError("Missing media content")
-        
-        if debug :
-            print_sep()
-            print(f"Uploading media: {media.filepath}")
-        
-        stage           = "upload"
-        upload_response = httpx.post(
-            url     = f"{META_GRAPH_API_URL}/{operator_id}/media",
-            headers = write_headers(
-                content_type   = False,
-                business_token = business_token,
-            ),
-            data    = {
-                "messaging_product": "whatsapp"
-            },
-            files   = {
-                "file" : ( media.filepath, media.content, media.mime)
-            },
-            timeout = WHATSAPP_MEDIA_TIMEOUT,
+        media.upload_id = upload_whatsapp_media(
+            operator_id  = operator_id,
+            media        = media,
+            debug        = debug,
+            database_url = database_url,
         )
         
-        if debug :
-            print(f"Upload response status: {upload_response.status_code}")
-            print(f"Upload response: {upload_response.text}")
-        
-        if upload_response.status_code != 200 :
-            print(f"Upload failed with status {upload_response.status_code}")
-            return False
-        
-        upload_data = upload_response.json()
-        if "id" not in upload_data :
-            print(f"No 'id' in upload response: {upload_data}")
-            return False
-        
-        media.upload_id = upload_data["id"]
-        if debug :
-            print(
-                f"Uploaded media with ID: {media.upload_id}\n"
-                f"Sending media message..."
-            )
-        
-        stage    = "send"
+        stage = "send"
+        business_token = SyncSupabaseStorage(database_url).get_business_token(
+            phone_number_id = operator_id,
+        )
         payload  = write_payload( to_number, media)
         response = httpx.post(
             url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
@@ -1068,9 +1136,9 @@ def send_whatsapp_media(
         
         return True
     
-    except Exception as ex:
+    except Exception as ex :
         print(
-            f"Error sending media during {stage}: "
+            f"In {here()}: Error sending media during {stage}: "
             f"{type(ex).__name__}: {ex!r}"
         )
     
@@ -1085,7 +1153,7 @@ async def async_send_whatsapp_media(
     database_url : str | None = None,
 ) -> bool :
     """
-    Upload media and send it to the given WhatsApp number asynchronously \\
+    Upload media and send it to the given WhatsApp number \\
     Args:
         operator_id : Business phone-number id
         to_number   : Recipient phone number
@@ -1095,69 +1163,33 @@ async def async_send_whatsapp_media(
     Returns:
         True if upload/send succeeded; else False.
     """
-    business_token = await AsyncSupabaseStorage(database_url).get_business_token(
-        phone_number_id = operator_id,
-    )
-    
-    stage = "validation"
+    stage = "upload"
     try :
-        if not media.content :
-            raise ValueError("Missing media content")
+        media.upload_id = await async_upload_whatsapp_media(
+            operator_id  = operator_id,
+            media        = media,
+            debug        = debug,
+            database_url = database_url,
+        )
         
-        if debug :
-            print_sep()
-            print(f"Uploading media: {media.filepath}")
-        
+        stage = "send"
+        business_token = await AsyncSupabaseStorage(database_url).get_business_token(
+            phone_number_id = operator_id,
+        )
+        payload = write_payload( to_number, media)
         async with httpx.AsyncClient( timeout = WHATSAPP_MEDIA_TIMEOUT) as client :
-            
-            stage           = "upload"
-            upload_response = await client.post(
-                url     = f"{META_GRAPH_API_URL}/{operator_id}/media",
-                headers = write_headers(
-                    content_type   = False,
-                    business_token = business_token,
-                ),
-                data    = {
-                    "messaging_product": "whatsapp"
-                },
-                files   = {
-                    "file" : ( media.filepath, media.content, media.mime)
-                },
-            )
-            
-            if debug :
-                print(f"Upload response status: {upload_response.status_code}")
-                print(f"Upload response: {upload_response.text}")
-            
-            if upload_response.status_code != 200 :
-                print(f"Upload failed with status {upload_response.status_code}")
-                return False
-            
-            upload_data = upload_response.json()
-            if "id" not in upload_data :
-                print(f"No 'id' in upload response: {upload_data}")
-                return False
-            
-            media.upload_id = upload_data["id"]
-            if debug :
-                print(f"Uploaded media with ID: {media.upload_id}")
-                print("Sending media message...")
-            
-            stage       = "send"
-            payload     = write_payload( to_number, media)
-            response    = await client.post(
+            response = await client.post(
                 url     = f"{META_GRAPH_API_URL}/{operator_id}/messages",
                 headers = write_headers( business_token = business_token),
                 json    = payload,
             )
-        
         collect_send_results( payload, response, debug)
         
         return True
     
-    except Exception as ex:
+    except Exception as ex :
         print(
-            f"Error sending media during {stage}: "
+            f"In {here()}: Error sending media during {stage}: "
             f"{type(ex).__name__}: {ex!r}"
         )
     

@@ -14,6 +14,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    HttpUrl,
     ValidationError,
     model_serializer,
     model_validator,
@@ -1796,14 +1797,71 @@ class WhatsApp_OB_TemplateBodyComponent (BaseModel) :
         
         return self
 
+class WhatsApp_OB_TemplateDocument (BaseModel) :
+    """
+    Document header media reference: an uploaded media ID or a downloadable PDF URL.
+    """
+    model_config = ConfigDict( extra = "forbid")
+    
+    id       : NumericID | None = None
+    link     : HttpUrl   | None = None
+    filename : NE_str    | None = None
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        
+        if ( self.id is None ) == ( self.link is None ) :
+            raise ValueError(
+                f"In {here()}: Document requires exactly one of id or link"
+            )
+        
+        return self
+    
+    @model_serializer( mode = "wrap")
+    def serialize_without_nones(
+        self,
+        handler : Callable[ [BaseModel], dict[ str, Any]],
+    ) -> dict[ str, Any] :
+        
+        return serialize_without_nones( self, handler)
+
+class WhatsApp_OB_TemplateDocumentParameter (BaseModel) :
+    
+    type     : Literal["document"] = "document"
+    document : WhatsApp_OB_TemplateDocument
+
+class WhatsApp_OB_TemplateHeaderComponent (BaseModel) :
+    
+    type       : Literal["header"] = "header"
+    parameters : Annotated[
+        list[WhatsApp_OB_TemplateDocumentParameter],
+        Field( min_length = 1, max_length = 1),
+    ]
+
 class WhatsApp_OB_TemplateData (BaseModel) :
     
     name       : NE_str
     language   : WhatsApp_OB_TemplateLanguageObject
     components : Annotated[
-        list[WhatsApp_OB_TemplateBodyComponent],
-        Field( min_length = 1, max_length = 1),
+        list[
+            WhatsApp_OB_TemplateBodyComponent |
+            WhatsApp_OB_TemplateHeaderComponent
+        ],
+        Field( min_length = 1, max_length = 2),
     ] | None = None
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        
+        types = [
+            component.type for component in ( self.components or [] )
+        ]
+        if len(types) != len(set(types)) :
+            raise ValueError(
+                f"In {here()}: Template component types must be unique"
+            )
+        
+        return self
     
     @model_serializer( mode = "wrap")
     def serialize_without_nones(
