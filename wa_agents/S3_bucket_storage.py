@@ -2,7 +2,7 @@
 S3 media storage.
 
 Object layout:
-    <business_display_phone_number>/
+    <phone_number_id>/
         <contact_user_id>/
             <case_index>_<message_index>.<extension>
 
@@ -98,18 +98,18 @@ def _media_cache_discard( object_key : str) -> None :
 
 
 def media_object_key(
-    business_display_phone_number : str,
-    contact_user_id               : str,
-    case_index                    : int,
-    message_index                 : int,
-    extension                     : str,
+    phone_number_id : str,
+    contact_user_id : str,
+    case_index      : int,
+    message_index   : int,
+    extension       : str,
 ) -> str :
     """
     Build a media object key using contact and case-message ordinals.
     """
     path_components = (
-        ( "business_display_phone_number", business_display_phone_number),
-        ( "contact_user_id",               contact_user_id              ),
+        ( "phone_number_id", phone_number_id),
+        ( "contact_user_id", contact_user_id),
     )
     for label, value in path_components :
         if (
@@ -152,7 +152,7 @@ def media_object_key(
     
     return str(
         PurePosixPath(
-            business_display_phone_number,
+            phone_number_id,
             contact_user_id,
             f"{case_index}_{message_index}.{extension}",
         )
@@ -166,11 +166,11 @@ class S3BucketStorage :
     
     def media_write(
         self,
-        business_display_phone_number : str,
-        contact_user_id               : str,
-        case_index                    : int,
-        message_index                 : int,
-        media                         : MediaObject,
+        phone_number_id : str,
+        contact_user_id : str,
+        case_index      : int,
+        message_index   : int,
+        media           : MediaObject,
     ) -> str :
         """
         Store media bytes and return the object key to persist in PostgreSQL.
@@ -180,7 +180,7 @@ class S3BucketStorage :
                 f"In {here()}: media.content is required for an S3 write"
             )
         object_key = media_object_key(
-            business_display_phone_number,
+            phone_number_id,
             contact_user_id,
             case_index,
             message_index,
@@ -225,11 +225,11 @@ class AsyncS3BucketStorage :
     
     async def media_write(
         self,
-        business_display_phone_number : str,
-        contact_user_id               : str,
-        case_index                    : int,
-        message_index                 : int,
-        media                         : MediaObject,
+        phone_number_id : str,
+        contact_user_id : str,
+        case_index      : int,
+        message_index   : int,
+        media           : MediaObject,
     ) -> str :
         """
         Store media bytes and return the object key to persist in PostgreSQL.
@@ -239,7 +239,7 @@ class AsyncS3BucketStorage :
                 f"In {here()}: media.content is required for an S3 write"
             )
         object_key = media_object_key(
-            business_display_phone_number,
+            phone_number_id,
             contact_user_id,
             case_index,
             message_index,

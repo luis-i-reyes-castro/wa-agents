@@ -45,6 +45,7 @@ The two text-encryption helper functions are explicitly created in `public`.
 | `T_WHATSAPP_FLOW_STATUS` | `DRAFT`, `PUBLISHED`, `DEPRECATED`, `BLOCKED`, `THROTTLED` |
 | `T_WHATSAPP_FLOW_SESSION_STATUS` | `created`, `sent`, `active`, `completed`, `failed`, `expired`, `superseded` |
 | `T_WHATSAPP_FLOW_EXCHANGE_STATUS` | `processing`, `succeeded`, `failed` |
+| `T_WHATSAPP_REGISTRATION_STATUS` | `pending`, `active`, `retired` |
 
 # Table Aliases
 
@@ -206,6 +207,12 @@ referenced business is deleted.
 | `api_flow_encryption_keys.id` | `api_flow_events.flow_waba` |
 
 ### Table `api_phone_numbers`
+
+`phone_number_id` is unique and its WABA/display-number identity is immutable in
+application upserts.
+`registration_status` uses `T_WHATSAPP_REGISTRATION_STATUS`: `pending` (default), `active`, or `retired`.
+A partial unique index permits at most one active registration per display number, while retaining previous registrations and their contact history.
+Only trusted provisioning activates a registration; webhook ingestion never does.
 
 **OUTGOING REFERENCES:**
 

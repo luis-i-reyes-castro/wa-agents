@@ -1,6 +1,8 @@
 -- WARNING:
--- This permanently deletes all database state associated with every WhatsApp
--- contact under one phone number while preserving the contacts and their routes.
+-- This permanently deletes conversation state for every WhatsApp contact on the
+-- active registration of one display number, while preserving the contacts and
+-- their routes. Retired registrations are left untouched. Requires
+-- registration_status from 20261030_phone_registrations.sql.
 --
 -- Replace DISPLAY_PHONE_NUMBER before running this script manually in the
 -- Supabase SQL editor.
@@ -34,12 +36,17 @@ BEGIN
     RAISE EXCEPTION 'Replace the display phone number placeholder before running';
   END IF;
   
-  IF NOT EXISTS (
-    SELECT 1
-    FROM wa_agents.api_phone_numbers AS phone
-    WHERE ( phone.display_phone_number = v_display_phone_number )
-  ) THEN
-    RAISE EXCEPTION 'Expected to find phone number %, found none',
+  IF (
+    SELECT
+      count(*)
+    FROM
+      wa_agents.api_phone_numbers AS phone
+    WHERE
+      ( phone.display_phone_number = v_display_phone_number ) AND
+      ( phone.registration_status  = 'active'               )
+  ) <> 1 THEN
+    RAISE EXCEPTION
+      'Expected one active registration for phone number %, found otherwise',
       v_display_phone_number;
   END IF;
   
@@ -54,7 +61,8 @@ BEGIN
   JOIN
     wa_agents.api_phone_numbers AS phone ON phone.id = contact.phone_number
   WHERE
-    ( phone.display_phone_number = v_display_phone_number );
+    ( phone.display_phone_number = v_display_phone_number ) AND
+    ( phone.registration_status  = 'active'              );
   
   IF v_matching_contacts = 0 THEN
     RAISE EXCEPTION

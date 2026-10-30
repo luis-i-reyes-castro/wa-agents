@@ -84,6 +84,11 @@ CREATE TYPE T_WHATSAPP_FLOW_EXCHANGE_STATUS AS ENUM (
   'succeeded',
   'failed'
 );
+CREATE TYPE T_WHATSAPP_REGISTRATION_STATUS AS ENUM (
+  'pending',
+  'active',
+  'retired'
+);
 
 -- FUNCTIONS
 
@@ -136,6 +141,7 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_phone_numbers (
   
   business              BIGINT      NOT NULL,
   display_phone_number  T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  registration_status   T_WHATSAPP_REGISTRATION_STATUS NOT NULL DEFAULT 'pending',
   phone_number_id       T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
   verified_name         TEXT        DEFAULT NULL,
   platform_type         T_NO_WS_STR DEFAULT NULL,
@@ -148,9 +154,6 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_phone_numbers (
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
-  CONSTRAINT api_phone_numbers_display_phone_number_unique
-    UNIQUE (display_phone_number),
-  
   CONSTRAINT api_phone_numbers_phone_number_id_unique
     UNIQUE (phone_number_id),
   
@@ -161,6 +164,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_phone_numbers (
     )
 
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS api_phone_numbers_active_display_unique
+  ON wa_agents.api_phone_numbers (display_phone_number)
+  WHERE ( registration_status = 'active' );
 
 ALTER TABLE wa_agents.api_phone_numbers
   ENABLE ROW LEVEL SECURITY;

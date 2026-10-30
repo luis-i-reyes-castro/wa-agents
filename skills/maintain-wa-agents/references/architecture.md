@@ -43,6 +43,12 @@ before editing. The schema and APIs may evolve after this reference is written.
 
 Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
 
+- Each Meta phone ID has an immutable WABA/display-number identity.
+  New IDs create pending registrations; only trusted provisioning activates them.
+  Keep retirement, queue cancellation, case closure, and Flow supersession in the activation transaction.
+  Run `lock_phone_registrations.sql` before `activate_phone_number.sql` in that transaction so concurrent activation sees a fresh snapshot after acquiring locks.
+  Only active registrations may send or claim work.
+  Delayed webhooks never activate.
 - All structured data lives in PostgreSQL. Only media bytes live in S3.
 - `api_inbound_payloads` combines raw audit data and resolved metadata.
   `contact` must remain nullable so malformed or otherwise unresolvable payloads can
@@ -80,12 +86,12 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
 Build media keys through `media_object_key()` and preserve this layout:
 
 ```text
-<business_display_phone_number>/
+<phone_number_id>/
   <contact_user_id>/
     <case_index>_<message_index>.<extension>
 ```
 
-For inbound media, the case handler supplies the business display phone number,
+For inbound media, the case handler supplies the Meta phone number ID,
 contact API user ID, and the persisted one-based case and message indices. Persist
 the resulting object key and media metadata in PostgreSQL; do not infer paths later
 from mutable message fields.

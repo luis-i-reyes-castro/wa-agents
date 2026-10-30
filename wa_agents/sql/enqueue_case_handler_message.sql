@@ -13,6 +13,8 @@ FROM
   wa_agents.api_inbound_messages AS msg
 JOIN
   wa_agents.api_contacts         AS con ON con.id = msg.contact
+JOIN
+  wa_agents.api_phone_numbers    AS num ON num.id = con.phone_number
 LEFT JOIN LATERAL (
   SELECT
     rte.id
@@ -29,7 +31,8 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) AS rou ON TRUE
 WHERE
-  msg.msg_id = @msg_id
+  ( msg.msg_id              = @msg_id ) AND
+  ( num.registration_status = 'active' )
 )
 ON CONFLICT
   (msg_id)

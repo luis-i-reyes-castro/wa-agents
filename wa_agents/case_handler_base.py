@@ -1083,7 +1083,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         if isinstance( stored, HumanContentMsg) and stored.media :
             stored.media.content = media_content
             object_key = self._get_media_storage().media_write(
-                self.operator_num,
+                self.operator_id,
                 self.user_id,
                 self.case_manifest.case_index,
                 stored.message_index,
@@ -2066,7 +2066,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         if isinstance( stored, HumanContentMsg) and stored.media :
             stored.media.content = media_content
             object_key = await self._get_media_storage().media_write(
-                self.operator_num,
+                self.operator_id,
                 self.user_id,
                 self.case_manifest.case_index,
                 stored.message_index,

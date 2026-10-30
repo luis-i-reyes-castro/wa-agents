@@ -138,6 +138,8 @@ def _load_sql( filename : str) -> str :
     return load_sql_script( SQL_DIR / filename)
 
 
+SQL_ACTIVATE_PHONE_NUMBER           = _load_sql("activate_phone_number.sql")
+SQL_LOCK_PHONE_REGISTRATIONS        = _load_sql("lock_phone_registrations.sql")
 SQL_ACQUIRE_CONTACT_LEASE           = _load_sql("acquire_contact_lease.sql")
 SQL_CASE_HANDLER_MESSAGE_EXISTS     = _load_sql("case_handler_message_exists.sql")
 SQL_GET_AGENT_CONTEXTS              = _load_sql("get_agent_contexts.sql")
@@ -382,6 +384,26 @@ class SyncSupabaseStorage :
             },
         )
     
+    def activate_phone_number( self, phone_number_id : str) -> dict[str, Any] | None :
+        """
+        Activate a verified registration and retire its predecessor atomically.
+        Returns None for an unknown/retired registration or an in-flight contact lease.
+        Call only after verifying ownership; webhooks must not activate registrations.
+        """
+        params = { "phone_number_id" : phone_number_id }
+        
+        with sync_pooled_conection(self.database_url) as conn :
+            conn.execute(
+                SQL_LOCK_PHONE_REGISTRATIONS,
+                params,
+            ).fetchall()
+            row = conn.execute(
+                SQL_ACTIVATE_PHONE_NUMBER,
+                params,
+            ).fetchone()
+        
+        return dict(row) if row else None
+    
     def upsert_contact(
         self,
         business : int,
@@ -424,6 +446,12 @@ class SyncSupabaseStorage :
         if not row :
             raise ValueError(
                 f"In {here()}: Sending phone number is not registered"
+            )
+        
+        if row["registration_status"] != "active" :
+            raise RuntimeError(
+                f"In {here()}: Sending phone registration is "
+                f"'{row['registration_status']}'; activate it before messaging"
             )
         
         if row["es_business"] is None :
@@ -1345,6 +1373,27 @@ class AsyncSupabaseStorage :
             },
         )
     
+    async def activate_phone_number( self, phone_number_id : str) -> dict[str, Any] | None :
+        """
+        Activate a verified registration and retire its predecessor atomically.
+        Returns None for an unknown/retired registration or an in-flight contact lease.
+        Call only after verifying ownership; webhooks must not activate registrations.
+        """
+        params = { "phone_number_id" : phone_number_id }
+        
+        async with async_pooled_connection(self.database_url) as conn :
+            await conn.execute(
+                SQL_LOCK_PHONE_REGISTRATIONS,
+                params,
+            )
+            cursor = await conn.execute(
+                SQL_ACTIVATE_PHONE_NUMBER,
+                params,
+            )
+            row = await cursor.fetchone()
+        
+        return dict(row) if row else None
+    
     async def upsert_contact(
         self,
         business : int,
@@ -1390,6 +1439,12 @@ class AsyncSupabaseStorage :
         if not row :
             raise ValueError(
                 f"In {here()}: Sending phone number is not registered"
+            )
+        
+        if row["registration_status"] != "active" :
+            raise RuntimeError(
+                f"In {here()}: Sending phone registration is "
+                f"'{row['registration_status']}'; activate it before messaging"
             )
         
         if row["es_business"] is None :

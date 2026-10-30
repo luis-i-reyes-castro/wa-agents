@@ -31,20 +31,25 @@ candidate AS MATERIALIZED (
     wa_agents.api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
   JOIN
     active_lease                        AS lea ON lea.contact = msg.contact
+  JOIN
+    wa_agents.api_contacts              AS con ON con.id = msg.contact
+  JOIN
+    wa_agents.api_phone_numbers         AS num ON num.id = con.phone_number
   LEFT JOIN
     wa_agents.case_handler_routes       AS rou ON rou.id = que.handler_id
   LEFT JOIN
     wa_agents.case_handler_settings     AS settings ON
       settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key )
   WHERE
-    ( msg.contact    = @contact      ) AND
-    ( que.id         > @after_row_id ) AND
-    ( que.msg_status = 'pending'     )
+    ( msg.contact             = @contact      ) AND
+    ( que.id                  > @after_row_id ) AND
+    ( que.msg_status          = 'pending'     ) AND
+    ( num.registration_status = 'active'      )
   ORDER BY
     que.created_at ASC,
     que.id         ASC
   LIMIT 1
-  FOR UPDATE OF que SKIP LOCKED
+  FOR UPDATE OF que, num SKIP LOCKED
 ),
 renewed AS (
   UPDATE

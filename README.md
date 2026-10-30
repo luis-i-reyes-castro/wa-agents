@@ -113,11 +113,27 @@ Messaging helpers resolve credentials from the sending `phone_number_id`, joinin
 Connected ES accounts use their encrypted business token.
 Missing tokens, disconnected accounts, and decryption failures stop the request; they never fall back to `WA_TOKEN`.
 Numbers without an ES record use `WA_TOKEN`.
-The sending number must exist in `api_phone_numbers`.
+The sending number must exist in `api_phone_numbers` with `registration_status = active`.
 
 This selection applies to text, templates, interactive messages, Flow launches, contacts, locations, and media uploads/downloads, including direct helper calls.
 Helpers accept `database_url` when the caller uses a database other than the default.
 `fetch_media()` and `async_fetch_media()` require the sending number's Graph API ID as the keyword argument `operator_id`; the queue worker supplies it automatically.
+
+### Phone registration lifecycle
+
+A Meta `phone_number_id` identifies one registration with a fixed WABA and display number.
+A different Meta ID creates a separate row, even when the display number is unchanged.
+Contacts, routes, cases, and history stay attached to their registration.
+
+New registrations start as `pending`; webhooks can persist their data but cannot activate them or enqueue bot replies.
+Verified Embedded Signup activation in Sofia activates the new row and retires the previous active row for that display number in one transaction.
+Retired registrations cannot send, run queued handlers, or complete Flow sessions, and delayed webhooks cannot reactivate them.
+
+For portfolio-owned numbers provisioned outside Embedded Signup, verify ownership, then call `SyncSupabaseStorage.activate_phone_number(phone_number_id)` or await the
+same method on `AsyncSupabaseStorage`.
+It returns `None` for an unknown or retired registration, or while a handler lease remains active.
+Retry after active handlers finish.
+Configure the new registration's routes explicitly; previous routes are not copied during onboarding.
 
 ### LLM keys (optional, only if using `Agent`)
 
@@ -655,7 +671,7 @@ Supabase stores:
 S3-compatible bucket storage is only used for media bytes:
 
 ```txt
-<business_display_phone_number>/
+<phone_number_id>/
   <contact_user_id>/
     <case_index>_<message_index>.<extension>
 ```
