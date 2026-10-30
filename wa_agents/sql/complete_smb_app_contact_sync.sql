@@ -10,9 +10,8 @@ SET
   completed_at = COALESCE( syn.completed_at, now()),
   last_error   = NULL
 WHERE
-  syn.phone_number = @phone_number
-  AND
-  syn.sync_type = 'smb_app_state_sync'
+  ( syn.phone_number = @phone_number        ) AND
+  ( syn.sync_type    = 'smb_app_state_sync' )
 RETURNING
   syn.id,
   syn.sync_status,

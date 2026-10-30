@@ -2,7 +2,7 @@
   -- data_raw  : dict
   -- data_hash : SHA256_Hex
 
-WITH inserted AS (
+WITH CTE_inserted AS (
   INSERT INTO wa_agents.api_inbound_payloads (
     data_raw,
     data_hash
@@ -41,22 +41,22 @@ SELECT
   pay.errors,
   pay.inserted
 FROM
-  inserted AS pay
+  CTE_inserted AS pay
 )
 UNION ALL
 (
 SELECT
-  pay.id,
-  pay.received_at,
-  pay.item_index,
-  pay.item_ts,
-  pay.change_index,
-  pay.contact,
-  pay.data_raw,
-  pay.data_hash,
-  pay.validated,
-  pay.errors,
-  FALSE AS inserted
+  pay.id           AS id,
+  pay.received_at  AS received_at,
+  pay.item_index   AS item_index,
+  pay.item_ts      AS item_ts,
+  pay.change_index AS change_index,
+  pay.contact      AS contact,
+  pay.data_raw     AS data_raw,
+  pay.data_hash    AS data_hash,
+  pay.validated    AS validated,
+  pay.errors       AS errors,
+  FALSE            AS inserted
 FROM
   wa_agents.api_inbound_payloads AS pay
 WHERE
@@ -65,6 +65,6 @@ WHERE
     SELECT
       1
     FROM
-      inserted
+      CTE_inserted
   )
 );

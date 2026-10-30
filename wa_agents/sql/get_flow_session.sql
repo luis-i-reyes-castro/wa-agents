@@ -3,19 +3,36 @@
   -- secret_key      : ENCRYPTION_KEY
 
 SELECT
-  session.*,
-  flow.flow_id,
-  flow.flow_key,
-  flow.handler_key,
-  flow.data_api_version,
+  session.id                   AS id,
+  session.created_at           AS created_at,
+  session.updated_at           AS updated_at,
+  session.expires_at           AS expires_at,
+  session.activated_at         AS activated_at,
+  session.completed_at         AS completed_at,
+  session.flow                 AS flow,
+  session.phone_number         AS phone_number,
+  session.contact              AS contact,
+  session.case_handler_message AS case_handler_message,
+  session.outbound_message     AS outbound_message,
+  session.completion_message   AS completion_message,
+  session.flow_token_encrypted AS flow_token_encrypted,
+  session.flow_token_hash      AS flow_token_hash,
+  session.session_state        AS session_state,
+  session.completion_data      AS completion_data,
+  session.session_status       AS session_status,
+  session.last_error           AS last_error,
+  flow.flow_id                 AS flow_id,
+  flow.flow_key                AS flow_key,
+  flow.handler_key             AS handler_key,
+  flow.data_api_version        AS data_api_version,
   decrypt_text(
     session.flow_token_encrypted,
     @secret_key
-  ) AS flow_token,
+  )                            AS flow_token,
   CASE
     WHEN session.session_state IS NULL THEN NULL
     ELSE decrypt_text( session.session_state, @secret_key)
-  END AS session_state_data
+  END                          AS session_state_data
 FROM
   wa_agents.api_phone_numbers AS num
 JOIN

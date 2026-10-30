@@ -6,7 +6,7 @@
   -- is_active    : bool
   -- changed_at   : datetime
 
-WITH sync AS (
+WITH CTE_sync AS (
   INSERT INTO wa_agents.api_embedded_signup_syncs AS syn (
     phone_number,
     sync_type,
@@ -35,7 +35,7 @@ WITH sync AS (
   RETURNING
     syn.id
 ),
-upserted AS (
+CTE_upserted AS (
   INSERT INTO wa_agents.api_smb_app_contacts AS smb (
     contact,
     full_name,
@@ -50,7 +50,7 @@ upserted AS (
     @is_active,
     @changed_at
   FROM
-    sync
+    CTE_sync
   ON CONFLICT (contact)
   DO
     UPDATE
@@ -61,7 +61,7 @@ upserted AS (
     is_active  = EXCLUDED.is_active,
     changed_at = EXCLUDED.changed_at
   WHERE
-    smb.changed_at <= EXCLUDED.changed_at
+    ( smb.changed_at <= EXCLUDED.changed_at )
   RETURNING
     smb.contact,
     smb.full_name,
@@ -77,7 +77,7 @@ upserted AS (
     upd.is_active,
     upd.changed_at
   FROM
-    upserted AS upd
+    CTE_upserted AS upd
 )
 UNION ALL
 (
@@ -90,8 +90,7 @@ UNION ALL
   FROM
     wa_agents.api_smb_app_contacts AS smb
   WHERE
-    smb.contact = @contact
-    AND
-    NOT EXISTS ( SELECT 1 FROM upserted )
+    ( smb.contact = @contact                    ) AND
+    ( NOT EXISTS ( SELECT 1 FROM CTE_upserted ) )
   LIMIT 1
 );

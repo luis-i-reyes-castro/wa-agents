@@ -3,14 +3,14 @@
   -- handler_keys         : list[str]
   -- fallback_handler_key : str
 
-WITH candidate AS MATERIALIZED (
+WITH CTE_candidate AS MATERIALIZED (
   SELECT
-    msg.contact,
-    que.id,
-    que.handler_id,
-    que.msg_id,
+    msg.contact                                        AS contact,
+    que.id                                             AS id,
+    que.handler_id                                     AS handler_id,
+    que.msg_id                                         AS msg_id,
     COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key,
-    settings.silence_timeout_minutes
+    settings.silence_timeout_minutes                   AS silence_timeout_minutes
   FROM
     wa_agents.api_phone_numbers         AS num
   JOIN
@@ -45,7 +45,7 @@ WITH candidate AS MATERIALIZED (
   LIMIT 1
   FOR UPDATE OF que, num SKIP LOCKED
 ),
-leased AS (
+CTE_leased AS (
   INSERT INTO wa_agents.case_handler_contact_leases (
     contact,
     owner_token,
@@ -60,7 +60,7 @@ leased AS (
     now(),
     now() + INTERVAL '90 seconds'
   FROM
-    candidate AS can
+    CTE_candidate AS can
   ON CONFLICT (contact)
   DO
     UPDATE
@@ -81,9 +81,9 @@ SET
   msg_status = 'processing',
   updated_at = now()
 FROM
-  candidate AS can
+  CTE_candidate AS can
 JOIN
-  leased AS lea ON
+  CTE_leased AS lea ON
     ( lea.contact = can.contact )
 WHERE
   ( que.id = can.id )

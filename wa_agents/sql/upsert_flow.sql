@@ -9,7 +9,7 @@
   -- data_api_version : endpoint data API version
   -- endpoint_uri     : endpoint URI
 
-WITH flow_waba AS (
+WITH CTE_flow_waba AS (
   SELECT
     fw.id
   FROM
@@ -31,7 +31,7 @@ INSERT INTO wa_agents.api_flows (
   endpoint_uri
 )
 SELECT
-  flow_waba.id,
+  CTE_flow_waba.id,
   @flow_key,
   @flow_id,
   @flow_name,
@@ -41,7 +41,7 @@ SELECT
   @data_api_version,
   @endpoint_uri
 FROM
-  flow_waba
+  CTE_flow_waba
 ON CONFLICT (flow_id)
 DO
   UPDATE

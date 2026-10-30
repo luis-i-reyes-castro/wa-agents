@@ -3,7 +3,7 @@
   -- wa_id    : NumericID | None
   -- user_id  : WhatsAppBSUID | None
 
-WITH updated AS (
+WITH CTE_updated AS (
   UPDATE
     wa_agents.api_contacts AS con
   SET
@@ -24,7 +24,7 @@ WITH updated AS (
     con.wa_id,
     con.user_id
 ),
-inserted AS (
+CTE_inserted AS (
   INSERT INTO wa_agents.api_contacts (
     phone_number,
     wa_id,
@@ -38,7 +38,7 @@ inserted AS (
     SELECT
       1
     FROM
-      updated
+      CTE_updated
   )
   ON CONFLICT
   DO
@@ -60,7 +60,7 @@ SELECT
   upd.wa_id,
   upd.user_id
 FROM
-  updated AS upd
+  CTE_updated AS upd
 )
 UNION ALL
 (
@@ -72,6 +72,6 @@ SELECT
   ins.wa_id,
   ins.user_id
 FROM
-  inserted AS ins
+  CTE_inserted AS ins
 LIMIT 1
 );

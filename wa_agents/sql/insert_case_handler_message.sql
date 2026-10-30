@@ -9,7 +9,7 @@
   -- agent_contexts_to_clear  : list[str]
   -- agent_contexts_to_append : list[str]
 
-WITH case_manifest AS (
+WITH CTE_case_manifest AS (
   UPDATE
     wa_agents.case_handler_case_manifests
   SET
@@ -25,7 +25,7 @@ WITH case_manifest AS (
     machine_state           AS machine_state,
     silenced_until          AS silenced_until
 ),
-inserted_message AS (
+CTE_inserted_message AS (
   INSERT INTO wa_agents.case_handler_messages (
     case_id,
     message_index,
@@ -42,7 +42,7 @@ inserted_message AS (
     @origin,
     @data
   FROM
-    case_manifest AS manifest
+    CTE_case_manifest AS manifest
   RETURNING
     id,
     ts,
@@ -52,7 +52,7 @@ inserted_message AS (
     origin,
     data
 ),
-state_history AS (
+CTE_state_history AS (
   INSERT INTO wa_agents.case_handler_state_histories (
     case_manifest,
     case_message,
@@ -63,14 +63,14 @@ state_history AS (
     message.id,
     manifest.machine_state
   FROM
-    case_manifest    AS manifest
+    CTE_case_manifest    AS manifest
   JOIN
-    inserted_message AS message ON manifest.id = message.case_id
+    CTE_inserted_message AS message ON manifest.id = message.case_id
   RETURNING
     case_manifest,
     case_message
 ),
-changed_agent_names AS (
+CTE_changed_agent_names AS (
   SELECT DISTINCT
     names.agent_name
   FROM
@@ -79,12 +79,12 @@ changed_agent_names AS (
       @agent_contexts_to_append::TEXT[]
     ) AS names(agent_name)
 ),
-current_agent_contexts AS (
+CTE_current_agent_contexts AS (
   SELECT
-    names.agent_name,
+    names.agent_name                      AS agent_name,
     COALESCE( max(ctx.context_index), 0 ) AS context_index
   FROM
-    changed_agent_names AS names
+    CTE_changed_agent_names AS names
   LEFT JOIN
     wa_agents.case_handler_agent_contexts AS ctx
   ON
@@ -93,7 +93,7 @@ current_agent_contexts AS (
   GROUP BY
     names.agent_name
 ),
-cleared_agent_contexts AS (
+CTE_cleared_agent_contexts AS (
   INSERT INTO wa_agents.case_handler_agent_contexts (
     agent_name,
     context_index,
@@ -106,14 +106,14 @@ cleared_agent_contexts AS (
     @case_id,
     NULL::BIGINT
   FROM
-    current_agent_contexts AS contexts
+    CTE_current_agent_contexts AS contexts
   WHERE
     ( contexts.agent_name = ANY( @agent_contexts_to_clear::TEXT[] ) )
   ON CONFLICT DO NOTHING
   RETURNING
     agent_name
 ),
-extended_agent_contexts AS (
+CTE_extended_agent_contexts AS (
   INSERT INTO wa_agents.case_handler_agent_contexts (
     agent_name,
     context_index,
@@ -131,9 +131,9 @@ extended_agent_contexts AS (
     @case_id,
     message.id
   FROM
-    current_agent_contexts AS contexts
+    CTE_current_agent_contexts AS contexts
   CROSS JOIN
-    inserted_message AS message
+    CTE_inserted_message AS message
   WHERE
     ( contexts.agent_name = ANY( @agent_contexts_to_append::TEXT[] ) )
   ON CONFLICT DO NOTHING
@@ -151,11 +151,11 @@ SELECT
   manifest.machine_state,
   manifest.silenced_until
 FROM
-  case_manifest    AS manifest
+  CTE_case_manifest    AS manifest
 JOIN
-  inserted_message AS msg      ON manifest.id = msg.case_id
+  CTE_inserted_message AS msg      ON manifest.id = msg.case_id
 JOIN
-  state_history    AS history  ON
+  CTE_state_history    AS history  ON
   (
     ( msg.case_id = history.case_manifest ) AND
     ( msg.id      = history.case_message  )

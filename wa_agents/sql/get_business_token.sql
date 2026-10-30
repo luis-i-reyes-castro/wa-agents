@@ -3,15 +3,15 @@
   -- secret_key      : str | None
 
 SELECT
-  num.registration_status,
-  esd.business AS es_business,
-  esd.connection_status,
+  num.registration_status AS registration_status,
+  esd.business            AS es_business,
+  esd.connection_status   AS connection_status,
   CASE
     WHEN ( num.registration_status = 'active'    ) AND
          ( esd.connection_status   = 'connected' ) AND
          ( NULLIF( @secret_key, '') IS NOT NULL  )
     THEN decrypt_text( esd.business_token, @secret_key)
-  END AS business_token
+  END                     AS business_token
 FROM
   wa_agents.api_businesses           AS bus
 LEFT JOIN

@@ -3,7 +3,7 @@
   -- profile_name     : str
   -- profile_username : WhatsAppUsername | None
 
-WITH updated AS (
+WITH CTE_updated AS (
   UPDATE
     wa_agents.api_contact_profiles AS pro
   SET
@@ -21,7 +21,7 @@ WITH updated AS (
     pro.profile_name,
     pro.profile_username
 ),
-inserted AS (
+CTE_inserted AS (
   INSERT INTO wa_agents.api_contact_profiles (
     contact,
     profile_name,
@@ -35,7 +35,7 @@ inserted AS (
     SELECT
       1
     FROM
-      updated
+      CTE_updated
   )
   ON CONFLICT ON CONSTRAINT api_contact_profile_unique
   DO
@@ -57,7 +57,7 @@ SELECT
   upd.profile_name,
   upd.profile_username
 FROM
-  updated AS upd
+  CTE_updated AS upd
 )
 UNION ALL
 (
@@ -68,6 +68,6 @@ SELECT
   ins.profile_name,
   ins.profile_username
 FROM
-  inserted AS ins
+  CTE_inserted AS ins
 LIMIT 1
 );

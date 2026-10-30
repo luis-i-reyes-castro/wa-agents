@@ -2,7 +2,7 @@
   -- contact     : api_contacts.id
   -- owner_token : UUID
 
-WITH active_contact AS MATERIALIZED (
+WITH CTE_active_contact AS MATERIALIZED (
   SELECT
     con.id
   FROM
@@ -28,7 +28,7 @@ SELECT
   now(),
   now() + INTERVAL '90 seconds'
 FROM
-  active_contact
+  CTE_active_contact
 ON CONFLICT
   (contact)
 DO

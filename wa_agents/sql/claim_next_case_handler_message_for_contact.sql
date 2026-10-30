@@ -5,7 +5,7 @@
   -- handler_keys        : list[str]
   -- fallback_handler_key : str
 
-WITH active_lease AS MATERIALIZED (
+WITH CTE_active_lease AS MATERIALIZED (
   SELECT
     lea.contact,
     lea.owner_token
@@ -17,20 +17,20 @@ WITH active_lease AS MATERIALIZED (
     ( lea.expires_at  > now()        )
   FOR UPDATE
 ),
-candidate AS MATERIALIZED (
+CTE_candidate AS MATERIALIZED (
   SELECT
-    msg.contact,
-    que.id,
-    que.handler_id,
-    que.msg_id,
+    msg.contact                                        AS contact,
+    que.id                                             AS id,
+    que.handler_id                                     AS handler_id,
+    que.msg_id                                         AS msg_id,
     COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key,
-    settings.silence_timeout_minutes
+    settings.silence_timeout_minutes                   AS silence_timeout_minutes
   FROM
     wa_agents.api_phone_numbers         AS num
   JOIN
     wa_agents.api_contacts              AS con      ON num.id     = con.phone_number
   JOIN
-    active_lease                        AS lea      ON con.id     = lea.contact
+    CTE_active_lease                        AS lea      ON con.id     = lea.contact
   JOIN
     wa_agents.api_inbound_messages      AS msg      ON con.id     = msg.contact
   JOIN
@@ -51,14 +51,14 @@ candidate AS MATERIALIZED (
   LIMIT 1
   FOR UPDATE OF que, num SKIP LOCKED
 ),
-renewed AS (
+CTE_renewed AS (
   UPDATE
     wa_agents.case_handler_contact_leases AS lea
   SET
     heartbeat_at = now(),
     expires_at   = now() + INTERVAL '90 seconds'
   FROM
-    candidate AS can
+    CTE_candidate AS can
   WHERE
     ( lea.contact     = can.contact         ) AND
     ( lea.owner_token = @owner_token        ) AND
@@ -73,9 +73,9 @@ SET
   msg_status = 'processing',
   updated_at = now()
 FROM
-  candidate AS can
+  CTE_candidate AS can
 JOIN
-  renewed AS lea ON lea.contact = can.contact
+  CTE_renewed AS lea ON lea.contact = can.contact
 WHERE
   ( que.id = can.id )
 RETURNING

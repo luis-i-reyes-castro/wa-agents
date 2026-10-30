@@ -2,14 +2,14 @@
   -- contact : api_contacts.id
 
 SELECT
-  con.id,
-  con.created_at,
-  con.last_seen_at,
-  con.phone_number AS business,
-  con.wa_id,
-  con.user_id,
-  pro.profile_name,
-  pro.profile_username
+  con.id               AS id,
+  con.created_at       AS created_at,
+  con.last_seen_at     AS last_seen_at,
+  con.phone_number     AS business,
+  con.wa_id            AS wa_id,
+  con.user_id          AS user_id,
+  pro.profile_name     AS profile_name,
+  pro.profile_username AS profile_username
 FROM
   wa_agents.api_contacts AS con
 LEFT JOIN LATERAL (

@@ -2,7 +2,7 @@
   -- phone_number_id : str
 
 -- Trusted onboarding only. Serialize switches for the same telephone number.
-WITH registrations AS MATERIALIZED (
+WITH CTE_registrations AS MATERIALIZED (
   SELECT
     num.*
   FROM
@@ -10,21 +10,21 @@ WITH registrations AS MATERIALIZED (
   WHERE
     num.display_phone_number = (
       SELECT
-        target.display_phone_number
+        CTE_target.display_phone_number
       FROM
-        wa_agents.api_phone_numbers AS target
+        wa_agents.api_phone_numbers AS CTE_target
       WHERE
-        ( target.phone_number_id = @phone_number_id )
+        ( CTE_target.phone_number_id = @phone_number_id )
     )
   ORDER BY
     num.id
   FOR UPDATE
 ),
-target AS MATERIALIZED (
+CTE_target AS MATERIALIZED (
   SELECT
     num.*
   FROM
-    registrations AS num
+    CTE_registrations AS num
   WHERE
     ( num.phone_number_id     = @phone_number_id         ) AND
     ( num.registration_status IN ( 'pending', 'active' ) ) AND
@@ -32,7 +32,7 @@ target AS MATERIALIZED (
       SELECT
         1
       FROM
-        registrations                         AS other
+        CTE_registrations                         AS other
       JOIN
         wa_agents.api_contacts                AS contact ON
           other.id   = contact.phone_number
@@ -43,21 +43,21 @@ target AS MATERIALIZED (
         ( lease.expires_at > now() )
     )
 ),
-retired AS (
+CTE_retired AS (
   UPDATE
     wa_agents.api_phone_numbers AS num
   SET
     registration_status = 'retired'
   FROM
-    target
+    CTE_target
   WHERE
-    ( num.display_phone_number = target.display_phone_number ) AND
-    ( num.id                  <> target.id                   ) AND
+    ( num.display_phone_number = CTE_target.display_phone_number ) AND
+    ( num.id                  <> CTE_target.id                   ) AND
     ( num.registration_status = 'active'                     )
   RETURNING
     num.id
 ),
-stopped_queue AS (
+CTE_stopped_queue AS (
   UPDATE
     wa_agents.api_to_case_handler_queue AS queue
   SET
@@ -65,9 +65,9 @@ stopped_queue AS (
     updated_at    = now(),
     last_error_at = now()
   FROM
-    retired
+    CTE_retired
   JOIN
-    wa_agents.api_contacts         AS contact ON retired.id = contact.phone_number
+    wa_agents.api_contacts         AS contact ON CTE_retired.id = contact.phone_number
   JOIN
     wa_agents.api_inbound_messages AS msg     ON contact.id = msg.contact
   WHERE
@@ -76,32 +76,32 @@ stopped_queue AS (
   RETURNING
     queue.id
 ),
-closed_cases AS (
+CTE_closed_cases AS (
   UPDATE
     wa_agents.case_handler_case_manifests AS manifest
   SET
     is_open    = FALSE,
     updated_at = now()
   FROM
-    retired
+    CTE_retired
   JOIN
-    wa_agents.api_contacts AS contact ON retired.id = contact.phone_number
+    wa_agents.api_contacts AS contact ON CTE_retired.id = contact.phone_number
   WHERE
     ( manifest.contact = contact.id ) AND
     ( manifest.is_open              )
   RETURNING
     manifest.id
 ),
-stopped_flows AS (
+CTE_stopped_flows AS (
   UPDATE
     wa_agents.api_flow_sessions AS session
   SET
     session_status = 'superseded',
     updated_at     = now()
   FROM
-    retired
+    CTE_retired
   WHERE
-    ( session.phone_number = retired.id                         ) AND
+    ( session.phone_number = CTE_retired.id                         ) AND
     ( session.session_status IN ( 'created', 'sent', 'active' ) )
   RETURNING
     session.id
@@ -111,11 +111,11 @@ UPDATE
 SET
   registration_status = 'active'
 FROM
-  target
+  CTE_target
 WHERE
-  ( num.id = target.id ) AND
+  ( num.id = CTE_target.id ) AND
   -- Force retirement before checking the partial unique index on activation.
-  ( ( SELECT count(*) FROM retired ) >= 0 )
+  ( ( SELECT count(*) FROM CTE_retired ) >= 0 )
 RETURNING
   num.id,
   num.phone_number_id,

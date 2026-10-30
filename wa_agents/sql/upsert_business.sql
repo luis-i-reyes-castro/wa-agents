@@ -3,7 +3,7 @@
   -- phone_number_id      : NumericID
   -- display_phone_number : NumericID
 
-WITH business AS (
+WITH CTE_business AS (
   INSERT INTO wa_agents.api_businesses AS bus (
     waba_id
   )
@@ -19,7 +19,7 @@ WITH business AS (
     bus.id,
     bus.waba_id
 ),
-phone_number AS (
+CTE_phone_number AS (
   INSERT INTO wa_agents.api_phone_numbers AS num (
     business,
     display_phone_number,
@@ -30,7 +30,7 @@ phone_number AS (
     @display_phone_number,
     @phone_number_id
   FROM
-    business AS bus
+    CTE_business AS bus
   -- A different Meta ID is a separate registration, initially pending.
   ON CONFLICT
     (phone_number_id)
@@ -58,6 +58,6 @@ SELECT
   num.phone_number_id,
   num.display_phone_number
 FROM
-  business     AS bus
+  CTE_business     AS bus
 JOIN
-  phone_number AS num ON bus.id = num.business;
+  CTE_phone_number AS num ON bus.id = num.business;

@@ -7,13 +7,15 @@ SELECT
 FROM
   wa_agents.api_phone_numbers AS num
 WHERE
-  num.display_phone_number = (
-    SELECT
-      target.display_phone_number
-    FROM
-      wa_agents.api_phone_numbers AS target
-    WHERE
-      target.phone_number_id = @phone_number_id
+  (
+    num.display_phone_number = (
+      SELECT
+        target.display_phone_number
+      FROM
+        wa_agents.api_phone_numbers AS target
+      WHERE
+        ( target.phone_number_id = @phone_number_id )
+    )
   )
 ORDER BY
   num.id

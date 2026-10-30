@@ -4,7 +4,7 @@
 DELETE FROM
   wa_agents.case_handler_routes
 WHERE
-  id = @route_id
+  ( id = @route_id )
 RETURNING
   id,
   phone_number,

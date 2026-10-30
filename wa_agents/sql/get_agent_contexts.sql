@@ -1,9 +1,9 @@
 -- PARAMS:
   -- case_manifest : case_handler_case_manifests.id
 
-WITH current_contexts AS (
+WITH CTE_current_contexts AS (
   SELECT
-    ctx.agent_name,
+    ctx.agent_name         AS agent_name,
     max(ctx.context_index) AS context_index
   FROM
     wa_agents.case_handler_agent_contexts AS ctx
@@ -16,7 +16,7 @@ SELECT
   ctx.agent_name,
   ctx.case_message
 FROM
-  current_contexts AS cur
+  CTE_current_contexts                  AS cur
 JOIN
   wa_agents.case_handler_agent_contexts AS ctx
 ON

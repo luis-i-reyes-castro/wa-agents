@@ -7,7 +7,7 @@
   -- progress     : int | None
   -- errors       : list[dict] | None
 
-WITH sync AS (
+WITH CTE_sync AS (
   INSERT INTO wa_agents.api_embedded_signup_syncs AS syn (
     phone_number,
     sync_type,
@@ -68,8 +68,9 @@ SELECT
   @progress,
   @errors
 FROM
-  sync AS syn
-ON CONFLICT ( payload, history_index)
+  CTE_sync AS syn
+ON CONFLICT
+  ( payload, history_index)
 DO
   UPDATE
 SET

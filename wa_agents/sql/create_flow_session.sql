@@ -8,7 +8,7 @@
   -- session_state        : JSON string | null
   -- secret_key           : ENCRYPTION_KEY
 
-WITH superseded AS (
+WITH CTE_superseded AS (
   UPDATE
     wa_agents.api_flow_sessions AS session
   SET
