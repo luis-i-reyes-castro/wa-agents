@@ -120,8 +120,7 @@ this schema and stay between two and four characters when practical.
 
 **Definition of Dependency Level**
 
-> A level 0 table has no foreign-key dependencies. A table at level `k` has a
-> longest foreign-key dependency path of `k` edges to a level 0 table.
+> A level 0 table has no foreign-key dependencies. A table at level `k` has a longest foreign-key dependency path of `k` edges to a level 0 table.
 
 Nullable foreign keys still contribute to dependency depth. The levels therefore
 describe a valid dependency order, not which relationships must be populated for

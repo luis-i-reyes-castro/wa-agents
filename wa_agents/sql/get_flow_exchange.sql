@@ -12,5 +12,5 @@ SELECT
 FROM
   wa_agents.api_flow_data_exchanges AS exchange
 WHERE
-  ( exchange.session = @session_id ) AND
+  ( exchange.session      = @session_id   ) AND
   ( exchange.request_hash = @request_hash );

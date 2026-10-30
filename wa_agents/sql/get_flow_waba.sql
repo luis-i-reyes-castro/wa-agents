@@ -10,8 +10,8 @@ SELECT
   fw.public_key_fingerprint,
   decrypt_text( fw.private_key_encrypted, @secret_key) AS private_key
 FROM
-  wa_agents.api_flow_encryption_keys AS fw
+  wa_agents.api_businesses           AS bus
 JOIN
-  wa_agents.api_businesses AS bus ON bus.id = fw.business
+  wa_agents.api_flow_encryption_keys AS fw ON bus.id = fw.business
 WHERE
   ( bus.waba_id = @waba_id );

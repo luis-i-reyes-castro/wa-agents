@@ -44,11 +44,11 @@ SET
   history_chunk   = EXCLUDED.history_chunk,
   history_context = EXCLUDED.history_context
 WHERE
-  ( msg.contact = EXCLUDED.contact     ) AND
-  ( msg.history_chunk IS NOT NULL      ) AND
-  ( EXCLUDED.history_chunk IS NOT NULL ) AND
-  ( msg.msg_type = 'media_placeholder' ) AND
-  ( EXCLUDED.msg_type <> 'media_placeholder' )
+  ( msg.contact            = EXCLUDED.contact     ) AND
+  ( msg.history_chunk      IS NOT NULL            ) AND
+  ( EXCLUDED.history_chunk IS NOT NULL            ) AND
+  ( msg.msg_type           = 'media_placeholder'  ) AND
+  ( EXCLUDED.msg_type      <> 'media_placeholder' )
 RETURNING
   msg.id,
   msg.contact,

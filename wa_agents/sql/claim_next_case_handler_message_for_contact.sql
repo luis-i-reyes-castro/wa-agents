@@ -26,17 +26,17 @@ candidate AS MATERIALIZED (
     COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key,
     settings.silence_timeout_minutes
   FROM
-    wa_agents.api_inbound_messages      AS msg
+    wa_agents.api_phone_numbers         AS num
   JOIN
-    wa_agents.api_to_case_handler_queue AS que ON que.msg_id = msg.msg_id
+    wa_agents.api_contacts              AS con      ON num.id     = con.phone_number
   JOIN
-    active_lease                        AS lea ON lea.contact = msg.contact
+    active_lease                        AS lea      ON con.id     = lea.contact
   JOIN
-    wa_agents.api_contacts              AS con ON con.id = msg.contact
+    wa_agents.api_inbound_messages      AS msg      ON con.id     = msg.contact
   JOIN
-    wa_agents.api_phone_numbers         AS num ON num.id = con.phone_number
+    wa_agents.api_to_case_handler_queue AS que      ON msg.msg_id = que.msg_id
   LEFT JOIN
-    wa_agents.case_handler_routes       AS rou ON rou.id = que.handler_id
+    wa_agents.case_handler_routes       AS rou      ON rou.id     = que.handler_id
   LEFT JOIN
     wa_agents.case_handler_settings     AS settings ON
       settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key )
@@ -60,8 +60,8 @@ renewed AS (
   FROM
     candidate AS can
   WHERE
-    ( lea.contact     = can.contact       ) AND
-    ( lea.owner_token = @owner_token      ) AND
+    ( lea.contact     = can.contact         ) AND
+    ( lea.owner_token = @owner_token        ) AND
     ( can.handler_key = ANY( @handler_keys) )
   RETURNING
     lea.contact,

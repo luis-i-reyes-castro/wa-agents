@@ -15,9 +15,9 @@ WITH superseded AS (
     updated_at     = now(),
     session_status = 'superseded'
   WHERE
-    ( session.flow = @flow ) AND
-    ( session.contact = @contact ) AND
-    ( session.session_status IN ( 'created', 'sent', 'active') )
+    ( session.flow           = @flow                            ) AND
+    ( session.contact        = @contact                         ) AND
+    ( session.session_status IN ( 'created', 'sent', 'active' ) )
 )
 INSERT INTO wa_agents.api_flow_sessions (
   flow,

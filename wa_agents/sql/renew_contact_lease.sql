@@ -15,9 +15,9 @@ WHERE
     SELECT
       1
     FROM
-      wa_agents.api_contacts      AS con
+      wa_agents.api_phone_numbers AS num
     JOIN
-      wa_agents.api_phone_numbers AS num ON num.id = con.phone_number
+      wa_agents.api_contacts      AS con ON num.id = con.phone_number
     WHERE
       ( con.id                  = case_handler_contact_leases.contact ) AND
       ( num.registration_status = 'active'                            )

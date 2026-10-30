@@ -17,11 +17,11 @@ SELECT
     ELSE decrypt_text( session.session_state, @secret_key)
   END AS session_state_data
 FROM
-  wa_agents.api_flow_sessions AS session
+  wa_agents.api_phone_numbers AS num
 JOIN
-  wa_agents.api_flows         AS flow ON flow.id = session.flow
+  wa_agents.api_flow_sessions AS session ON num.id  = session.phone_number
 JOIN
-  wa_agents.api_phone_numbers AS num  ON num.id = session.phone_number
+  wa_agents.api_flows         AS flow    ON flow.id = session.flow
 WHERE
   ( session.flow_token_hash = @flow_token_hash ) AND
   ( num.registration_status = 'active'         );

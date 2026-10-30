@@ -63,9 +63,9 @@ state_history AS (
     message.id,
     manifest.machine_state
   FROM
-    case_manifest   AS manifest
+    case_manifest    AS manifest
   JOIN
-    inserted_message AS message ON message.case_id = manifest.id
+    inserted_message AS message ON manifest.id = message.case_id
   RETURNING
     case_manifest,
     case_message
@@ -151,11 +151,11 @@ SELECT
   manifest.machine_state,
   manifest.silenced_until
 FROM
-  inserted_message  AS msg
+  case_manifest    AS manifest
 JOIN
-  case_manifest     AS manifest ON msg.case_id = manifest.id
+  inserted_message AS msg      ON manifest.id = msg.case_id
 JOIN
-  state_history     AS history  ON
+  state_history    AS history  ON
   (
     ( msg.case_id = history.case_manifest ) AND
     ( msg.id      = history.case_message  )

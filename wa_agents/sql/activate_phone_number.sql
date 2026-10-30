@@ -32,11 +32,13 @@ target AS MATERIALIZED (
       SELECT
         1
       FROM
-        wa_agents.case_handler_contact_leases AS lease
+        registrations                         AS other
       JOIN
-        wa_agents.api_contacts AS contact ON contact.id = lease.contact
+        wa_agents.api_contacts                AS contact ON
+          other.id   = contact.phone_number
       JOIN
-        registrations AS other ON other.id = contact.phone_number
+        wa_agents.case_handler_contact_leases AS lease   ON
+          contact.id = lease.contact
       WHERE
         ( lease.expires_at > now() )
     )
@@ -63,11 +65,11 @@ stopped_queue AS (
     updated_at    = now(),
     last_error_at = now()
   FROM
-    wa_agents.api_inbound_messages AS msg
+    retired
   JOIN
-    wa_agents.api_contacts AS contact ON contact.id = msg.contact
+    wa_agents.api_contacts         AS contact ON retired.id = contact.phone_number
   JOIN
-    retired ON retired.id = contact.phone_number
+    wa_agents.api_inbound_messages AS msg     ON contact.id = msg.contact
   WHERE
     ( queue.msg_id      = msg.msg_id                  ) AND
     ( queue.msg_status IN ( 'pending', 'processing' ) )
@@ -81,9 +83,9 @@ closed_cases AS (
     is_open    = FALSE,
     updated_at = now()
   FROM
-    wa_agents.api_contacts AS contact
+    retired
   JOIN
-    retired ON retired.id = contact.phone_number
+    wa_agents.api_contacts AS contact ON retired.id = contact.phone_number
   WHERE
     ( manifest.contact = contact.id ) AND
     ( manifest.is_open              )

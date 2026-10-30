@@ -10,8 +10,8 @@ SELECT
   num.phone_number_id,
   num.display_phone_number
 FROM
-  wa_agents.api_phone_numbers AS num
+  wa_agents.api_businesses    AS bus
 JOIN
-  wa_agents.api_businesses AS bus ON bus.id = num.business
+  wa_agents.api_phone_numbers AS num ON bus.id = num.business
 WHERE
   ( num.id = @business );

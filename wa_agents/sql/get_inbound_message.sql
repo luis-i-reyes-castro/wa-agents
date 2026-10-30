@@ -21,13 +21,11 @@ SELECT
   pro.profile_name          AS profile_name,
   pro.profile_username      AS profile_username
 FROM
-  wa_agents.api_inbound_messages AS msg
+  wa_agents.api_businesses       AS bus
 JOIN
-  wa_agents.api_contacts AS con ON con.id = msg.contact
+  wa_agents.api_phone_numbers    AS num ON bus.id = num.business
 JOIN
-  wa_agents.api_phone_numbers AS num ON num.id = con.phone_number
-JOIN
-  wa_agents.api_businesses AS bus ON bus.id = num.business
+  wa_agents.api_contacts         AS con ON num.id = con.phone_number
 LEFT JOIN LATERAL (
   SELECT
     prf.profile_name,
@@ -41,5 +39,7 @@ LEFT JOIN LATERAL (
     prf.id           DESC
   LIMIT 1
 ) AS pro ON TRUE
+JOIN
+  wa_agents.api_inbound_messages AS msg ON con.id = msg.contact
 WHERE
   ( msg.msg_id = @msg_id );

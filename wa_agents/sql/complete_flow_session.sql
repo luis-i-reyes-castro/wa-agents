@@ -13,15 +13,15 @@ SET
   completion_data    = encrypt_text( @completion_data, @secret_key),
   session_status     = 'completed'
 WHERE
-  ( session.flow_token_hash = @flow_token_hash ) AND
-  ( session.session_status IN ( 'sent', 'active' ) ) AND
+  ( session.flow_token_hash = @flow_token_hash      ) AND
+  ( session.session_status  IN ( 'sent', 'active' ) ) AND
   EXISTS (
     SELECT
       1
     FROM
-      wa_agents.api_inbound_messages AS msg
+      wa_agents.api_phone_numbers    AS num
     JOIN
-      wa_agents.api_phone_numbers    AS num ON num.id = session.phone_number
+      wa_agents.api_inbound_messages AS msg ON num.id = session.phone_number
     WHERE
       ( msg.id                  = @completion_message ) AND
       ( msg.contact             = session.contact     ) AND

@@ -6,9 +6,9 @@ WITH active_contact AS MATERIALIZED (
   SELECT
     con.id
   FROM
-    wa_agents.api_contacts      AS con
+    wa_agents.api_phone_numbers AS num
   JOIN
-    wa_agents.api_phone_numbers AS num ON num.id = con.phone_number
+    wa_agents.api_contacts      AS con ON num.id = con.phone_number
   WHERE
     ( con.id                  = @contact ) AND
     ( num.registration_status = 'active' )

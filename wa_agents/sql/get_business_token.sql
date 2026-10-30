@@ -13,10 +13,10 @@ SELECT
     THEN decrypt_text( esd.business_token, @secret_key)
   END AS business_token
 FROM
-  wa_agents.api_businesses AS bus
-JOIN
-  wa_agents.api_phone_numbers AS num ON bus.id = num.business
+  wa_agents.api_businesses           AS bus
 LEFT JOIN
   wa_agents.api_embedded_signup_data AS esd ON bus.id = esd.business
+JOIN
+  wa_agents.api_phone_numbers        AS num ON bus.id = num.business
 WHERE
   ( num.phone_number_id = @phone_number_id );

@@ -10,11 +10,9 @@ SELECT
   msg.msg_id,
   rou.id
 FROM
-  wa_agents.api_inbound_messages AS msg
+  wa_agents.api_phone_numbers    AS num
 JOIN
-  wa_agents.api_contacts         AS con ON con.id = msg.contact
-JOIN
-  wa_agents.api_phone_numbers    AS num ON num.id = con.phone_number
+  wa_agents.api_contacts         AS con ON num.id = con.phone_number
 LEFT JOIN LATERAL (
   SELECT
     rte.id
@@ -30,8 +28,10 @@ LEFT JOIN LATERAL (
     ( rte.contact IS NOT NULL ) DESC
   LIMIT 1
 ) AS rou ON TRUE
+JOIN
+  wa_agents.api_inbound_messages AS msg ON con.id = msg.contact
 WHERE
-  ( msg.msg_id              = @msg_id ) AND
+  ( msg.msg_id              = @msg_id  ) AND
   ( num.registration_status = 'active' )
 )
 ON CONFLICT

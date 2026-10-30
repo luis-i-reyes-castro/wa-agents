@@ -58,6 +58,6 @@ SELECT
   num.phone_number_id,
   num.display_phone_number
 FROM
-  phone_number AS num
+  business     AS bus
 JOIN
-  business AS bus ON bus.id = num.business;
+  phone_number AS num ON bus.id = num.business;
