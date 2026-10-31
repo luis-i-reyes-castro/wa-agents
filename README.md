@@ -12,8 +12,7 @@ It gives you reusable building blocks for:
 - optional LLM calls (text, images, tools, structured output).
 
 This README is based on:
-- [`da-assistant`](https://github.com/luis-i-reyes-castro/da-assistant)
-  (multi-turn + tools + image flow),
+- [`da-assistant`](https://github.com/luis-i-reyes-castro/da-assistant) (multi-turn + tools + image flow),
 - private-safe templates under `docs/`.
 
 ## Installation
@@ -28,13 +27,11 @@ pip install -e wa-agents/
 ### As a dependency
 
 Add this line to your `requirements.txt`:
-
 ```txt
 wa-agents @ git+https://github.com/luis-i-reyes-castro/wa-agents.git@main
 ```
 
 Then install:
-
 ```bash
 pip install -r requirements.txt
 ```
@@ -47,66 +44,56 @@ pip install -r requirements.txt
 
 `wa-agents` is designed around this flow:
 
-1. `WhatsAppAPIListener` receives webhook payload dictionaries and passes them to
-   `AsyncWhatsAppDatabaseQueue`.
-2. `AsyncWhatsAppDatabaseQueue` audits and validates each payload, normalizes its
-   messages in Supabase Postgres, resolves the normalized business/contact to a
-   handler route, and enqueues newly persisted message IDs.
-3. `WhatsAppAPIWorker` runs inside its FastAPI lifespan, drains queue
-   items, calls your `WhatsAppCaseHandler`, and serves synchronous Flow data
-   exchanges without passing them through the message queue.
-4. `CaseHandlerBase` (parent of `WhatsAppCaseHandler`) resolves the persisted
-    business/contact identity and handles case open/close logic, context persistence, 
-    FSM state, and S3 media access without depending on a messaging transport.
-5. `WhatsAppCaseHandler` adds webhook-message conversion, deduplication, WhatsApp
-    media-metadata persistence, API-message linking, and sending helpers.
+1. `WhatsAppAPIListener` receives webhook payload dictionaries and passes them to `AsyncWhatsAppDatabaseQueue`.
+2. `AsyncWhatsAppDatabaseQueue` audits and validates each payload, normalizes its messages in Supabase Postgres, resolves the normalized business/contact to a handler route, and enqueues newly persisted message IDs.
+3. `WhatsAppAPIWorker` runs inside its FastAPI lifespan, drains queue items, calls your `WhatsAppCaseHandler`, and serves synchronous Flow data exchanges without passing them through the message queue.
+4. `CaseHandlerBase` (parent of `WhatsAppCaseHandler`) resolves the persisted business/contact identity and handles case open/close logic, context persistence, FSM state, and S3 media access without depending on a messaging transport.
+5. `WhatsAppCaseHandler` adds webhook-message conversion, deduplication, WhatsApp media-metadata persistence, API-message linking, and sending helpers.
 6. Your `CaseHandlerBase` child class implements business logic in:
     - `process_message(...)` for ingestion-time decisions,
     - `run_while_in_action(...)` for LLM response generation (single or multi-turn).
 
-See [`docs/api_worker_mechanics.md`](docs/api_worker_mechanics.md) for the queue,
-lease, burst-debounce, and delayed-response lifecycle.
+See [`docs/api_worker_mechanics.md`](docs/api_worker_mechanics.md) for the queue, lease, burst-debounce, and delayed-response lifecycle.
 
 ## Required Environment Variables
 
 ### Storage backend
 
-| Variable | Description |
-| --- | --- |
+| Variable                    | Description                                             |
+| --------------------------- | ------------------------------------------------------- |
 | `WA_AGENTS_STORAGE_BACKEND` | Optional `supabase` or `s3`.<br>Defaults to `supabase`. |
 
 ### Supabase Postgres storage (required)
 
-| Variable | Description |
-| --- | --- |
+| Variable                          | Description |
+| --------------------------------- | --- |
 | `SUPABASE_DB_CONNECTION_URL_IPv4` | Dashboard<br>➡️ Connect<br>➡️ Connection String<br>✅ Type: URI<br>✅ **Method: Session Pooler (IPv4)** |
 | `SUPABASE_DB_CONNECTION_URL_IPv6` | Optional fallback Supabase connection URI for IPv6. |
 
-Supabase credentials are mandatory because webhook audit storage and
-`WhatsAppDatabaseQueue` always use Postgres. Apply the schema in
-`wa_agents/sql/abc_DDL.sql` before running. Package-owned tables live in the
-`wa_agents` PostgreSQL schema and are not intended for PostgREST exposure.
+Supabase credentials are mandatory because webhook audit storage and `WhatsAppDatabaseQueue` always use Postgres.
+Apply the schema in `wa_agents/sql/abc_DDL.sql` before running.
+Package-owned tables live in the `wa_agents` PostgreSQL schema and are not intended for PostgREST exposure.
 
 ### S3-compatible bucket storage (required for media and legacy `s3` mode)
 
-| Variable | Description |
-| --- | --- |
-| `BUCKET_NAME` | Bucket name |
-| `BUCKET_REGION` | Region code, for example `atl1` or `us-east-1` |
-| `BUCKET_KEY_ID` | Access key ID |
-| `BUCKET_KEY_SECRET` | Secret access key |
-| `BUCKET_ENDPOINT` | Optional endpoint URL.<br>Defaults to Digital Ocean Spaces for `BUCKET_REGION`.<br>Set this for other S3-compatible services. |
-| `BUCKET_ADDRESSING_STYLE` | Optional `path`, `virtual`, or `auto`.<br>Defaults to `virtual` for DigitalOcean Spaces endpoints and `path` for custom endpoints. |
+| Variable                   | Description |
+| -------------------------- | --- |
+| `BUCKET_NAME`              | Bucket name |
+| `BUCKET_REGION`            | Region code, for example `atl1` or `us-east-1` |
+| `BUCKET_KEY_ID`            | Access key ID |
+| `BUCKET_KEY_SECRET`        | Secret access key |
+| `BUCKET_ENDPOINT`          | Optional endpoint URL.<br>Defaults to Digital Ocean Spaces for `BUCKET_REGION`.<br>Set this for other S3-compatible services. |
+| `BUCKET_ADDRESSING_STYLE`  | Optional `path`, `virtual`, or `auto`.<br>Defaults to `virtual` for DigitalOcean Spaces endpoints and `path` for custom endpoints. |
 | `WA_AGENTS_MEDIA_CACHE_MB` | Optional process-wide media-cache MiB limit.<br>Defaults to `16` MiB; set to `0` to disable. The cache is cleared when the process restarts. |
 
 ### WhatsApp (required)
 
-| Variable | Description |
-| --- | --- |
-| `WA_APPS` | Ordered JSON list of Meta apps with `id` and `secret` fields. Webhook signatures are accepted when any configured secret matches. Takes precedence over `WA_APP_SECRET`. |
-| `WA_APP_SECRET` | Single Meta app secret used as the webhook-signature fallback when `WA_APPS` is unset. |
-| `WA_TOKEN` | Graph API fallback token for registered numbers without an Embedded Signup record. |
-| `ENCRYPTION_KEY` | Required to decrypt stored customer business tokens for Embedded Signup numbers. |
+| Variable          | Description |
+| ----------------- | --- |
+| `WA_APPS`         | Ordered JSON list of Meta apps with `id` and `secret` fields. Webhook signatures are accepted when any configured secret matches. Takes precedence over `WA_APP_SECRET`. |
+| `WA_APP_SECRET`   | Single Meta app secret used as the webhook-signature fallback when `WA_APPS` is unset. |
+| `WA_TOKEN`        | Graph API fallback token for registered numbers without an Embedded Signup record. |
+| `ENCRYPTION_KEY`  | Required to decrypt stored customer business tokens for Embedded Signup numbers. |
 | `WA_VERIFY_TOKEN` | Token used by webhook verification endpoint |
 
 Messaging helpers resolve credentials from the sending `phone_number_id`, joining its WABA to `api_embedded_signup_data`.
@@ -129,8 +116,7 @@ New registrations start as `pending`; webhooks can persist their data but cannot
 Verified Embedded Signup activation in Sofia activates the new row and retires the previous active row for that display number in one transaction.
 Retired registrations cannot send, run queued handlers, or complete Flow sessions, and delayed webhooks cannot reactivate them.
 
-For portfolio-owned numbers provisioned outside Embedded Signup, verify ownership, then call `SyncSupabaseStorage.activate_phone_number(phone_number_id)` or await the
-same method on `AsyncSupabaseStorage`.
+For portfolio-owned numbers provisioned outside Embedded Signup, verify ownership, then call `SyncSupabaseStorage.activate_phone_number(phone_number_id)` or await the same method on `AsyncSupabaseStorage`.
 It returns `None` for an unknown or retired registration, or while a handler lease remains active.
 Retry after active handlers finish.
 Configure the new registration's routes explicitly; previous routes are not copied during onboarding.
@@ -143,16 +129,14 @@ Configure the new registration's routes explicitly; previous routes are not copi
 
 ### Queue tuning (optional)
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `QUEUE_POLL_INTERVAL_BUSY` | `0.2` | worker sleep when active |
-| `QUEUE_POLL_INTERVAL_IDLE` | `1.0` | worker sleep when idle |
-| `QUEUE_RESPONSE_DELAY` | `1.0` | quiet period after the latest message before running `run_while_in_action` |
-| `QUEUE_SILENCE_TIMEOUT_MINUTES` | `30` | fallback echo silence timeout in minutes |
+| Variable                        | Default | Purpose |
+| ------------------------------- | ------- | --- |
+| `QUEUE_POLL_INTERVAL_BUSY`      | `0.2`   | worker sleep when active |
+| `QUEUE_POLL_INTERVAL_IDLE`      | `1.0`   | worker sleep when idle |
+| `QUEUE_RESPONSE_DELAY`          | `1.0`   | quiet period after the latest message before running `run_while_in_action` |
+| `QUEUE_SILENCE_TIMEOUT_MINUTES` | `30`    | fallback echo silence timeout in minutes |
 
-Override them per application with the `poll_interval_busy`, `poll_interval_idle`,
-`response_delay`, and `silence_timeout` constructor arguments.
-
+Override them per application with the `poll_interval_busy`, `poll_interval_idle`, `response_delay`, and `silence_timeout` constructor arguments.
 ```python
 app = WhatsAppAPIServer(
     handler_cls    = CaseHandler,
@@ -160,11 +144,10 @@ app = WhatsAppAPIServer(
 )
 ```
 
-`response_delay` is a trailing-edge debounce for delayed handler responses. While
-the worker holds a contact lease, each newer queued message is persisted into the
-same case and restarts the quiet period. Once the contact remains quiet for the
-configured interval, the worker calls `run_while_in_action` once with the complete
-persisted context. Replies sent directly by `process_message` remain immediate.
+`response_delay` is a trailing-edge debounce for delayed handler responses.
+While the worker holds a contact lease, each newer queued message is persisted into the same case and restarts the quiet period.
+Once the contact remains quiet for the configured interval, the worker calls `run_while_in_action` once with the complete persisted context.
+Replies sent directly by `process_message` remain immediate.
 
 ## Minimal App Skeleton
 
@@ -183,6 +166,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from wa_agents.api_server import WhatsAppAPIServer
+
 from casehandler import CaseHandler
 
 
@@ -193,53 +177,47 @@ app = WhatsAppAPIServer(
 ```
 
 Run it with:
-
 ```bash
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-The server registers `GET /webhook` for Meta verification, `POST /webhook` for
-payload ingestion, `POST /webhook/flows/{waba_id}` for synchronous Flow data
-exchange, and `GET /healthz` for container health checks.
-`AsyncWhatsAppDatabaseQueue` performs payload auditing, validation, normalization,
-and enqueueing in the request path; the queue worker starts and stops with the
-FastAPI lifespan.
+The server registers `GET /webhook` for Meta verification, `POST /webhook` for payload ingestion, `POST /webhook/flows/{waba_id}` for synchronous Flow data exchange, and `GET /healthz` for container health checks.
+`AsyncWhatsAppDatabaseQueue` performs payload auditing, validation, normalization, and enqueueing in the request path; the queue worker starts and stops with the FastAPI lifespan.
 
-The listener and worker can also run as separate FastAPI processes while sharing
-the same PostgreSQL queue:
-
+The listener and worker can also run as separate FastAPI processes while sharing the same PostgreSQL queue:
 ```python
 from wa_agents.api_listener import WhatsAppAPIListener
 from wa_agents.api_worker import WhatsAppAPIWorker
 
-listener = WhatsAppAPIListener(title = "WhatsApp Listener")
+
+listener = WhatsAppAPIListener( title = "WhatsApp Listener")
 worker   = WhatsAppAPIWorker(
     title       = "WhatsApp Worker",
     handler_cls = CaseHandler,
 )
 ```
 
-Each app exposes `GET /`, `GET /healthz`, and `GET /debugz`. The listener manages
-its database-pool lifetime, while the worker manages both the pool and its background
-processing task and exposes `POST /webhook/flows/{waba_id}`. `WhatsAppAPIServer`
-combines both roles with one shared queue and one lifespan; its Flow route uses the
-configured `webhook_path`.
+Each app exposes `GET /`, `GET /healthz`, and `GET /debugz`.
+The listener manages its database-pool lifetime, while the worker manages both the pool and its background processing task and exposes `POST /webhook/flows/{waba_id}`.
+`WhatsAppAPIServer` combines both roles with one shared queue and one lifespan; its Flow route uses the configured `webhook_path`.
 
-An example container recipe is available at
-[`docs/Dockerfile.fastapi`](docs/Dockerfile.fastapi).
+An example container recipe is available at [`docs/Dockerfile.fastapi`](docs/Dockerfile.fastapi).
 
 ## Case Handler Routing
 
-Each handler class has a stable `HANDLER_KEY`. A route maps a business—and optionally
-one of its contacts—to that key. Contact-specific routes take precedence over the
-business default. Queue rows store the selected route ID; rows without a route use
-the queue's configured fallback key.
+Each handler class has a stable `HANDLER_KEY`.
+A route maps a business—and optionally one of its contacts—to that key.
+Contact-specific routes take precedence over the business default.
+Queue rows store the selected route ID; rows without a route use the queue's configured fallback key.
 
 ```python
 from wa_agents.api_server import WhatsAppAPIServer
 from wa_agents.database_queue import AsyncWhatsAppDatabaseQueue
 
-from casehandlers import FallbackCaseHandler, RetailCaseHandler
+from casehandlers import (
+    FallbackCaseHandler,
+    RetailCaseHandler,
+)
 
 
 handlers = {
@@ -256,10 +234,17 @@ app = WhatsAppAPIServer(
 ```
 
 Manage routes directly in PostgreSQL for now:
-
 ```sql
-INSERT INTO wa_agents.case_handler_routes ( business, contact, handler_key )
-VALUES ( 41, NULL, 'retail' )
+INSERT INTO wa_agents.case_handler_routes (
+  business,
+  contact,
+  handler_key
+)
+VALUES (
+  41,
+  NULL,
+  'retail'
+)
 ON CONFLICT ( business, contact)
 DO UPDATE
 SET
@@ -267,9 +252,8 @@ SET
   updated_at  = now();
 ```
 
-Message echoes put the selected handler into silence mode. Configure a handler-specific
-timeout in minutes with:
-
+Message echoes put the selected handler into silence mode.
+Configure a handler-specific timeout in minutes with:
 ```sql
 INSERT INTO wa_agents.case_handler_settings (
   handler_key,
@@ -286,34 +270,30 @@ SET
   updated_at              = now();
 ```
 
-Handlers without a settings row use the worker's configured fallback, which
-defaults to 30 minutes. Each echo rolls the deadline to one full timeout after that
-echo is processed. Customer messages received during silence are persisted for audit
-without advancing the state machine or agent contexts and do not receive a response.
-The open case is closed lazily on the first message after the deadline, and that
-message starts a fresh case and context.
+Handlers without a settings row use the worker's configured fallback, which defaults to 30 minutes.
+Each echo rolls the deadline to one full timeout after that echo is processed.
+Customer messages received during silence are persisted for audit without advancing the state machine or agent contexts and do not receive a response.
+The open case is closed lazily on the first message after the deadline, and that message starts a fresh case and context.
 
-The canonical DDL defines these objects for new or rebuilt databases. It does not
-migrate an already provisioned database; add the table and manifest column there
-before deploying this worker version.
+The canonical DDL defines these objects for new or rebuilt databases.
+It does not migrate an already provisioned database; add the table and manifest column there before deploying this worker version.
 
-`handler_url` is reserved for future remote-handler dispatch. Changing a route affects
-its pending jobs; deleting it clears their nullable route reference and sends them
-through the configured fallback. A route whose key is not served by any worker stays
-pending. Before removing a handler deployment, inspect its pending or processing rows:
-
+`handler_url` is reserved for future remote-handler dispatch.
+Changing a route affects its pending jobs; deleting it clears their nullable route reference and sends them through the configured fallback.
+A route whose key is not served by any worker stays pending.
+Before removing a handler deployment, inspect its pending or processing rows:
 ```sql
 SELECT
-  rou.handler_key,
-  que.msg_status,
-  count(*),
+  rou.handler_key    AS handler_key,
+  que.msg_status     AS msg_status,
+  count(*)           AS count,
   min(que.created_at) AS oldest
 FROM
   wa_agents.api_to_case_handler_queue AS que
 LEFT JOIN
   wa_agents.case_handler_routes AS rou ON rou.id = que.handler_id
 WHERE
-  que.msg_status IN ( 'pending', 'processing' )
+  ( que.msg_status IN ( 'pending', 'processing' ) )
 GROUP BY
   rou.handler_key,
   que.msg_status
@@ -322,31 +302,23 @@ ORDER BY
   que.msg_status;
 ```
 
-Workers claim only the keys in their local registry. A monolith can register every
-handler; later, separate containers or droplets can register disjoint subsets while
-sharing the same PostgreSQL queue.
+Workers claim only the keys in their local registry.
+A monolith can register every handler; later, separate containers or droplets can register disjoint subsets while sharing the same PostgreSQL queue.
 
 ### Edge Case Possibilities Not Yet Addressed
 
-Changing an existing route's `handler_key` intentionally propagates to its pending
-messages and open cases. Because the route keeps the same ID, the newly selected
-handler may continue an open case—including its persisted FSM state and context—that
-was previously handled by a different handler implementation. This is acceptable when
-the handlers use compatible case state, or when route changes happen only while no
-affected work is active. If incompatible handlers must be switched while cases are
-open, add a handler-key or route-revision snapshot to case manifests so the old case
-can be closed or migrated explicitly.
+Changing an existing route's `handler_key` intentionally propagates to its pending messages and open cases.
+Because the route keeps the same ID, the newly selected handler may continue an open case—including its persisted FSM state and context—that was previously handled by a different handler implementation.
+This is acceptable when the handlers use compatible case state, or when route changes happen only while no affected work is active.
+If incompatible handlers must be switched while cases are open, add a handler-key or route-revision snapshot to case manifests so the old case can be closed or migrated explicitly.
 
-Similarly, deleting a route sets nullable route references to `NULL`. If an open case
-and a later fallback-routed message both have a null route reference, the fallback
-handler may continue that existing case. Route changes and deletions are expected to
-be rare, and queue items normally remain pending only briefly, so these cases are not
-currently handled specially.
+Similarly, deleting a route sets nullable route references to `NULL`.
+If an open case and a later fallback-routed message both have a null route reference, the fallback handler may continue that existing case.
+Route changes and deletions are expected to be rare, and queue items normally remain pending only briefly, so these cases are not currently handled specially.
 
 ## `CaseHandler` Design Patterns
 
-The WhatsApp patterns below extend `WhatsAppCaseHandler` or
-`AsyncWhatsAppCaseHandler` and implement:
+The WhatsApp patterns below extend `WhatsAppCaseHandler` or `AsyncWhatsAppCaseHandler` and implement:
 - `process_message(...) -> bool`
 - `run_while_in_action(...) -> bool`
 
@@ -370,52 +342,43 @@ Template:
 - [`docs/example_casehandler_single_turn_with_llm.py`](docs/example_casehandler_single_turn_with_llm.py)
 
 - `process_message`: gate by whitelist/regex (for example, patient ID).
-- `run_while_in_action`: gather external data, optionally call `Agent`, send one answer,
-  then `return False`.
+- `run_while_in_action`: gather external data, optionally call `Agent`, send one answer, then `return False`.
 
 ### 3) Multi-turn, with state machine
 
 Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py).
 
-- Define the states and transitions with `CaseHandlerState` and
-  `define_state_machine_config()`, then call `init_machine()`.
+- Define the states and transitions with `CaseHandlerState` and `define_state_machine_config()`, then call `init_machine()`.
 - Async handlers fire triggers with `await self.trigger(...)`.
-- [`context_build()`](wa_agents/case_handler_base.py) restores the persisted state
-  directly without replaying old messages.
-- [`apply_and_persist_message()`](wa_agents/case_handler_base.py) applies a message,
-  persists it with the resulting state, and then runs queued transition callbacks.
+- [`context_build()`](wa_agents/case_handler_base.py) restores the persisted state directly without replaying old messages.
+- [`apply_and_persist_message()`](wa_agents/case_handler_base.py) applies a message, persists it with the resulting state, and then runs queued transition callbacks.
 - [`run_while_in_action()`](https://github.com/luis-i-reyes-castro/da-assistant/blob/main/casehandler.py) checks the current state's `while_in` actions and routes to step handlers.
 - Each step can decide whether to continue (`True`) or wait for user (`False`).
 
-Use `on_enter` and `on_exit` for delayed transition callbacks: they run only after
-the triggering message and resulting state are durable. Context changes that must
-be persisted with the triggering message belong in `apply_message_to_state_machine()`.
-Use `while_in` for manually dispatched response-generation actions such as
-`ask_for_*` and `call_*_agent`.
+Use `on_enter` and `on_exit` for delayed transition callbacks: they run only after the triggering message and resulting state are durable.
+Context changes that must be persisted with the triggering message belong in `apply_message_to_state_machine()`.
+Use `while_in` for manually dispatched response-generation actions such as `ask_for_*` and `call_*_agent`.
 
-A trigger without a matching transition returns `False`, leaves the state unchanged,
-and queues no callbacks. Remaining in a state does not rerun `on_enter`; its
-`while_in` actions remain available to `run_while_in_action()`.
+A trigger without a matching transition returns `False`, leaves the state unchanged, and queues no callbacks.
+Remaining in a state does not rerun `on_enter`; its `while_in` actions remain available to `run_while_in_action()`.
 
 #### Debugging persisted state
 
-`case_handler_state_histories` stores an append-only snapshot timeline. The first
-row for a case has no `case_message` and records its initial state. Each subsequently
-persisted case-handler message adds one row containing the resulting state, including
-unchanged or `NULL` states. Manifest-only updates, such as closing a case, do not add
-a snapshot.
+`case_handler_state_histories` stores an append-only snapshot timeline.
+The first row for a case has no `case_message` and records its initial state.
+Each subsequently persisted case-handler message adds one row containing the resulting state, including unchanged or `NULL` states.
+Manifest-only updates, such as closing a case, do not add a snapshot.
 
 Query a case timeline directly in PostgreSQL:
-
 ```sql
 SELECT
-  history.id,
-  history.created_at,
-  message.message_index,
-  message.ts AS message_ts,
-  history.machine_state,
-  message.basemodel,
-  message.origin
+  history.id            AS id,
+  history.created_at    AS created_at,
+  message.message_index AS message_index,
+  message.ts            AS message_ts,
+  history.machine_state AS machine_state,
+  message.basemodel     AS basemodel,
+  message.origin        AS origin
 FROM
   wa_agents.case_handler_state_histories AS history
 LEFT JOIN
@@ -436,27 +399,74 @@ Used in [`da-assistant/casehandler.py`](https://github.com/luis-i-reyes-castro/d
 Loop shape:
 
 1. Call agent.
-2. Persist the assistant message with `apply_and_persist_message()` and send the
-   returned message.
+2. Persist the assistant message with `apply_and_persist_message()` and send the returned message.
 3. If there are no `tool_calls`, stop.
 4. Execute tool calls in your tool server.
 5. Store a `ToolResultsMsg` in context.
 6. Return `True` so `run_while_in_action()` runs again with updated context.
 
-WhatsApp `send_text()`, `send_interactive()`, and `send_template()` require the
-persisted message returned by `apply_and_persist_message()`. Persisting first leaves
-a durable case-handler message without a `case_handler_to_api_bridge` mapping when
-outbound sending does not complete.
+WhatsApp `send_text()`, `send_interactive()`, and `send_template()` require the persisted message returned by `apply_and_persist_message()`.
+Persisting first leaves a durable case-handler message without a `case_handler_to_api_bridge` mapping when outbound sending does not complete.
 
-### Document templates
+### Templates with media or location headers
+
+`ServerTemplateMsg` accepts one optional header: `document`, `image`, `video`, or `location`.
+Match it to the header type of the approved template in the sending WABA.
+Omit `parameters` when the approved body has no variables.
+
+Images and videos use `WhatsApp_OB_TemplateImage` and `WhatsApp_OB_TemplateVideo`.
+Each accepts exactly one of `id` (uploaded media ID) or `link` (a URL accessible to Meta).
+For example, persist and send these through the existing `apply_and_persist_message()` and `send_template()` methods:
+```python
+from wa_agents.case_handler_models import ServerTemplateMsg
+from wa_agents.io_models import (
+    WhatsApp_OB_TemplateImage,
+    WhatsApp_OB_TemplateLocation,
+    WhatsApp_OB_TemplateVideo,
+)
+
+image_template = ServerTemplateMsg(
+    name     = "product_photo",
+    language = "es_EC",
+    image    = WhatsApp_OB_TemplateImage( link = "https://example.com/product.jpg"),
+)
+video_template = ServerTemplateMsg(
+    name     = "product_demo",
+    language = "es_EC",
+    video    = WhatsApp_OB_TemplateVideo( id = video_media_id),
+)
+location_template = ServerTemplateMsg(
+    name     = "pickup_location",
+    language = "es_EC",
+    location = WhatsApp_OB_TemplateLocation(
+        latitude  = -2.17,
+        longitude = -79.92,
+        name      = "Pickup point",
+        address   = "Main street 123",
+    ),
+)
+```
+
+For image/video bytes, use `upload_whatsapp_media()` or `async_upload_whatsapp_media()` with a `ServerMediaMsg` containing `filepath`, `content`, and `mime` (for example, `image/jpeg` or `video/mp4`), then pass the returned ID to the matching header class.
+
+Locations require latitude, longitude, name, and address.
+Coordinates are validated and serialized as strings in the header payload.
+Meta supports fixed location headers on utility and marketing templates; see [Meta's template components](https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/components).
+
+Header references and location details survive case-message persistence and appear in the outbound audit.
+Sending works through both sync and async handlers.
+
+#### Document templates
 
 Use an approved template with a `DOCUMENT` header.
 `ServerTemplateMsg.document` accepts a `WhatsApp_OB_TemplateDocument` containing exactly one of `id` (an uploaded PDF's media ID) or `link` (a PDF URL accessible to Meta), plus an optional `filename`.
-Omit `parameters` when the approved body has no variables.
 
 For a generated PDF, upload its bytes first, then persist and send the template:
 ```python
-from wa_agents.case_handler_models import ServerDocumentMsg, ServerTemplateMsg
+from wa_agents.case_handler_models import (
+    ServerDocumentMsg,
+    ServerTemplateMsg,
+)
 from wa_agents.io_functions import async_upload_whatsapp_media
 from wa_agents.io_models import WhatsApp_OB_TemplateDocument
 
@@ -486,47 +496,38 @@ Media IDs must belong to the sending account and remain valid when sending.
 
 ## Non-WhatsApp Case Handlers
 
-The models in `case_handler_models.py` and the `Agent` classes are not tied to a
-WhatsApp transport. For a stateless API handler, build the context directly from
-`Message` subclasses, call the agent, and return its result. There is no need to
-instantiate `CaseHandlerBase` or create WhatsApp API database records.
+The models in `case_handler_models.py` and the `Agent` classes are not tied to a WhatsApp transport.
+For a stateless API handler, build the context directly from `Message` subclasses, call the agent, and return its result.
+There is no need to instantiate `CaseHandlerBase` or create WhatsApp API database records.
 
-A non-WhatsApp handler can reuse `CaseHandlerBase` or `AsyncCaseHandlerBase` when it
-needs persisted messages, case manifests, or FSM state. The current persistence
-schema identifies cases through `api_contacts`, so this setup requires placeholder
-business and contact rows in `api_businesses` and `api_contacts`. Construct the
-core handler with those rows or their IDs, then use `case_handler_models.Message`
-subclasses for the actual API input and output.
+A non-WhatsApp handler can reuse `CaseHandlerBase` or `AsyncCaseHandlerBase` when it needs persisted messages, case manifests, or FSM state.
+The current persistence schema identifies cases through `api_contacts`, so this setup requires placeholder business and contact rows in `api_businesses` and `api_contacts`.
+Construct the core handler with those rows or their IDs, then use `case_handler_models.Message` subclasses for the actual API input and output.
 
 In this mode:
 
 - Implement `process_message()` as a no-op to satisfy the abstract interface.
 - Persist messages with `apply_and_persist_message()` and load them with `context_build()`.
 - Do not call `dedup_and_ingest_message()` or the WhatsApp `send_*()` methods.
-- No row is written to `case_handler_to_api_bridge`; that mapping is populated only by
-  the WhatsApp ingestion and sending paths.
-- Start a fresh case for every API call and close it in a `finally` block when the
-  call completes. Before opening it, close or recover any case left open by an
-  interrupted earlier call.
+- No row is written to `case_handler_to_api_bridge`; that mapping is populated only by the WhatsApp ingestion and sending paths.
+- Start a fresh case for every API call and close it in a `finally` block when the call completes.
+  Before opening it, close or recover any case left open by an interrupted earlier call.
 
-The schema permits only one open case per contact. Calls sharing one placeholder
-contact must therefore be serialized. If requests may overlap, use separate
-placeholder contacts for their independent concurrency keys.
+The schema permits only one open case per contact.
+Calls sharing one placeholder contact must therefore be serialized.
+If requests may overlap, use separate placeholder contacts for their independent concurrency keys.
 
 ## WhatsApp Payload Data You Can Use
 
 The parsed payload model is `WhatsApp_IB_Payload`.
 
-`ServerMsg.user_eyes=True` marks a message meant only for the end user, for example
-  transient UX text like "Thinking..." or "Looking up in database...". These
-  messages are excluded from LLM-readable context.
+`ServerMsg.user_eyes=True` marks a message meant only for the end user, for example transient UX text like "Thinking..." or "Looking up in database...".
+These messages are excluded from LLM-readable context.
 
-`dedup_and_ingest_message()` maps normal inbound messages to `HumanUserMsg`
-subclasses and WhatsApp Business message echoes to `HumanServerMsg` subclasses.
-An echo starts or extends durable silence for the open case. Always check for a falsey
-result or `HumanServerMsg` before sending unsupported-message replies or doing other
-ingestion-time work. A falsey result can mean a duplicate or a customer message that
-was persisted while silence was active.
+`dedup_and_ingest_message()` maps normal inbound messages to `HumanUserMsg` subclasses and WhatsApp Business message echoes to `HumanServerMsg` subclasses.
+An echo starts or extends durable silence for the open case.
+Always check for a falsey result or `HumanServerMsg` before sending unsupported-message replies or doing other ingestion-time work.
+A falsey result can mean a duplicate or a customer message that was persisted while silence was active.
 
 Most routing happens in `WhatsApp_IB_Message` fields:
 - `message.type`: `text`, `interactive`, `image`, `video`, `audio`, `sticker`, etc.
@@ -541,7 +542,6 @@ Also useful:
 - `value.metadata.phone_number_id` and `display_phone_number`.
 
 Example branch logic in `process_message`:
-
 ```python
 from wa_agents.case_handler_models import HumanServerMsg
 from wa_agents.io_models import (
@@ -549,27 +549,29 @@ from wa_agents.io_models import (
     WhatsApp_IB_MessageEcho,
 )
 
+
 def process_message(
-  self,
-  message       : WhatsApp_IB_Message | WhatsApp_IB_MessageEcho,
-  media_content : MediaContent | None = None,
-) -> bool:
+    self,
+    message       : WhatsApp_IB_Message | WhatsApp_IB_MessageEcho,
+    media_content : MediaContent | None = None,
+) -> bool :
+    
     msg = self.dedup_and_ingest_message( message, media_content)
-    if not msg:
+    if not msg :
         return False
 
-    if isinstance( msg, HumanServerMsg):
+    if isinstance( msg, HumanServerMsg) :
         return False
 
-    if message.type == "interactive":
+    if message.type == "interactive" :
         # user selected a button/list option
         return True
 
-    if message.type == "image":
+    if message.type == "image" :
         # process media metadata/caption
         return True
 
-    if message.type != "text":
+    if message.type != "text" :
         # optionally send unsupported-type message
         return False
 
@@ -582,8 +584,7 @@ def process_message(
 Constructor behavior:
 - pass a single OpenRouter model string, or
 - pass a `list[str]` to enable OpenRouter fallback models;
-- pass `api_key_name="CUSTOM_ENV_VAR"` to use a scoped OpenRouter key instead of
-  `OPENROUTER_API_KEY`.
+- pass `api_key_name="CUSTOM_ENV_VAR"` to use a scoped OpenRouter key instead of `OPENROUTER_API_KEY`.
 
 ### 1) Plain text completion
 
@@ -591,8 +592,8 @@ Constructor behavior:
 from wa_agents.agent import AsyncAgent
 from wa_agents.case_handler_models import HumanUserContentMsg
 
-agent = AsyncAgent( "main", ["openai/gpt-5-mini"])
-agent.load_prompts(["prompts/main.md"])
+agent = AsyncAgent( "main", [ "openai/gpt-5-mini" ])
+agent.load_prompts([ "prompts/main.md" ])
 
 context = [ HumanUserContentMsg( text = "Hello, summarize this ticket.") ]
 resp    = await agent.get_response( context = context, max_tokens = 400)
@@ -601,12 +602,12 @@ resp    = await agent.get_response( context = context, max_tokens = 400)
 ### 2) With tools
 
 ```python
-agent = AsyncAgent( "main", ["openai/gpt-5-mini"])
-agent.load_prompts(["prompts/main.md"])
-agent.load_tools(["agent_tools/main_openai.json"])
+agent = AsyncAgent( "main", [ "openai/gpt-5-mini" ])
+agent.load_prompts([ "prompts/main.md" ])
+agent.load_tools([ "agent_tools/main_openai.json" ])
 
 resp = await agent.get_response( context = context)
-if resp and resp.tool_calls:
+if resp and resp.tool_calls :
     # execute tool calls, create ToolResultsMsg, append to context, call again
     ...
 ```
@@ -618,26 +619,31 @@ Note: pass a list of models to enable OpenRouter fallback models.
 ```python
 from pydantic import BaseModel
 
-class TicketSummary (BaseModel):
+
+class TicketSummary (BaseModel) :
+    
     summary  : str
     severity : str
 
 resp = await agent.get_response( context = context, output_st = TicketSummary)
-if resp and resp.st_output:
+if resp and resp.st_output :
     data = resp.st_output
 ```
 
 ### 4) Image + text context
 
 ```python
-from wa_agents.case_handler_models import HumanUserContentMsg, load_media
+from wa_agents.case_handler_models import (
+    HumanUserContentMsg,
+    load_media,
+)
 
 media   = load_media("tests/photo.jpg")
 context = [ HumanUserContentMsg( text = "Describe this issue.", media = media) ]
 
 resp = await agent.get_response(
-  context   = context,
-  load_imgs = True,
+    context   = context,
+    load_imgs = True,
 )
 ```
 
@@ -664,12 +670,10 @@ resp = await agent.get_response(
 Supabase stores:
 - incoming queue rows in `wa_incoming_queue`,
 - validated webhook payloads in `wa_webhook_payloads`,
-- exploded webhook messages/statuses in `wa_webhook_messages` and
-  `wa_webhook_statuses`,
+- exploded webhook messages/statuses in `wa_webhook_messages` and `wa_webhook_statuses`,
 - caseflow users/cases/messages in `wa_users`, `wa_cases`, and `wa_messages`.
 
 S3-compatible bucket storage is only used for media bytes:
-
 ```txt
 <phone_number_id>/
   <contact_user_id>/
@@ -702,15 +706,12 @@ These are useful when mapping incoming WhatsApp JSON to your bot routing logic.
 
 ## WhatsApp Flows
 
-The worker exposes an encrypted data endpoint at
-`<webhook_path>/flows/{waba_id}`. E.g., with Sofia's `/whatsapp` webhook path, the
-endpoint is `/whatsapp/flows/{waba_id}`. Flow requests are routed to the class
-registered under the Flow definition's `handler_key`; the class implements method
-`handle_flow_request()` with a `WhatsApp_Local_FlowContext` and
-`WhatsApp_IB_Decrypted_FlowRequest`, and returns a
-`WhatsApp_Local_FlowHandlerResult`.
+The worker exposes an encrypted data endpoint at `<webhook_path>/flows/{waba_id}`.
+E.g., with Sofia's `/whatsapp` webhook path, the endpoint is `/whatsapp/flows/{waba_id}`.
+Flow requests are routed to the class registered under the Flow definition's `handler_key`; the class implements method `handle_flow_request()` with a `WhatsApp_Local_FlowContext` and `WhatsApp_IB_Decrypted_FlowRequest`, and returns a `WhatsApp_Local_FlowHandlerResult`.
 
-Apply `wa_agents/sql/abc_DDL.sql` before provisioning. The schema stores:
+Apply `wa_agents/sql/abc_DDL.sql` before provisioning.
+The schema stores:
 
 - one RSA key pair per WABA, with the private key encrypted by `ENCRYPTION_KEY`;
 - manually registered Flow definitions;
@@ -718,9 +719,7 @@ Apply `wa_agents/sql/abc_DDL.sql` before provisioning. The schema stores:
 - encrypted endpoint request/response audits with idempotent retry replay; and
 - Meta Flow lifecycle, health, and error webhook events.
 
-Generate a key pair, persist it, upload its public key to every phone number in
-the WABA, and verify Meta's `VALID` signature status with:
-
+Generate a key pair, persist it, upload its public key to every phone number in the WABA, and verify Meta's `VALID` signature status with:
 ```bash
 python -m wa_agents.flows \
   --waba-id 123456789 \
@@ -728,25 +727,20 @@ python -m wa_agents.flows \
   --phone-number-id 222222222
 ```
 
-This command uses `ENCRYPTION_KEY`, `WA_TOKEN`, and the configured Supabase
-connection URL. Subscribe the Meta app to both the `messages` and `flows`
-webhook fields. Flow JSON publication remains a manual Meta Flow Builder step;
-after publication, register its ID and handler with
-`AsyncSupabaseStorage.upsert_flow()` (or the synchronous equivalent).
+This command uses `ENCRYPTION_KEY`, `WA_TOKEN`, and the configured Supabase connection URL.
+Subscribe the Meta app to both the `messages` and `flows` webhook fields.
+Flow JSON publication remains a manual Meta Flow Builder step; after publication, register its ID and handler with `AsyncSupabaseStorage.upsert_flow()` (or the synchronous equivalent).
 
-Flow launch tokens are encrypted in session storage and redacted from ordinary
-outbound-message JSON. Decrypted endpoint payloads, application state, and
-responses are encrypted at rest. The endpoint returns HTTP 421 for transport
-decryption failures and HTTP 432 for invalid, expired, or superseded sessions.
+Flow launch tokens are encrypted in session storage and redacted from ordinary outbound-message JSON.
+Decrypted endpoint payloads, application state, and responses are encrypted at rest.
+The endpoint returns HTTP 421 for transport decryption failures and HTTP 432 for invalid, expired, or superseded sessions.
 
 ### Flow Media Uploads
 
-PhotoPicker and DocumentPicker uploads are exposed lazily. The worker and Flow
-endpoint do not download files unless the application handler requests them.
+PhotoPicker and DocumentPicker uploads are exposed lazily.
+The worker and Flow endpoint do not download files unless the application handler requests them.
 
-For a completed Flow, read the component-keyed descriptors from the `nfm_reply`
-and fetch their Graph media IDs in parallel:
-
+For a completed Flow, read the component-keyed descriptors from the `nfm_reply` and fetch their Graph media IDs in parallel:
 ```python
 import asyncio
 
@@ -760,9 +754,8 @@ files = await asyncio.gather(
 )
 ```
 
-For a `data_exchange`, files are encrypted on Meta's CDN. Fetch and decrypt each
-typed descriptor inside `handle_flow_request()`:
-
+For a `data_exchange`, files are encrypted on Meta's CDN.
+Fetch and decrypt each typed descriptor inside `handle_flow_request()`:
 ```python
 import asyncio
 
@@ -786,9 +779,7 @@ for item, result in zip( items, results) :
         files[str(item.media_id)] = result
 ```
 
-Expose `errors` through the Flow response field bound to the picker's
-`error-message`. The exception is intentionally sanitized and never contains the
-signed CDN URL or encryption keys. Applications remain responsible for validating
-content types, scanning untrusted files, and storing accepted bytes. Meta enforces
-the picker file-count and size limits; these helpers verify transport and content
-integrity but do not add local limits.
+Expose `errors` through the Flow response field bound to the picker's `error-message`.
+The exception is intentionally sanitized and never contains the signed CDN URL or encryption keys.
+Applications remain responsible for validating content types, scanning untrusted files, and storing accepted bytes.
+Meta enforces the picker file-count and size limits; these helpers verify transport and content integrity but do not add local limits.
