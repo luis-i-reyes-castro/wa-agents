@@ -1797,22 +1797,21 @@ class WhatsApp_OB_TemplateBodyComponent (BaseModel) :
         
         return self
 
-class WhatsApp_OB_TemplateDocument (BaseModel) :
+class WhatsApp_OB_TemplateMedia (BaseModel) :
     """
-    Document header media reference: an uploaded media ID or a downloadable PDF URL.
+    Template header media reference: an uploaded media ID or a downloadable URL.
     """
     model_config = ConfigDict( extra = "forbid")
     
-    id       : NumericID | None = None
-    link     : HttpUrl   | None = None
-    filename : NE_str    | None = None
+    id   : NumericID | None = None
+    link : HttpUrl   | None = None
     
     @model_validator( mode = "after")
     def validate(self) -> Self :
         
         if ( self.id is None ) == ( self.link is None ) :
             raise ValueError(
-                f"In {here()}: Document requires exactly one of id or link"
+                f"In {here()}: Template media requires exactly one of id or link"
             )
         
         return self
@@ -1825,16 +1824,79 @@ class WhatsApp_OB_TemplateDocument (BaseModel) :
         
         return serialize_without_nones( self, handler)
 
+class WhatsApp_OB_TemplateDocument (WhatsApp_OB_TemplateMedia) :
+    """
+    PDF document header, with an optional display filename.
+    """
+    filename : NE_str | None = None
+
+class WhatsApp_OB_TemplateImage (WhatsApp_OB_TemplateMedia) :
+    """
+    Image header media reference.
+    """
+
+class WhatsApp_OB_TemplateVideo (WhatsApp_OB_TemplateMedia) :
+    """
+    Video header media reference.
+    """
+
+class WhatsApp_OB_TemplateLocation (BaseModel) :
+    """
+    Fixed location header, supplied when sending the template.
+    """
+    model_config = ConfigDict( extra = "forbid")
+    
+    latitude  : Annotated[ float, Field( ge = -90, le = 90)]
+    longitude : Annotated[ float, Field( ge = -180, le = 180)]
+    name      : NE_str
+    address   : NE_str
+    
+    @model_serializer( mode = "wrap")
+    def serialize_coordinates(
+        self,
+        handler : Callable[ [BaseModel], dict[ str, Any]],
+    ) -> dict[ str, Any] :
+        
+        result = handler(self)
+        for field in ( "latitude", "longitude" ) :
+            if field in result :
+                result[field] = str(result[field])
+        
+        return result
+
 class WhatsApp_OB_TemplateDocumentParameter (BaseModel) :
     
     type     : Literal["document"] = "document"
     document : WhatsApp_OB_TemplateDocument
 
+class WhatsApp_OB_TemplateImageParameter (BaseModel) :
+    
+    type  : Literal["image"] = "image"
+    image : WhatsApp_OB_TemplateImage
+
+class WhatsApp_OB_TemplateVideoParameter (BaseModel) :
+    
+    type  : Literal["video"] = "video"
+    video : WhatsApp_OB_TemplateVideo
+
+class WhatsApp_OB_TemplateLocationParameter (BaseModel) :
+    
+    type     : Literal["location"] = "location"
+    location : WhatsApp_OB_TemplateLocation
+
 class WhatsApp_OB_TemplateHeaderComponent (BaseModel) :
     
     type       : Literal["header"] = "header"
     parameters : Annotated[
-        list[WhatsApp_OB_TemplateDocumentParameter],
+        list[
+            Annotated[
+                WhatsApp_OB_TemplateDocumentParameter |
+                WhatsApp_OB_TemplateImageParameter    |
+                WhatsApp_OB_TemplateVideoParameter    |
+                WhatsApp_OB_TemplateLocationParameter,
+                Field( discriminator = "type"),
+            ]
+        ],
         Field( min_length = 1, max_length = 1),
     ]
 

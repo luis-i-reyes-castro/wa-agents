@@ -153,11 +153,11 @@ def test_frequently_refreshed_rows_update_before_insert() -> None :
     assert "phone_number_id = EXCLUDED.phone_number_id" in business
     assert "last_seen_at = now()" in business
 
-    assert profile.index("WITH updated AS ( UPDATE") < profile.index(
-        "inserted AS ( INSERT"
+    assert profile.index("WITH CTE_updated AS ( UPDATE") < profile.index(
+        "CTE_inserted AS ( INSERT"
     )
     assert "IS NOT DISTINCT FROM (@profile_username)" in profile
-    assert "WHERE NOT EXISTS ( SELECT 1 FROM updated )" in profile
+    assert "WHERE NOT EXISTS ( SELECT 1 FROM CTE_updated )" in profile
     assert "ON CONFLICT ON CONSTRAINT wa_api_contact_profile_unique" in profile
 
 
@@ -376,7 +376,7 @@ def test_case_creation_persists_initial_state_history() -> None :
     assert "INSERT INTO public.wa_case_handler_state_histories" in normalized
     assert "NULL::BIGINT" in normalized
     assert "manifest.machine_state" in normalized
-    assert "initial_state AS" in normalized
+    assert "CTE_initial_state AS" in normalized
 
 
 def test_case_message_insert_persists_state_history() -> None :
@@ -388,7 +388,7 @@ def test_case_message_insert_persists_state_history() -> None :
     assert "INSERT INTO public.wa_case_handler_state_histories" in normalized
     assert "message.id" in normalized
     assert "manifest.machine_state" in normalized
-    assert "state_history AS" in normalized
+    assert "CTE_state_history AS" in normalized
     assert "msg.id = history.case_message" in normalized
 
 
@@ -413,6 +413,6 @@ def test_agent_contexts_are_append_only_generations() -> None :
     )
     assert "NULL::BIGINT" in insert_manifest
     assert "NULL::BIGINT" in insert_message
-    assert "cleared_agent_contexts" in insert_message
-    assert "extended_agent_contexts" in insert_message
+    assert "CTE_cleared_agent_contexts" in insert_message
+    assert "CTE_extended_agent_contexts" in insert_message
     assert "DELETE FROM public.wa_case_handler_agent_contexts" not in insert_message

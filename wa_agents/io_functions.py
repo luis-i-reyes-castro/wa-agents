@@ -51,9 +51,12 @@ from .io_models import (
     WhatsApp_OB_TemplateData,
     WhatsApp_OB_TemplateDocumentParameter,
     WhatsApp_OB_TemplateHeaderComponent,
+    WhatsApp_OB_TemplateImageParameter,
     WhatsApp_OB_TemplateLanguageObject,
+    WhatsApp_OB_TemplateLocationParameter,
     WhatsApp_OB_TemplateMessage,
     WhatsApp_OB_TemplateTextParameter,
+    WhatsApp_OB_TemplateVideoParameter,
     WhatsApp_OB_TextMessage,
 )
 
@@ -601,18 +604,32 @@ def write_payload(
         
         # Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/overview
         
+        header_parameter = None
+        if content.document is not None :
+            header_parameter = WhatsApp_OB_TemplateDocumentParameter(
+                document = content.document,
+            )
+        elif content.image is not None :
+            header_parameter = WhatsApp_OB_TemplateImageParameter(
+                image = content.image,
+            )
+        elif content.video is not None :
+            header_parameter = WhatsApp_OB_TemplateVideoParameter(
+                video = content.video,
+            )
+        elif content.location is not None :
+            header_parameter = WhatsApp_OB_TemplateLocationParameter(
+                location = content.location,
+            )
+        
         components : list[
             WhatsApp_OB_TemplateBodyComponent |
             WhatsApp_OB_TemplateHeaderComponent
         ] = []
-        if content.document is not None :
+        if header_parameter is not None :
             components.append(
                 WhatsApp_OB_TemplateHeaderComponent(
-                    parameters = [
-                        WhatsApp_OB_TemplateDocumentParameter(
-                            document = content.document,
-                        ),
-                    ],
+                    parameters = [ header_parameter ],
                 )
             )
         
@@ -627,7 +644,7 @@ def write_payload(
                     parameter_name = param_name,
                     text           = param_val,
                 )
-                for param_name, param_val in ( content.parameters or {} ).items()
+                for ( param_name, param_val) in ( content.parameters or {} ).items()
             ]
         if parameters :
             components.append(

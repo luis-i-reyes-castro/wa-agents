@@ -27,7 +27,10 @@ from typing import (
 )
 
 from sofia_utils.io import JSON_INDENT
-from sofia_utils.printing import print_sep
+from sofia_utils.printing import (
+    get_qualname as here,
+    print_sep,
+)
 from sofia_utils.pydantic import (
     MIME_Type,
     NE_str,
@@ -51,6 +54,9 @@ from .io_models import (
     WhatsAppMediaCaption,
     WhatsAppTemplateLanguageCode,
     WhatsApp_OB_TemplateDocument,
+    WhatsApp_OB_TemplateImage,
+    WhatsApp_OB_TemplateLocation,
+    WhatsApp_OB_TemplateVideo,
 )
 from .phone_numbers import get_country_and_language
 
@@ -454,10 +460,26 @@ class ServerTemplateMsg ( ServerMsg, StructuredDataMsg) :
                     Field( min_length = 1),
                  ] | None = None
     document   : WhatsApp_OB_TemplateDocument | None = None
+    image      : WhatsApp_OB_TemplateImage    | None = None
+    video      : WhatsApp_OB_TemplateVideo    | None = None
+    location   : WhatsApp_OB_TemplateLocation | None = None
+    
+    @model_validator( mode = "after")
+    def validate(self) -> Self :
+        
+        headers = (
+            self.document, self.image, self.video, self.location,
+        )
+        if sum( int( header is not None ) for header in headers ) > 1 :
+            raise ValueError(f"In {here()}: Template supports at most one header")
+        
+        return self
     
     def as_text(self) -> str :
         return self.model_dump_json(
-            include = { "name", "language", "parameters", "document" },
+            include = {
+                "name", "language", "parameters", "document", "image", "video", "location",
+            },
             exclude_none = True,
         )
 
