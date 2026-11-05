@@ -33,7 +33,6 @@ from sofia_utils.io import (
 )
 from sofia_utils.printing import (
     get_qualname as here,
-    print_recursively,
     print_sep,
 )
 
@@ -249,13 +248,14 @@ class AgentBase (ABC) :
         Pretty-print API payloads/responses for debugging sessions \\
         Args:
             mode        : Either 'input' or 'output'
-            data        : Arbitrary payload to print recursively
+            data        : JSON-serializable payload to print
             client_call : Helpful string with the client call being made
         """
         print_sep()
         print(f"{self.api.upper()} API {mode.upper()}:")
+        
         print_sep()
-        print_recursively(data)
+        print(write_to_json_string( data, redact_data_uris = True))
         
         if client_call :
             print_sep()
