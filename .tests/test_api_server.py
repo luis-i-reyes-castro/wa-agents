@@ -8,6 +8,10 @@ from datetime import timedelta
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from unittest.mock import patch
+
+import wa_agents.api_listener as listener_module
 from pydantic import ValidationError
 import pytest
 
@@ -15,6 +19,12 @@ from wa_agents.api_listener import WhatsAppAPIListener
 from wa_agents.api_server import WhatsAppAPIServer
 from wa_agents.api_worker import WhatsAppAPIWorker
 from wa_agents.io_models import WhatsApp_IB_Payload
+
+
+TEST_APPS = (
+    { "app" : "first", "id" : "1001", "secret" : "first-test-secret" },
+    { "app" : "second", "id" : "1002", "secret" : "second-test-secret" },
+)
 
 
 class StubRequest :
@@ -100,8 +110,9 @@ def test_webhook_passes_payload_dict_to_queue() -> None :
     data   = { "object" : "whatsapp_business_account", "entry" : [] }
     queue  = StubQueue()
     server = WhatsAppAPIListener(
+        apps = TEST_APPS,
         queue             = queue,
-        verify_app_secret = False,
+        verify_signatures = False,
     )
 
     response = asyncio.run(server.webhook(StubRequest(data)))
@@ -120,8 +131,9 @@ def test_webhook_acknowledges_duplicate_payload() -> None :
         result = { "stored" : False, "enqueued" : False },
     )
     server = WhatsAppAPIListener(
+        apps = TEST_APPS,
         queue             = queue,
-        verify_app_secret = False,
+        verify_signatures = False,
     )
 
     response = asyncio.run(server.webhook(StubRequest(data)))
@@ -138,17 +150,19 @@ def test_webhook_prints_unicode_payload_only_in_debug_mode(capsys) -> None :
     data = { "name" : "José" }
 
     quiet_server = WhatsAppAPIListener(
+        apps = TEST_APPS,
         queue             = StubQueue(),
-        verify_app_secret = False,
+        verify_signatures = False,
     )
     asyncio.run(quiet_server.webhook(StubRequest(data)))
 
     assert capsys.readouterr().out == ""
 
     debug_server = WhatsAppAPIListener(
+        apps = TEST_APPS,
         debug             = True,
         queue             = StubQueue(),
-        verify_app_secret = False,
+        verify_signatures = False,
     )
     asyncio.run(debug_server.webhook(StubRequest(data)))
     output = capsys.readouterr().out
@@ -162,9 +176,10 @@ def test_webhook_prints_unicode_payload_only_in_debug_mode(capsys) -> None :
     "app",
     [
         WhatsAppAPIListener(
+            apps = TEST_APPS,
             debug             = True,
             queue             = StubQueue(),
-            verify_app_secret = False,
+            verify_signatures = False,
         ),
         WhatsAppAPIWorker(
             debug       = True,
@@ -172,6 +187,7 @@ def test_webhook_prints_unicode_payload_only_in_debug_mode(capsys) -> None :
             queue       = StubQueue(),
         ),
         WhatsAppAPIServer(
+            apps = TEST_APPS,
             debug       = True,
             handler_cls = StubHandler,
             queue       = StubQueue(),
@@ -186,6 +202,8 @@ def test_combined_server_preserves_webhook_behavior() -> None :
     data   = { "object" : "whatsapp_business_account", "entry" : [] }
     queue  = StubQueue()
     server = WhatsAppAPIServer(
+        apps = TEST_APPS,
+        verify_signatures = False,
         handler_cls = StubHandler,
         queue       = queue,
     )
@@ -207,8 +225,9 @@ def test_webhook_handles_payload_validation_error_from_queue() -> None :
 
     queue    = StubQueue(exc_info.value)
     server   = WhatsAppAPIListener(
+        apps = TEST_APPS,
         queue             = queue,
-        verify_app_secret = False,
+        verify_signatures = False,
     )
     response = asyncio.run(server.webhook(StubRequest(data)))
 
@@ -220,6 +239,7 @@ def test_webhook_handles_payload_validation_error_from_queue() -> None :
 def test_server_accepts_handler_registry() -> None :
     queue  = StubQueue()
     server = WhatsAppAPIServer(
+        apps = TEST_APPS,
         queue           = queue,
         handler_classes = { "registry" : RegistryHandler },
     )
@@ -230,6 +250,7 @@ def test_server_accepts_handler_registry() -> None :
 
 def test_server_forwards_worker_timing() -> None :
     server = WhatsAppAPIServer(
+        apps = TEST_APPS,
         handler_cls        = StubHandler,
         queue              = StubQueue(),
         poll_interval_busy = 0.1,
@@ -244,76 +265,132 @@ def test_server_forwards_worker_timing() -> None :
     assert server.silence_timeout == timedelta( minutes = 45)
 
 
-def test_webhook_accepts_any_configured_meta_app_secret( monkeypatch) -> None :
-    data    = { "object" : "whatsapp_business_account", "entry" : [] }
-    queue   = StubQueue()
-    secrets = ( "first-test-secret", "second-test-secret" )
-    monkeypatch.setenv(
-        "WA_APPS",
-        json.dumps(
-            [
-                { "id" : "1001", "secret" : secrets[0] },
-                { "id" : "1002", "secret" : secrets[1] },
-            ]
-        ),
-    )
-    server = WhatsAppAPIListener(
-        queue             = queue,
-        verify_app_secret = True,
-    )
-
-    response = asyncio.run(server.webhook(signed_request( data, secrets[1])))
-
+@pytest.mark.parametrize( "app", TEST_APPS)
+def test_webhook_checks_only_the_addressed_app_secret(app) -> None :
+    queue = StubQueue()
+    server = WhatsAppAPIListener( apps = TEST_APPS, queue = queue)
+    client = TestClient(server)
+    data = { "object" : "whatsapp_business_account", "entry" : [] }
+    request = signed_request( data, app["secret"])
+    
+    with patch.object(
+        listener_module, "verify_payload_signature",
+        wraps = listener_module.verify_payload_signature,
+    ) as verify :
+        response = client.post(
+            f"/{app['app']}", content = request.payload, headers = request.headers,
+        )
+    
     assert response.status_code == 200
     assert queue.payload == data
+    verify.assert_called_once_with(
+        app_secret = app["secret"],
+        payload    = request.payload,
+        signature  = request.headers["x-hub-signature-256"],
+    )
 
 
-def test_webhook_rejects_unknown_meta_app_secret( monkeypatch) -> None :
-    data  = { "object" : "whatsapp_business_account", "entry" : [] }
+@pytest.mark.parametrize( "app", TEST_APPS)
+@pytest.mark.parametrize( "signature_kind", [ "other-app", "unknown", "missing" ])
+def test_webhook_rejects_other_secrets_without_enqueueing( app, signature_kind) -> None :
     queue = StubQueue()
-    monkeypatch.setenv(
-        "WA_APPS",
-        json.dumps([ { "id" : "1001", "secret" : "configured-secret" } ]),
-    )
-    server = WhatsAppAPIListener(
-        queue             = queue,
-        verify_app_secret = True,
-    )
+    server = WhatsAppAPIListener( apps = TEST_APPS, queue = queue)
+    other = next(item for item in TEST_APPS if item["app"] != app["app"])
+    secret = other["secret"] if signature_kind == "other-app" else "unknown-secret"
+    request = signed_request( { "entry" : [] }, secret)
+    if signature_kind == "missing" :
+        request.headers.clear()
+    
+    with patch.object(
+        listener_module, "verify_payload_signature",
+        wraps = listener_module.verify_payload_signature,
+    ) as verify :
+        response = TestClient(server).post(
+            f"/{app['app']}", content = request.payload, headers = request.headers,
+        )
+    
+    assert response.status_code == 401
+    assert queue.payload is None
+    assert verify.call_count == 1
 
-    response = asyncio.run(
-        server.webhook(signed_request( data, "unknown-secret"))
-    )
 
+@pytest.mark.parametrize( "signature", [ b"sha1=invalid", b"sha256=\xff" ])
+def test_malformed_signatures_are_rejected_without_enqueueing(signature) -> None :
+    
+    queue = StubQueue()
+    server = WhatsAppAPIListener( apps = TEST_APPS, queue = queue)
+    
+    response = TestClient(server).post(
+        "/first",
+        content = b"{}",
+        headers = { b"x-hub-signature-256" : signature },
+    )
+    
     assert response.status_code == 401
     assert queue.payload is None
 
 
-def test_server_rejects_malformed_meta_apps_configuration( monkeypatch) -> None :
-    monkeypatch.setenv( "WA_APPS", "not-json")
-
-    with pytest.raises( RuntimeError, match = "invalid JSON") :
-        WhatsAppAPIServer(
-            handler_cls       = StubHandler,
-            queue             = StubQueue(),
-            verify_app_secret = True,
-        )
-
-
-def test_webhook_falls_back_to_legacy_app_secret( monkeypatch) -> None :
-    data   = { "object" : "whatsapp_business_account", "entry" : [] }
-    queue  = StubQueue()
-    secret = "legacy-test-secret"
-    monkeypatch.delenv( "WA_APPS", raising = False)
-    monkeypatch.setenv( "WA_APP_SECRET", secret)
-    server = WhatsAppAPIListener(
-        queue             = queue,
-        verify_app_secret = True,
-    )
-
-    response = asyncio.run(server.webhook(signed_request( data, secret)))
-
+@pytest.mark.parametrize( "app", TEST_APPS)
+def test_each_callback_verifies_with_shared_token( monkeypatch, app) -> None :
+    monkeypatch.setenv( "WA_VERIFY_TOKEN", "shared-token")
+    client = TestClient(WhatsAppAPIListener( apps = TEST_APPS, queue = StubQueue()))
+    params = {
+        "hub.mode" : "subscribe", "hub.verify_token" : "shared-token",
+        "hub.challenge" : "challenge",
+    }
+    response = client.get( f"/{app['app']}", params = params)
     assert response.status_code == 200
-    assert queue.payload == data
+    assert response.text == "challenge"
+    params["hub.verify_token"] = "wrong"
+    assert client.get( f"/{app['app']}", params = params).status_code == 403
+
+
+def test_unknown_and_removed_webhooks_do_not_enqueue() -> None :
+    queue = StubQueue()
+    server = WhatsAppAPIListener( apps = TEST_APPS, queue = queue)
+    client = TestClient(server)
+    
+    with patch.object( listener_module, "verify_payload_signature") as verify :
+        for path in [ "/unknown", "/whatsapp", "/webhook", "/first/nested" ] :
+            assert client.post( path, content = b"{}").status_code == 404
+            assert client.get(path).status_code == 404
+    verify.assert_not_called()
+    assert queue.payload is None
+    
+    schema = json.dumps(server.openapi())
+    for app in TEST_APPS :
+        assert app["secret"] not in schema
+        assert app["id"] not in schema
+
+
+def test_combined_server_verifies_signatures_by_default() -> None :
+    queue = StubQueue()
+    server = WhatsAppAPIServer(
+        apps = TEST_APPS, queue = queue, handler_cls = StubHandler,
+    )
+    request = signed_request( { "entry" : [] }, TEST_APPS[0]["secret"])
+    client = TestClient(server)
+    assert client.post(
+        "/second", content = request.payload, headers = request.headers,
+    ).status_code == 401
+    assert queue.payload is None
+    assert client.post(
+        "/first", content = request.payload, headers = request.headers,
+    ).status_code == 200
+
+
+@pytest.mark.parametrize( "name", [ "docs", "redoc", "healthz", "debugz" ])
+def test_callback_cannot_shadow_framework_routes(name) -> None :
+    apps = ( { **TEST_APPS[0], "app" : name }, )
+    with pytest.raises( RuntimeError, match = "collides") :
+        WhatsAppAPIListener( apps = apps, queue = StubQueue())
+
+
+def test_callback_cannot_shadow_later_business_or_dynamic_routes() -> None :
+    server = WhatsAppAPIListener( apps = TEST_APPS, queue = StubQueue())
+    server.add_api_route( "/{business}", lambda : None, methods = [ "POST" ])
+    with pytest.raises( RuntimeError, match = "collides") :
+        server.validate_listener_routes()
 
 
 def test_server_inherits_listener_and_worker_apps() -> None :
@@ -325,14 +402,16 @@ def test_server_inherits_listener_and_worker_apps() -> None :
 
 def test_apps_register_role_specific_routes_once() -> None :
     listener = WhatsAppAPIListener(
+        apps = TEST_APPS,
         queue             = StubQueue(),
-        verify_app_secret = False,
+        verify_signatures = False,
     )
     worker = WhatsAppAPIWorker(
         handler_cls = StubHandler,
         queue       = StubQueue(),
     )
     server = WhatsAppAPIServer(
+        apps = TEST_APPS,
         handler_cls = StubHandler,
         queue       = StubQueue(),
     )
@@ -341,12 +420,12 @@ def test_apps_register_role_specific_routes_once() -> None :
     worker_paths   = [ route.path for route in worker.routes ]
     server_paths   = [ route.path for route in server.routes ]
 
-    assert listener_paths.count("/webhook") == 2
+    assert listener_paths.count("/first") == 2
     assert "/webhook/flows/{waba_id}" not in listener_paths
     assert "/webhook" not in worker_paths
     assert worker_paths.count("/webhook/flows/{waba_id}") == 1
-    assert server_paths.count("/webhook") == 2
-    assert server_paths.count("/webhook/flows/{waba_id}") == 1
+    assert server_paths.count("/first") == 2
+    assert server_paths.count("/whatsapp/flows/{waba_id}") == 1
     for path in ( "/", "/healthz", "/debugz" ) :
         assert listener_paths.count(path) == 1
         assert worker_paths.count(path) == 1
@@ -356,8 +435,9 @@ def test_apps_register_role_specific_routes_once() -> None :
 def test_listener_lifespan_owns_queue_pool() -> None :
     queue    = LifespanQueue()
     listener = WhatsAppAPIListener(
+        apps = TEST_APPS,
         queue             = queue,
-        verify_app_secret = False,
+        verify_signatures = False,
     )
 
     async def run() -> None :
@@ -379,6 +459,7 @@ def test_worker_lifespan_owns_one_pool_and_worker_task(
 ) -> None :
     queue  = LifespanQueue()
     server = App(
+        **({ "apps" : TEST_APPS } if App is WhatsAppAPIServer else {}),
         handler_cls = StubHandler,
         queue       = queue,
     )
@@ -406,14 +487,15 @@ def test_worker_lifespan_owns_one_pool_and_worker_task(
 def test_apps_expose_role_specific_debug_data( monkeypatch) -> None :
     monkeypatch.setenv( "WA_VERIFY_TOKEN", "test-token")
     listener = WhatsAppAPIListener(
+        apps = TEST_APPS,
         queue             = StubQueue(),
-        verify_app_secret = False,
     )
     worker = WhatsAppAPIWorker(
         handler_cls = StubHandler,
         queue       = StubQueue(),
     )
     server = WhatsAppAPIServer(
+        apps = TEST_APPS,
         handler_cls = StubHandler,
         queue       = StubQueue(),
     )

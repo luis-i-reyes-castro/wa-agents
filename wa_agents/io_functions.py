@@ -105,10 +105,11 @@ class MetaGraphError (RuntimeError) :
         return
 
 
-class WhatsAppApp(TypedDict) :
+class WhatsAppApp (TypedDict) :
     """
     One configured Meta app.
     """
+    app    : str
     id     : str
     secret : str
 
@@ -124,45 +125,6 @@ class WhatsAppSendResult (TypedDict) :
 
 # =========================================================================================
 # INFRASTRUCTURE
-
-def load_whatsapp_apps() -> tuple[ WhatsAppApp, ...] :
-    """
-    Load the ordered Meta app definitions from `WA_APPS`.
-    """
-    configured = os.getenv("WA_APPS")
-    if not configured :
-        raise RuntimeError("Environment variable 'WA_APPS' was not found")
-    
-    try :
-        apps = json.loads(configured)
-    except json.JSONDecodeError as ex :
-        raise RuntimeError("Environment variable 'WA_APPS' is invalid JSON") from ex
-    
-    if not (
-        isinstance( apps, list) and
-        apps                    and
-        all(
-            isinstance( app, dict)              and
-            isinstance( app.get("id"), str)     and
-            bool(app["id"].strip())             and
-            isinstance( app.get("secret"), str) and
-            bool(app["secret"].strip())
-            for app in apps
-        )
-    ) :
-        raise RuntimeError(
-            "Environment variable 'WA_APPS' must be a non-empty JSON list of "
-            "objects with non-empty string 'id' and 'secret' fields"
-        )
-    
-    return tuple(
-        WhatsAppApp(
-            id     = app["id"].strip(),
-            secret = app["secret"].strip(),
-        )
-        for app in apps
-    )
-
 
 def collect_send_results(
     payload  : dict[str, Any],
@@ -441,26 +403,29 @@ async def async_fetch_media(
     
     return verify_media_content( media_data, response.content)
 
-def verify_app_secret(
+def verify_payload_signature(
+    *,
+    app_secret : str,
     payload    : bytes | None,
     signature  : str   | None,
-    app_secret : str   | None = None,
 ) -> bool :
     
-    if not ( signature and signature.startswith("sha256=") ) :
+    if not (
+        app_secret and
+        payload    and
+        signature           and
+        signature.isascii() and
+        signature.startswith("sha256=")
+    ) :
         return False
     
-    app_secret = app_secret or os.getenv("WA_APP_SECRET")
-    if not app_secret :
-        raise RuntimeError("Environment variable 'WA_APP_SECRET' was not found")
-    
-    expected = hmac.new(
+    expected_signature = hmac.new(
         key       = app_secret.encode("utf-8"),
         msg       = payload,
         digestmod = hashlib.sha256,
     ).hexdigest()
     
-    return hmac.compare_digest( signature, f"sha256={expected}")
+    return hmac.compare_digest( f"sha256={expected_signature}", signature)
 
 
 def verify_media_content(

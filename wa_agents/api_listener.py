@@ -32,27 +32,9 @@ from sofia_utils.printing import (
 
 from .database_queue import AsyncWhatsAppDatabaseQueue
 from .io_functions import (
-    load_whatsapp_apps,
-    verify_app_secret,
+    WhatsAppApp,
+    verify_payload_signature,
 )
-
-
-def _load_app_secrets() -> tuple[ str, ...] :
-    """
-    Return configured Meta app secrets for webhook signature verification.
-    """
-    configured = os.getenv("WA_APPS")
-    if not configured :
-        secret = os.getenv("WA_APP_SECRET")
-        if secret :
-            return ( secret, )
-        raise RuntimeError(
-            "Environment variables 'WA_APPS' and 'WA_APP_SECRET' were not found"
-        )
-    
-    return tuple(
-        dict.fromkeys( app["secret"] for app in load_whatsapp_apps() )
-    )
 
 
 class WhatsAppAPIListener (FastAPI) :
@@ -63,51 +45,63 @@ class WhatsAppAPIListener (FastAPI) :
     def __init__(
         self,
         *,
+        apps              : tuple[ WhatsAppApp, ...],
         debug             : bool = False,
         queue             : AsyncWhatsAppDatabaseQueue | None = None,
-        verify_app_secret : bool = True,
-        webhook_path      : str  = "/webhook",
+        verify_signatures : bool = True,
         **kwargs          : Any,
     ) -> None :
         """
         Initialize the WhatsApp API listener. \\
         Args:
+            apps              : Ordered app definitions with explicit callback names
             debug             : Whether to emit debug output
             queue             : Optional async WhatsApp database queue
-            webhook_path      : Webhook route path
-            verify_app_secret : Whether to verify payload signatures
+            verify_signatures : Whether to verify payload signatures
             kwargs            : Forwarded to FastAPI
         """
         self._init_listener(
-            debug            = debug,
-            queue            = queue or AsyncWhatsAppDatabaseQueue(),
-            webhook_path     = webhook_path,
-            verify_signature = verify_app_secret,
+            apps              = apps,
+            debug             = debug,
+            queue             = queue or AsyncWhatsAppDatabaseQueue(),
+            verify_signatures = verify_signatures,
         )
         kwargs.setdefault( "debug", debug)
         kwargs.setdefault( "lifespan", self.listener_lifespan)
         FastAPI.__init__( self, **kwargs)
         self.register_listener_routes( include_diagnostics = True)
+        self.validate_listener_routes()
         
         return
     
     def _init_listener(
         self,
         *,
-        debug            : bool,
-        queue            : AsyncWhatsAppDatabaseQueue,
-        verify_signature : bool,
-        webhook_path     : str,
+        apps              : tuple[ WhatsAppApp, ...],
+        debug             : bool,
+        queue             : AsyncWhatsAppDatabaseQueue,
+        verify_signatures : bool,
     ) -> None :
         """
         Initialize listener state without initializing FastAPI.
         """
+        
+        if not apps :
+            raise ValueError(
+                f"In {here()}: Meta apps array must be non-empty"
+            )
+        
+        self.apps_by_path = {
+            f"/{app['app']}" : app for app in apps
+        }
+        if not ( len(apps) == len(self.apps_by_path) ) :
+            raise ValueError(
+                f"In {here()}: Meta app names must be unique webhook callback names"
+            )
+        
         self.debug             = debug
         self.queue             = queue
-        self.verify_app_secret = verify_signature
-        self.webhook_path      = webhook_path
-        
-        self._app_secrets = _load_app_secrets() if verify_signature else ()
+        self.verify_signatures = verify_signatures
         
         return
     
@@ -121,7 +115,11 @@ class WhatsAppAPIListener (FastAPI) :
         
         return
     
-    def register_listener_routes( self, *, include_diagnostics : bool) -> None :
+    def register_listener_routes(
+        self,
+        *,
+        include_diagnostics : bool,
+    ) -> None :
         """
         Register listener routes and optional standalone diagnostics.
         """
@@ -142,17 +140,36 @@ class WhatsAppAPIListener (FastAPI) :
                 methods  = ["GET"],
             )
         
-        self.add_api_route(
-            path           = self.webhook_path,
-            endpoint       = self.verify,
-            methods        = ["GET"],
-            response_class = PlainTextResponse,
-        )
-        self.add_api_route(
-            path     = self.webhook_path,
-            endpoint = self.webhook,
-            methods  = ["POST"],
-        )
+        for path in self.apps_by_path :
+            self.add_api_route(
+                path           = path,
+                endpoint       = self.verify,
+                methods        = ["GET"],
+                response_class = PlainTextResponse,
+            )
+            self.add_api_route(
+                path     = path,
+                endpoint = self.webhook,
+                methods  = ["POST"],
+            )
+        
+        return
+    
+    def validate_listener_routes(self) -> None :
+        """
+        Reject callback paths that overlap any other application route. \\
+        Call again after adding application-specific routes.
+        """
+        for path in self.apps_by_path :
+            for route in self.routes :
+                if (
+                    route.path_regex.fullmatch(path) and
+                    ( route.endpoint not in ( self.verify, self.webhook) )
+                ) :
+                    raise RuntimeError(
+                        f"In {here()}: Meta webhook callback path '{path}' "
+                        f"collides with application route '{route}'."
+                    )
         
         return
     
@@ -184,7 +201,7 @@ class WhatsAppAPIListener (FastAPI) :
         return {
             "verify_token_set"       : bool(expected),
             "verify_token_tail"      : masked,
-            "verify_meta_app_secret" : self.verify_app_secret,
+            "verify_meta_app_secret" : self.verify_signatures,
         }
     
     async def listener_debugz(self) -> JSONResponse :
@@ -226,19 +243,21 @@ class WhatsAppAPIListener (FastAPI) :
             logging.error(f"In {here()}: Unable to read request body: {str(ex)}")
             payload_bytes = b""
         
-        if self.verify_app_secret :
-            signature = request.headers.get("x-hub-signature-256")
-            if not any(
-                verify_app_secret( payload_bytes, signature, secret)
-                for secret in self._app_secrets
-            ) :
-                return JSONResponse(
-                    content = {
-                        "status" : "error",
-                        "error"  : "Invalid signature",
-                    },
-                    status_code = status.HTTP_401_UNAUTHORIZED,
-                )
+        if (
+            self.verify_signatures and
+            not verify_payload_signature(
+                app_secret = self.apps_by_path[request.scope["route"].path]["secret"],
+                payload    = payload_bytes,
+                signature  = request.headers.get("x-hub-signature-256"),
+            )
+        ) :
+            return JSONResponse(
+                content = {
+                    "status" : "error",
+                    "error"  : "Invalid signature",
+                },
+                status_code = status.HTTP_401_UNAUTHORIZED,
+            )
         
         try :
             data = json.loads(payload_bytes)
