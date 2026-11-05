@@ -204,7 +204,7 @@ class WhatsAppAPIWorker (FastAPI) :
         self,
         *,
         debug               : bool = False,
-        flow_endpoint_path  : str = "/webhook/flows/{waba_id}",
+        flow_endpoint_path  : str = "/flows/{waba_id}",
         handler_cls         : WhatsAppCaseHandlerClass | None = None,
         handler_classes     : Mapping[ str, WhatsAppCaseHandlerClass] | None = None,
         poll_interval_busy  : float | None = None,

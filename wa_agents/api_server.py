@@ -38,7 +38,7 @@ class WhatsAppAPIServer (
         *,
         apps               : tuple[ WhatsAppApp, ...],
         debug              : bool = False,
-        flow_endpoint_path : str  = "/whatsapp/flows/{waba_id}",
+        flow_endpoint_path : str  = "/flows/{waba_id}",
         handler_cls        : Type["AsyncWhatsAppCaseHandler"] | None = None,
         handler_classes    : dict[
             str,
