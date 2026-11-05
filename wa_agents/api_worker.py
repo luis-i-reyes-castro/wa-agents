@@ -31,6 +31,7 @@ from fastapi.responses import (
     PlainTextResponse,
 )
 from inspect import iscoroutinefunction
+from math import isfinite
 from pydantic import (
     TypeAdapter,
     ValidationError,
@@ -69,7 +70,7 @@ DEFAULT_POLL_INTERVAL_IDLE = 1.0
 """ Poll interval to use while the worker does not have pending jobs. """
 DEFAULT_RESPONSE_DELAY     = 1.0
 """
-Quiet period after a contact's latest message before running the delayed response.
+Base quiet period before applying the contact's burst score.
 """
 DEFAULT_SILENCE_TIMEOUT_MINUTES = 30
 """ Fallback message-echo silence timeout when the handler has no setting. """
@@ -203,10 +204,12 @@ class WhatsAppAPIWorker (FastAPI) :
     def __init__(
         self,
         *,
+        burst_decay_period  : timedelta = timedelta( hours = 1),
         debug               : bool = False,
         flow_endpoint_path  : str = "/flows/{waba_id}",
         handler_cls         : WhatsAppCaseHandlerClass | None = None,
         handler_classes     : Mapping[ str, WhatsAppCaseHandlerClass] | None = None,
+        max_response_delay  : float = 60.0,
         poll_interval_busy  : float | None = None,
         poll_interval_idle  : float | None = None,
         queue               : AsyncWhatsAppDatabaseQueue | None = None,
@@ -217,23 +220,26 @@ class WhatsAppAPIWorker (FastAPI) :
         """
         Initialize the WhatsApp database queue worker app. \\
         Args:
+            burst_decay_period  : Elapsed time that removes one burst-score point
             debug               : Whether to emit debug output
             flow_endpoint_path  : Route for synchronous Flow data exchange
             handler_cls         : Case handler class invoked by the worker
             handler_classes     : Case handler classes keyed by their `HANDLER_KEY`
+            max_response_delay  : Maximum quiet period in seconds
             poll_interval_busy  : Poll interval while the worker has pending jobs
             poll_interval_idle  : Poll interval while the worker is idle
             queue               : Optional async WhatsApp database queue
-            response_delay      : Quiet period after the latest message before running
-                                  `run_while_in_action`
+            response_delay      : Base quiet period in seconds, before burst scaling
             silence_timeout     : Fallback echo silence timeout
             kwargs              : Forwarded to FastAPI
         """
         self._init_worker(
+            burst_decay_period  = burst_decay_period,
             debug               = debug,
             flow_endpoint_path  = flow_endpoint_path,
             handler_cls         = handler_cls,
             handler_classes     = handler_classes,
+            max_response_delay  = max_response_delay,
             poll_interval_busy  = poll_interval_busy,
             poll_interval_idle  = poll_interval_idle,
             queue               = queue or AsyncWhatsAppDatabaseQueue(),
@@ -304,11 +310,13 @@ class WhatsAppAPIWorker (FastAPI) :
     def _init_worker(
         self,
         *,
+        burst_decay_period  : timedelta,
         debug               : bool,
         queue               : AsyncWhatsAppDatabaseQueue,
         handler_cls         : WhatsAppCaseHandlerClass | None,
         handler_classes     : Mapping[ str, WhatsAppCaseHandlerClass] | None,
         flow_endpoint_path  : str,
+        max_response_delay  : float,
         poll_interval_busy  : float | None,
         poll_interval_idle  : float | None,
         response_delay      : float | None,
@@ -334,6 +342,18 @@ class WhatsAppAPIWorker (FastAPI) :
             if response_delay is None else
             response_delay
         )
+        if (
+            not isfinite(self.response_delay)                     or
+            not isfinite(max_response_delay)                      or
+            not ( 0 < self.response_delay <= max_response_delay ) or
+            ( burst_decay_period <= timedelta(0) )
+        ) :
+            raise ValueError(
+                f"In {here()}: Require finite 0 < response_delay <= "
+                "max_response_delay and a positive burst_decay_period"
+            )
+        self.max_response_delay = max_response_delay
+        self.burst_decay_period = burst_decay_period
         self.silence_timeout = (
             timedelta(
                 minutes = float(
@@ -357,8 +377,9 @@ class WhatsAppAPIWorker (FastAPI) :
         )
         self.worker_task : asyncio.Task[None] | None = None
         
-        self._job_td    = JobTimeDict()
-        self._stop_flag = False
+        self._job_td             = JobTimeDict()
+        self._stop_flag          = False
+        self._last_lease_renewal = time.monotonic()
         
         return
     
@@ -562,6 +583,16 @@ class WhatsAppAPIWorker (FastAPI) :
     
     async def tick(self) -> bool :
         
+        if ( time.monotonic() - self._last_lease_renewal ) >= 30 :
+            for job in self._job_td.get_all() :
+                renewed = await self.queue.storage.renew_contact_lease(
+                    job.user.row_id,
+                    job.owner_token,
+                )
+                if not renewed :
+                    self._job_td.mark_as_done(job)
+            self._last_lease_renewal = time.monotonic()
+        
         refreshed_contacts = await self._process_pending_job_messages()
         received_message   = await self._process_message()
         processed_jobs     = await self._process_jobs(
@@ -603,6 +634,14 @@ class WhatsAppAPIWorker (FastAPI) :
             job, message = _job_and_message( item, self.silence_timeout)
             handler      = self._handler(job)
             
+            burst = await self.queue.storage.update_contact_burst_score(
+                queue_row_id       = row_id,
+                owner_token        = job.owner_token,
+                response_delay     = self.response_delay,
+                max_response_delay = self.max_response_delay,
+                burst_decay_period = self.burst_decay_period,
+            )
+            
             media_content = (
                 await async_fetch_media(
                     message.media_data,
@@ -616,6 +655,12 @@ class WhatsAppAPIWorker (FastAPI) :
                 message,
                 media_content,
             )
+            if respond :
+                renewed = await self._call_handler_method(handler.renew_contact_lease)
+                if not renewed :
+                    raise RuntimeError(
+                        f"In {here()}: Contact lease expired during ingestion"
+                    )
             
             await self.queue.mark_done(row_id)
 
@@ -625,7 +670,9 @@ class WhatsAppAPIWorker (FastAPI) :
             if respond :
                 self._job_td.schedule(
                     job,
-                    time.time() + self.response_delay,
+                    time.time() + (
+                        burst["response_delay"] if burst else self.response_delay
+                    ),
                 )
                 keep_lease = True
             else :

@@ -10,7 +10,10 @@ from __future__ import annotations
 import json
 import os
 
-from datetime import datetime
+from datetime import (
+    datetime,
+    timedelta,
+)
 from hashlib import sha256
 from pathlib import Path
 from typing import (
@@ -140,6 +143,7 @@ def _load_sql( filename : str) -> str :
 
 SQL_ACTIVATE_PHONE_NUMBER           = _load_sql("activate_phone_number.sql")
 SQL_LOCK_PHONE_REGISTRATIONS        = _load_sql("lock_phone_registrations.sql")
+SQL_LOCK_BURST_SCORE_CONTACT        = _load_sql("lock_burst_score_contact.sql")
 SQL_ACQUIRE_CONTACT_LEASE           = _load_sql("acquire_contact_lease.sql")
 SQL_CASE_HANDLER_MESSAGE_EXISTS     = _load_sql("case_handler_message_exists.sql")
 SQL_GET_AGENT_CONTEXTS              = _load_sql("get_agent_contexts.sql")
@@ -185,6 +189,7 @@ SQL_MARK_INBOUND_PAYLOAD_VALID      = _load_sql("mark_inbound_payload_valid.sql"
 SQL_RELEASE_CONTACT_LEASE           = _load_sql("release_contact_lease.sql")
 SQL_RENEW_CONTACT_LEASE             = _load_sql("renew_contact_lease.sql")
 SQL_UPDATE_CASE_MANIFEST            = _load_sql("update_case_manifest.sql")
+SQL_UPDATE_CONTACT_BURST_SCORE      = _load_sql("update_contact_burst_score.sql")
 SQL_UPDATE_FLOW_SESSION             = _load_sql("update_flow_session.sql")
 SQL_UPDATE_INBOUND_PAYLOAD_METADATA = _load_sql(
     "update_inbound_payload_metadata.sql"
@@ -1084,6 +1089,45 @@ class SyncSupabaseStorage :
     # -------------------------------------------------------------------------------------
     # CONTACT LEASES
     
+    def update_contact_burst_score(
+        self,
+        *,
+        queue_row_id       : int,
+        owner_token        : UUID | str,
+        response_delay     : float,
+        max_response_delay : float,
+        burst_decay_period : timedelta,
+    ) -> dict[str, Any] | None :
+        """
+        Record one arrival's burst score, or return its existing history on retry. \\
+        Returns None for echoes, history, or messages suppressed by echo silence.
+        Requires an active contact lease; locks it until score and history commit.
+        """
+        params = {
+            "queue_row_id"       : queue_row_id,
+            "response_delay"     : response_delay,
+            "max_response_delay" : max_response_delay,
+            "decay_seconds"      : burst_decay_period.total_seconds(),
+        }
+        with sync_pooled_conection(self.database_url) as conn :
+            lease = conn.execute(
+                SQL_LOCK_BURST_SCORE_CONTACT,
+                {
+                    "queue_row_id" : queue_row_id,
+                    "owner_token"  : owner_token,
+                },
+            ).fetchone()
+            if not lease :
+                raise RuntimeError(
+                    f"In {here()}: Contact lease expired before scoring"
+                )
+            row = conn.execute(
+                SQL_UPDATE_CONTACT_BURST_SCORE,
+                params,
+            ).fetchone()
+        
+        return dict(row) if row else None
+
     def acquire_contact_lease(
         self,
         contact     : int,
@@ -2081,6 +2125,44 @@ class AsyncSupabaseStorage :
     # -------------------------------------------------------------------------------------
     # CONTACT LEASES
     
+    async def update_contact_burst_score(
+        self,
+        *,
+        queue_row_id       : int,
+        owner_token        : UUID | str,
+        response_delay     : float,
+        max_response_delay : float,
+        burst_decay_period : timedelta,
+    ) -> dict[str, Any] | None :
+        """
+        Record one arrival's burst score, or return its existing history on retry. \\
+        Returns None for echoes, history, or messages suppressed by echo silence.
+        Requires an active contact lease; locks it until score and history commit.
+        """
+        params = {
+            "queue_row_id"       : queue_row_id,
+            "response_delay"     : response_delay,
+            "max_response_delay" : max_response_delay,
+            "decay_seconds"      : burst_decay_period.total_seconds(),
+        }
+        async with async_pooled_connection(self.database_url) as conn :
+            cursor = await conn.execute(
+                SQL_LOCK_BURST_SCORE_CONTACT,
+                {
+                    "queue_row_id" : queue_row_id,
+                    "owner_token"  : owner_token,
+                },
+            )
+            lease = await cursor.fetchone()
+            if not lease :
+                raise RuntimeError(
+                    f"In {here()}: Contact lease expired before scoring"
+                )
+            cursor = await conn.execute( SQL_UPDATE_CONTACT_BURST_SCORE, params)
+            row    = await cursor.fetchone()
+        
+        return dict(row) if row else None
+
     async def acquire_contact_lease(
         self,
         contact     : int,

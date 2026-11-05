@@ -624,6 +624,9 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_outbound_messages (
 CREATE INDEX IF NOT EXISTS api_outbound_messages_contact_idx
   ON wa_agents.api_outbound_messages (contact);
 
+CREATE INDEX IF NOT EXISTS api_outbound_messages_contact_sent_idx
+  ON wa_agents.api_outbound_messages ( contact, sent_at);
+
 ALTER TABLE wa_agents.api_outbound_messages
   ENABLE ROW LEVEL SECURITY;
 
@@ -871,6 +874,79 @@ CREATE INDEX IF NOT EXISTS case_handler_contact_leases_expiry_idx
   ON wa_agents.case_handler_contact_leases (expires_at);
 
 ALTER TABLE wa_agents.case_handler_contact_leases
+  ENABLE ROW LEVEL SECURITY;
+
+-- BURST SCORES
+
+CREATE TABLE IF NOT EXISTS wa_agents.case_handler_contact_burst_scores (
+
+  contact            BIGINT           PRIMARY KEY,
+  score              DOUBLE PRECISION NOT NULL DEFAULT 0,
+  last_queue_row     BIGINT           NOT NULL,
+  last_received_at   TIMESTAMPTZ      NOT NULL,
+  updated_at         TIMESTAMPTZ      NOT NULL DEFAULT now(),
+
+  CONSTRAINT case_handler_contact_burst_scores_contact_fkey
+    FOREIGN KEY (contact)
+    REFERENCES wa_agents.api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT case_handler_contact_burst_scores_queue_fkey
+    FOREIGN KEY (last_queue_row)
+    REFERENCES wa_agents.api_to_case_handler_queue(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT case_handler_contact_burst_scores_range
+    CHECK ( score BETWEEN 0 AND 10 )
+
+);
+
+ALTER TABLE wa_agents.case_handler_contact_burst_scores
+  ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS wa_agents.case_handler_contact_burst_score_histories (
+
+  id                 BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  contact            BIGINT           NOT NULL,
+  queue_row          BIGINT           NOT NULL UNIQUE,
+  received_at        TIMESTAMPTZ      NOT NULL,
+  score_before       DOUBLE PRECISION NOT NULL,
+  decayed_points     DOUBLE PRECISION NOT NULL,
+  increment          SMALLINT         NOT NULL,
+  score              DOUBLE PRECISION NOT NULL,
+  response_delay     DOUBLE PRECISION NOT NULL,
+  created_at         TIMESTAMPTZ      NOT NULL DEFAULT now(),
+
+  CONSTRAINT case_handler_contact_burst_score_histories_contact_fkey
+    FOREIGN KEY (contact)
+    REFERENCES wa_agents.api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT case_handler_contact_burst_score_histories_queue_fkey
+    FOREIGN KEY (queue_row)
+    REFERENCES wa_agents.api_to_case_handler_queue(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT case_handler_contact_burst_score_histories_values
+    CHECK (
+      ( score_before BETWEEN 0 AND 10                  ) AND
+      ( decayed_points BETWEEN 0 AND score_before      ) AND
+      ( increment IN ( 0, 1 )                          ) AND
+      ( score BETWEEN 0 AND 10                         ) AND
+      ( response_delay > 0                             ) AND
+      ( response_delay < 'Infinity'::DOUBLE PRECISION  )
+    )
+
+);
+
+CREATE INDEX IF NOT EXISTS case_handler_contact_burst_score_histories_time_idx
+  ON wa_agents.case_handler_contact_burst_score_histories ( contact, received_at, id);
+
+ALTER TABLE wa_agents.case_handler_contact_burst_score_histories
   ENABLE ROW LEVEL SECURITY;
 
 -- CASE MANIFESTS

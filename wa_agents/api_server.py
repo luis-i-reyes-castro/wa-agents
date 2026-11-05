@@ -37,6 +37,7 @@ class WhatsAppAPIServer (
         self,
         *,
         apps               : tuple[ WhatsAppApp, ...],
+        burst_decay_period : timedelta = timedelta( hours = 1),
         debug              : bool = False,
         flow_endpoint_path : str  = "/flows/{waba_id}",
         handler_cls        : Type["AsyncWhatsAppCaseHandler"] | None = None,
@@ -44,6 +45,7 @@ class WhatsAppAPIServer (
             str,
             Type["AsyncWhatsAppCaseHandler"],
         ] | None = None,
+        max_response_delay : float = 60.0,
         poll_interval_busy : float | None = None,
         poll_interval_idle : float | None = None,
         queue              : AsyncWhatsAppDatabaseQueue | None = None,
@@ -56,15 +58,16 @@ class WhatsAppAPIServer (
         Initialize the combined WhatsApp API server. \\
         Args:
             apps               : Ordered app definitions with explicit callback names
+            burst_decay_period : Elapsed time that removes one burst-score point
             debug              : Whether to emit debug output
             flow_endpoint_path : Independent route for synchronous Flow data exchange
             handler_cls        : Case handler class invoked by the worker
             handler_classes    : Case handler classes keyed by their `HANDLER_KEY`
+            max_response_delay : Maximum quiet period in seconds
             poll_interval_busy : Poll interval while the worker has pending jobs
             poll_interval_idle : Poll interval while the worker is idle
             queue              : Optional async WhatsApp database queue
-            response_delay     : Quiet period after the latest message before running
-                                 `run_while_in_action`
+            response_delay     : Base quiet period in seconds, before burst scaling
             silence_timeout    : Fallback echo silence timeout
             verify_signatures  : Whether to verify payload signatures
             kwargs             : Forwarded to FastAPI
@@ -79,10 +82,12 @@ class WhatsAppAPIServer (
         )
         
         self._init_worker(
+            burst_decay_period  = burst_decay_period,
             debug               = debug,
             flow_endpoint_path  = flow_endpoint_path,
             handler_cls         = handler_cls,
             handler_classes     = handler_classes,
+            max_response_delay  = max_response_delay,
             poll_interval_busy  = poll_interval_busy,
             poll_interval_idle  = poll_interval_idle,
             queue               = queue,

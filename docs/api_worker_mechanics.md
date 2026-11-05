@@ -8,7 +8,7 @@ PostgreSQL queue.
 
 ## Main Loop
 
-Each worker tick performs three operations in order:
+Every 30 seconds, the existing worker tick renews waiting contact leases and removes jobs whose leases are lost. Each tick then performs three operations in order:
 
 1. Advance active contact bursts by claiming at most one newer message for each
    contact that already has a delayed response.
@@ -80,9 +80,10 @@ For every claimed queue row, the worker:
 
 1. Reconstructs the WhatsApp message, business, contact, handler route, and
    silence timeout.
-2. Fetches media bytes when the message contains media.
-3. Creates the routed handler and calls `process_message(message, media)`.
-4. Marks the queue row `done` after successful ingestion.
+2. Records the contact’s burst score and delay before any immediate reply can be sent.
+3. Fetches media bytes when the message contains media.
+4. Calls the routed handler’s `process_message(message, media)`.
+5. Renews the lease if a delayed response is needed, then marks the queue row `done`.
 
 `process_message()` is responsible for deduplication, case selection, state
 machine transitions, and durable message/context persistence. Its return value
@@ -97,8 +98,9 @@ response has already been generated or sent.
 ## Trailing-Edge Response Debounce
 
 Delayed responses are stored in memory with at most one scheduled job per
-contact. `response_delay` is a quiet period measured from the latest successfully
-ingested message that requested a response.
+contact. The effective quiet period is measured from the latest successfully
+ingested message that requested a response. `response_delay` is its base; the
+contact’s persistent burst score scales it exponentially.
 
 While the quiet period is active, the worker retains the contact lease and uses
 it to claim the contact's next pending row in strict FIFO order. This owned-contact
@@ -131,7 +133,7 @@ flowchart TD
     RESULT{"Result"}
     DONE_RESPONSE["Mark queue row N done"]
     DONE_COMPLETE["Mark queue row N done"]
-    SCHEDULE["Create or replace Job[contact]<br/>deadline = now + response_delay"]
+    SCHEDULE["Create or replace Job[contact]<br/>deadline = now + effective_delay"]
     QUIET["Wait through quiet period<br/>while retaining lease"]
     NEWER{"Newer pending row?"}
     OWNED["Claim N+1 under the same lease<br/>and refresh heartbeat"]
@@ -163,27 +165,54 @@ flowchart TD
     OLDER    -->|"No"| RELEASE
 ```
 
-### Example: four messages three seconds apart
+### Burst Score and Decay
 
-Assume `response_delay = 5.0` and `process_message()` returns `True` for every
-message. If one contact sends four `Hola` messages three seconds apart, each
-successful ingestion replaces the same contact job and restarts its deadline:
+The worker uses `SyncSupabaseStorage.update_contact_burst_score()` or its async
+counterpart under the existing contact lease. The storage operation locks the
+lease first, then reads and updates the score with a fresh database snapshot in
+the same transaction. State and append-only history commit together. A unique
+queue-row reference makes repeat calls return the original result.
 
-```text
-t=0s   Hola -> ingest, schedule response for t≈5s
-t=3s   Hola -> ingest, replace job, reschedule for t≈8s
-t=6s   Hola -> ingest, replace job, reschedule for t≈11s
-t=9s   Hola -> ingest, replace job, reschedule for t≈14s
-t≈14s  quiet period ends; run the handler once using all four messages
+For each eligible arrival:
+
+```python
+elapsed = max(timedelta(0), arrival_time - previous_arrival_time)
+score = min(10, max(0, previous_score - elapsed / burst_decay_period) + increment)
+delay = min(max_response_delay, response_delay * 2**score)
 ```
 
-All four messages are persisted in the same case, the contact lease remains held
-through the burst, and `run_while_in_action()` runs once with all four messages in
-the durable context. The user receives that single reply after the quiet period
-plus the time required for response generation and the WhatsApp API call.
+The first arrival has score zero. `increment` is one only when no successful
+outbound send or human echo separates this arrival from the previous eligible
+arrival. Any handler send counts, including progress text and immediate replies.
+A reply closes the unanswered-message window without resetting the score.
 
-If any ingestion returns `False`, such as for an echo or a message handled with an
-immediate reply, the worker cancels the scheduled delayed response instead.
+Arrival time is the queue row's `created_at`; outbound time is its persisted
+`sent_at`. These are server-observed times, not WhatsApp delivery/read timestamps.
+A message queued during generation still increases the score if the response is
+recorded after that arrival, even if processing happens later. Imported history,
+echoes, duplicate deliveries, and messages suppressed by the current case's echo
+silence are excluded. An ingestion failure retains its score event and leaves
+any previous valid response job intact.
+
+With a configured base of 4 seconds, 60 seconds maximum, and one point of decay per hour, three messages arriving at t=0, t=1, and t=2 produce approximately:
+
+```text
+t=0s   Hola           -> score 0,     delay 4s,  deadline t=4s
+t=1s   Hola           -> score 1,     delay 8s,  deadline t=9s
+t=2s   Tienen bloques -> score 1.9997, delay 16s, deadline t≈18s
+```
+
+The worker responds once with the persisted context after the last deadline.
+Scores may grow to 10 even after the delay reaches 60 seconds. Decay happens only
+on an eligible incoming message; no decay timer or background task is added.
+Stored state is a snapshot at its last arrival, rather than a continuously
+updated score. A new message may add one point after decay if the previous
+message remains unanswered.
+
+The maximum caps the quiet period only. A continuous stream can keep restarting
+it, and generation/send time is additional. Messages consistently arriving after
+a reply do not increase the score. A `False` ingestion result still cancels the
+scheduled response.
 
 ## Response Execution
 
@@ -196,8 +225,9 @@ The worker calls `run_while_in_action()` until it returns `False`. If it returns
 `True`, the lease is renewed before the next action. The lease and in-memory job
 are released after completion, lease loss, or a response exception.
 
-An inbound message that arrives after response execution begins belongs to a new
-burst. The worker does not cancel an LLM or outbound API call already in progress.
+An inbound message that arrives after response execution begins is processed in the next response cycle.
+It still increases the burst score if it arrived before the successful send.
+The worker does not cancel an LLM or outbound API call already in progress.
 
 ## Echo Silence
 
@@ -234,5 +264,12 @@ The relevant settings are:
 
 - `poll_interval_busy`: sleep between ticks while work or delayed jobs exist.
 - `poll_interval_idle`: sleep between ticks while the worker is idle.
-- `response_delay`: required quiet period after the latest burst message.
+- `response_delay`: base quiet period in seconds (default 1; existing environment override retained).
+- `max_response_delay`: maximum quiet period in seconds (default 60; constructor only).
+- `burst_decay_period`: time to remove one score point (default `timedelta(hours=1)`; constructor only).
 - `silence_timeout`: fallback duration for message-echo silence.
+
+Require finite positive delays, maximum ≥ base, and positive decay duration.
+Equal base and maximum give a fixed quiet period. The score cap is always 10 and
+is not configurable. Provision the burst-score tables and outbound contact/time
+index before deploying; existing contacts initialize lazily without backfilling.

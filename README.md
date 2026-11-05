@@ -129,23 +129,54 @@ Configure the new registration's routes explicitly; previous routes are not copi
 
 | Variable                        | Default | Purpose |
 | ------------------------------- | ------- | --- |
-| `QUEUE_POLL_INTERVAL_BUSY`      | `0.2`   | worker sleep when active |
+| `QUEUE_POLL_INTERVAL_BUSY`      | `1.0`   | worker sleep when active |
 | `QUEUE_POLL_INTERVAL_IDLE`      | `1.0`   | worker sleep when idle |
-| `QUEUE_RESPONSE_DELAY`          | `1.0`   | quiet period after the latest message before running `run_while_in_action` |
+| `QUEUE_RESPONSE_DELAY`          | `1.0`   | base quiet period before applying the contact’s burst score |
 | `QUEUE_SILENCE_TIMEOUT_MINUTES` | `30`    | fallback echo silence timeout in minutes |
 
 Override them per application with the `poll_interval_busy`, `poll_interval_idle`, `response_delay`, and `silence_timeout` constructor arguments.
+Set the adaptive maximum and decay period through `max_response_delay` and `burst_decay_period`:
 ```python
+from datetime import timedelta
+
 app = WhatsAppAPIServer(
-    handler_cls    = CaseHandler,
-    response_delay = 3.0,
+    handler_cls        = CaseHandler,
+    response_delay     = 4.0,
+    max_response_delay = 60.0,
+    burst_decay_period = timedelta( hours = 1),
 )
 ```
 
-`response_delay` is a trailing-edge debounce for delayed handler responses.
+`response_delay` is the base interval for a trailing-edge debounce for delayed handler responses.
 While the worker holds a contact lease, each newer queued message is persisted into the same case and restarts the quiet period.
 Once the contact remains quiet for the configured interval, the worker calls `run_while_in_action` once with the complete persisted context.
 Replies sent directly by `process_message` remain immediate.
+
+Each contact has a persistent **burst score**, initially zero and hard-capped at 10.
+An additional customer message received before a successful handler send adds one point.
+Each arrival first applies linear decay: the default `burst_decay_period` removes one point per hour.
+The quiet period is `min(max_response_delay, response_delay * 2**score)`.
+Ignoring the small decay between rapid messages, the example above gives delays of 4, 8, 16, 32, then 60 seconds.
+The package defaults to a 1-second base, giving 1, 2, 4, 8, 16, 32, then 60 seconds.
+The score can keep increasing to 10 while the delay remains 60 seconds, so sustained bursts take longer to recover.
+A reply ends the unanswered-message window but does not reset the score.
+
+Scoring uses database queue-arrival times and recorded successful outbound-send times, so messages arriving during generation still count even when processed after the reply.
+Any handler send counts as a reply, including progress text; delivery/read receipts are not required.
+Text, media, and interactive messages participate. Echoes, imported history, duplicates, and customer messages suppressed during echo silence do not increase the score.
+A human echo ends the previous unanswered-message window.
+Decay is evaluated lazily on the next eligible arrival and needs no background task.
+Stored scores describe their last recorded arrival; subtract elapsed decay when interpreting an idle contact's current score.
+
+The maximum caps the quiet period, not generation time or total burst duration.
+Messages that arrive only after the bot has already replied do not build a burst score.
+Both delays must be finite and positive, the maximum must be at least the base, and the decay period must be positive.
+Setting the maximum equal to the base gives a fixed quiet period.
+
+Before deploying this version to an existing database, provision the two burst-score tables and the outbound contact/time index from `abc_DDL.sql`.
+Do not replay the entire canonical DDL against an existing database.
+Existing contacts start at zero on their first eligible arrival; old messages are not backfilled.
+The score/history transaction is idempotent per queue row, including retries after an ingestion failure.
 
 ## Minimal App Skeleton
 
