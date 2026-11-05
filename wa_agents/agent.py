@@ -248,18 +248,21 @@ class AgentBase (ABC) :
         Pretty-print API payloads/responses for debugging sessions \\
         Args:
             mode        : Either 'input' or 'output'
-            data        : JSON-serializable payload to print
+            data        : JSON payload or Pydantic model to print
             client_call : Helpful string with the client call being made
         """
+        header = f"{self.api.upper()} API {mode.upper()}"
+        if client_call :
+            header = f"{header} [Client call: {client_call}()]"
+        
         print_sep()
-        print(f"{self.api.upper()} API {mode.upper()}:")
+        print(header)
+        
+        if isinstance( data, BaseModel) :
+            data = data.model_dump( mode = "json")
         
         print_sep()
         print(write_to_json_string( data, redact_data_uris = True))
-        
-        if client_call :
-            print_sep()
-            print(f"Client call: {client_call}()")
         
         return
     
