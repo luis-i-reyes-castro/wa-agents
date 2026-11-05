@@ -126,7 +126,7 @@ does not produce nginx's HTML `403`.
 ## Reverse-Proxy Deployment Lesson
 
 An exact nginx location such as `location = /sofia-systems` accepts only that app's webhook path.
-It does not match `/whatsapp/flows/<WABA_ID>`.
+It does not match `/flows/<WABA_ID>`.
 The Flow endpoint needs its own narrowly scoped proxy rule and stays independent of the per-app callbacks.
 
 The checked-in nginx file is not necessarily the active file. Verify the file

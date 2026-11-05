@@ -180,7 +180,7 @@ app = WhatsAppAPIServer(
     title              = "WhatsApp Bot",
     apps               = apps,
     handler_cls        = CaseHandler,
-    flow_endpoint_path = "/whatsapp/flows/{waba_id}",
+    flow_endpoint_path = "/flows/{waba_id}",
 )
 ```
 
@@ -190,7 +190,7 @@ uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
 The server registers GET and POST routes at `/<app>` for every supplied app definition, an independent Flow endpoint, and `GET /healthz` for container health checks.
-In this example the callback is `/my-bot` and the Flow endpoint is `/whatsapp/flows/{waba_id}`.
+In this example the callback is `/my-bot` and the Flow endpoint is `/flows/{waba_id}`.
 Both listener and combined server verify signatures by default.
 Each POST uses a dictionary lookup and checks only the addressed app's secret; another configured app's signature receives `401` before enqueueing.
 The library accepts explicit `apps` and does not load app credentials from environment variables.
@@ -215,7 +215,7 @@ worker   = WhatsAppAPIWorker(
 Each app exposes `GET /`, `GET /healthz`, and `GET /debugz`.
 The listener manages its database-pool lifetime, while the worker manages both the pool and its background processing task and exposes `POST /webhook/flows/{waba_id}`.
 `WhatsAppAPIServer` combines both roles with one shared queue and one lifespan.
-Its independent `flow_endpoint_path` defaults to `/whatsapp/flows/{waba_id}`.
+Its independent `flow_endpoint_path` defaults to `/flows/{waba_id}`.
 Call `validate_listener_routes()` after registering additional business routes so callback collisions fail at startup.
 
 An example container recipe is available at [`docs/Dockerfile.fastapi`](docs/Dockerfile.fastapi).
@@ -724,7 +724,7 @@ These are useful when mapping incoming WhatsApp JSON to your bot routing logic.
 ## WhatsApp Flows
 
 The worker exposes an encrypted data endpoint at its explicit `flow_endpoint_path`.
-SOFIA keeps `/whatsapp/flows/{waba_id}` independently of the per-app webhook paths.
+SOFIA keeps `/flows/{waba_id}` independently of the per-app webhook paths.
 Flow requests are routed to the class registered under the Flow definition's `handler_key`; the class implements method `handle_flow_request()` with a `WhatsApp_Local_FlowContext` and `WhatsApp_IB_Decrypted_FlowRequest`, and returns a `WhatsApp_Local_FlowHandlerResult`.
 
 Apply `wa_agents/sql/abc_DDL.sql` before provisioning.

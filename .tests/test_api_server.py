@@ -425,7 +425,7 @@ def test_apps_register_role_specific_routes_once() -> None :
     assert "/webhook" not in worker_paths
     assert worker_paths.count("/webhook/flows/{waba_id}") == 1
     assert server_paths.count("/first") == 2
-    assert server_paths.count("/whatsapp/flows/{waba_id}") == 1
+    assert server_paths.count("/flows/{waba_id}") == 1
     for path in ( "/", "/healthz", "/debugz" ) :
         assert listener_paths.count(path) == 1
         assert worker_paths.count(path) == 1
