@@ -477,6 +477,7 @@ class AgentBase (ABC) :
             ag_resp_obj.tokens_input  = getattr( usage, "prompt_tokens", None)
             ag_resp_obj.tokens_output = getattr( usage, "completion_tokens", None)
             ag_resp_obj.tokens_total  = getattr( usage, "total_tokens", None)
+            ag_resp_obj.tokens_cost   = getattr( usage, "cost", None)
         
         if (
             hasattr( response, "choices")

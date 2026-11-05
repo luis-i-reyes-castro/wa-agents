@@ -15,6 +15,7 @@ from pathlib import Path
 from pydantic import (
     BaseModel,
     Field,
+    NonNegativeFloat,
     NonNegativeInt,
     PositiveInt,
     model_validator,
@@ -557,6 +558,7 @@ class AssistantMsg (BasicMsg) :
     tokens_input  : NonNegativeInt | None = None
     tokens_output : NonNegativeInt | None = None
     tokens_total  : NonNegativeInt | None = None
+    tokens_cost   : NonNegativeFloat | None = None
     instructions  : str            | None = None
     tools         : list[Any]      | None = None
     context       : list[PositiveInt] | None = None
