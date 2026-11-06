@@ -598,16 +598,23 @@ class WhatsApp_IB_MediaData (BaseModel) :
         `id`        : "<media ID>"
         `mime_type` : "<MIME type>"
         `sha256`    : "<Base64-encoded sha256 checksum>"
+        `url`       : "<download URL>" | null
         `caption`   : "<caption>" | null
         `filename`  : "<filename>" | null
         `voice`     : true | false | null
         `animated`  : true | false | null
+    NOTE:
+        Field `url` was observed on 2026-11-06 in embedded-signup history media
+        webhooks (`field` = `history`). Those messages predate onboarding. The
+        business does not control the media, and the lookaside URL should be
+        treated as expired.
     """
     model_config = ConfigDict( frozen = True)
     
     id        : NumericID
     mime_type : MIME_Type
     sha256    : WhatsAppMediaSHA256
+    url       : HttpUrl              | None = None
     caption   : WhatsAppMediaCaption | None = None # image, video, and document
     filename  : NE_str               | None = None # document
     voice     : bool                 | None = None # audio

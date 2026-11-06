@@ -266,6 +266,9 @@ class WhatsAppDatabaseQueue :
     ) -> None :
         """
         Persist history chunks without adding their messages to the live queue.
+        NOTE:
+        Media with no stored placeholder is still history and stays off the live queue.
+        Its chunk is anchored at zero progress, which does not complete the sync, and its lookaside URL is expired.
         """
         business = self.storage.upsert_business(
             waba_id              = waba_id,
@@ -323,24 +326,62 @@ class WhatsAppDatabaseQueue :
                         ),
                     )
 
+        media_chunk = None
         for message in value.messages :
             existing = self.storage.get_inbound_message(message.id)
-            if not existing or existing.get("history_chunk") is None :
+            if existing and ( existing.get("history_chunk") is not None ) :
+                contact_id      = existing["contact"]
+                message_payload = existing["payload"]
+                is_echo         = existing["is_echo"]
+                history_chunk   = existing["history_chunk"]
+                history_context = existing["history_context"]
+            elif existing :
                 raise RuntimeError(
-                    f"In {here()}: History media placeholder "
-                    f"'{message.id}' was not found"
+                    f"In {here()}: History media '{message.id}' "
+                    f"is not attached to a history chunk"
                 )
+            else :
+                contact = self.storage.upsert_contact(
+                    business = business["id"],
+                    wa_id    = message.user,
+                    user_id  = message.user_id,
+                )
+                if not contact :
+                    raise RuntimeError(
+                        f"In {here()}: Unable to persist contact"
+                    )
+                if media_chunk is None :
+                    media_chunk = self.storage.insert_history_chunk(
+                        phone_number  = business["id"],
+                        payload       = payload_id,
+                        history_index = len(value.history),
+                        phase         = 0,
+                        chunk_order   = 0,
+                        progress      = 0,
+                        errors        = None,
+                    )
+                    if not media_chunk :
+                        raise RuntimeError(
+                            f"In {here()}: Unable to persist history chunk"
+                        )
+                contact_id      = contact["id"]
+                message_payload = payload_id
+                is_echo         = (
+                    message.user == value.metadata.display_phone_number
+                )
+                history_chunk   = media_chunk["id"]
+                history_context = None
 
             self.storage.insert_inbound_message(
-                contact         = existing["contact"],
-                payload         = existing["payload"],
-                is_echo         = existing["is_echo"],
+                contact         = contact_id,
+                payload         = message_payload,
+                is_echo         = is_echo,
                 msg_id          = message.id,
                 msg_ts          = _timestamp(message.timestamp),
                 msg_type        = message.type,
                 msg_data        = _message_data(message),
-                history_chunk   = existing["history_chunk"],
-                history_context = existing["history_context"],
+                history_chunk   = history_chunk,
+                history_context = history_context,
             )
 
         return
@@ -811,6 +852,9 @@ class AsyncWhatsAppDatabaseQueue :
     ) -> None :
         """
         Persist history chunks without adding their messages to the live queue.
+        NOTE:
+        Media with no stored placeholder is still history and stays off the live queue.
+        Its chunk is anchored at zero progress, which does not complete the sync, and its lookaside URL is expired.
         """
         business = await self.storage.upsert_business(
             waba_id              = waba_id,
@@ -868,24 +912,62 @@ class AsyncWhatsAppDatabaseQueue :
                         ),
                     )
 
+        media_chunk = None
         for message in value.messages :
             existing = await self.storage.get_inbound_message(message.id)
-            if not existing or existing.get("history_chunk") is None :
+            if existing and ( existing.get("history_chunk") is not None ) :
+                contact_id      = existing["contact"]
+                message_payload = existing["payload"]
+                is_echo         = existing["is_echo"]
+                history_chunk   = existing["history_chunk"]
+                history_context = existing["history_context"]
+            elif existing :
                 raise RuntimeError(
-                    f"In {here()}: History media placeholder "
-                    f"'{message.id}' was not found"
+                    f"In {here()}: History media '{message.id}' "
+                    f"is not attached to a history chunk"
                 )
+            else :
+                contact = await self.storage.upsert_contact(
+                    business = business["id"],
+                    wa_id    = message.user,
+                    user_id  = message.user_id,
+                )
+                if not contact :
+                    raise RuntimeError(
+                        f"In {here()}: Unable to persist contact"
+                    )
+                if media_chunk is None :
+                    media_chunk = await self.storage.insert_history_chunk(
+                        phone_number  = business["id"],
+                        payload       = payload_id,
+                        history_index = len(value.history),
+                        phase         = 0,
+                        chunk_order   = 0,
+                        progress      = 0,
+                        errors        = None,
+                    )
+                    if not media_chunk :
+                        raise RuntimeError(
+                            f"In {here()}: Unable to persist history chunk"
+                        )
+                contact_id      = contact["id"]
+                message_payload = payload_id
+                is_echo         = (
+                    message.user == value.metadata.display_phone_number
+                )
+                history_chunk   = media_chunk["id"]
+                history_context = None
 
             await self.storage.insert_inbound_message(
-                contact         = existing["contact"],
-                payload         = existing["payload"],
-                is_echo         = existing["is_echo"],
+                contact         = contact_id,
+                payload         = message_payload,
+                is_echo         = is_echo,
                 msg_id          = message.id,
                 msg_ts          = _timestamp(message.timestamp),
                 msg_type        = message.type,
                 msg_data        = _message_data(message),
-                history_chunk   = existing["history_chunk"],
-                history_context = existing["history_context"],
+                history_chunk   = history_chunk,
+                history_context = history_context,
             )
 
         return

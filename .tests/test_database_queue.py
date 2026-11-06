@@ -536,6 +536,15 @@ class _AsyncPayloadStorageStub :
         self.metadata     : dict[str, Any] | None = None
         self.history_chunk : dict[str, Any] | None = None
         self.messages      : list[dict[str, Any]] = []
+        self.inbound_message : dict[str, Any] | None = {
+            "id"              : 23,
+            "contact"         : 13,
+            "payload"         : 5,
+            "is_echo"         : True,
+            "msg_type"        : "media_placeholder",
+            "history_chunk"   : 29,
+            "history_context" : { "status" : "played" },
+        }
         self.smb_contacts  : list[dict[str, Any]] = []
 
     async def insert_inbound_payload(self, _data : Any) -> dict[str, Any] :
@@ -589,18 +598,11 @@ class _AsyncPayloadStorageStub :
         self.history_chunk = kwargs
         return { "id" : 29 }
 
-    async def get_inbound_message( self, msg_id : str) -> dict[str, Any] :
+    async def get_inbound_message( self, msg_id : str) -> dict[str, Any] | None :
         self.events.append("get_message")
-        return {
-            "id"              : 23,
-            "contact"         : 13,
-            "payload"         : 5,
-            "is_echo"         : True,
-            "msg_id"          : msg_id,
-            "msg_type"        : "media_placeholder",
-            "history_chunk"   : 29,
-            "history_context" : { "status" : "played" },
-        }
+        if self.inbound_message is None :
+            return None
+        return { **self.inbound_message, "msg_id" : msg_id }
 
 
 def _track_validation( monkeypatch, events : list[str]) -> None :
@@ -907,4 +909,92 @@ def test_async_queue_upgrades_history_media_placeholder( monkeypatch) -> None :
             "history_context" : { "status" : "played" },
         }
     ]
+    assert result == { "stored" : True, "enqueued" : False }
+
+
+def test_async_queue_persists_history_media_without_placeholder(
+    monkeypatch,
+) -> None :
+    events        = []
+    storage       = _AsyncPayloadStorageStub(events)
+    storage.inbound_message = None
+    queue         = database_queue.AsyncWhatsAppDatabaseQueue("postgresql://test")
+    queue.storage = storage
+
+    async def enqueue_message( _msg_id : str) -> bool :
+        raise AssertionError("History messages must not enter the live queue")
+
+    monkeypatch.setattr( queue, "_enqueue_message", enqueue_message)
+    payload = {
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "123456789",
+                "changes" : [
+                    {
+                        "field" : "history",
+                        "value" : {
+                            "messaging_product" : "whatsapp",
+                            "metadata" : {
+                                "display_phone_number" : "15551234567",
+                                "phone_number_id"      : "987654321",
+                            },
+                            "messages" : [
+                                {
+                                    "from"         : "593995341161",
+                                    "from_user_id" : "EC.1068627879474667",
+                                    "id"           : "wamid.history-video",
+                                    "timestamp"    : "1788724271",
+                                    "type"         : "video",
+                                    "video" : {
+                                        "id"        : "24230790383178626",
+                                        "mime_type" : "video/mp4",
+                                        "sha256" : (
+                                            "P52U05n6YckRvBvEccgTpdA1zbG5tR8J"
+                                            "6WOkFcbLDQw="
+                                        ),
+                                        "url" : (
+                                            "https://lookaside.fbsbx.com/"
+                                            "whatsapp_business/attachments/"
+                                            "?mid=24230790383178626"
+                                            "&source=webhook"
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+    }
+    result = asyncio.run(queue.enqueue(payload))
+
+    assert events == [
+        "insert_raw",
+        "upsert_business",
+        "get_message",
+        "upsert_contact",
+        "insert_history_chunk",
+        "insert_message",
+        "mark_valid",
+    ]
+    assert storage.history_chunk == {
+        "phone_number"  : 11,
+        "payload"       : 7,
+        "history_index" : 0,
+        "phase"         : 0,
+        "chunk_order"   : 0,
+        "progress"      : 0,
+        "errors"        : None,
+    }
+    message = storage.messages[0]
+    assert message["contact"] == 13
+    assert message["payload"] == 7
+    assert message["is_echo"] is False
+    assert message["msg_type"] == "video"
+    assert message["history_chunk"] == 29
+    assert message["history_context"] is None
+    assert message["msg_data"]["video"]["id"] == "24230790383178626"
+    assert "lookaside.fbsbx.com" in message["msg_data"]["video"]["url"]
     assert result == { "stored" : True, "enqueued" : False }

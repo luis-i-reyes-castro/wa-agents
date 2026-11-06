@@ -348,16 +348,23 @@ def test_history_webhook_parses_later_media_details() -> None :
                             },
                             "messages" : [
                                 {
-                                    "from"      : "593995341161",
-                                    "id"        : "wamid.history-media",
-                                    "timestamp" : "1788724270",
-                                    "type"      : "image",
-                                    "image" : {
+                                    "from"         : "593995341161",
+                                    "from_user_id" : "EC.1068627879474667",
+                                    "id"           : "wamid.history-media",
+                                    "timestamp"    : "1788724270",
+                                    "type"         : "video",
+                                    "video" : {
                                         "id"        : "24230790383178626",
-                                        "mime_type" : "image/jpeg",
+                                        "mime_type" : "video/mp4",
                                         "sha256" : (
                                             "P52U05n6YckRvBvEccgTpdA1zbG5tR8J"
                                             "6WOkFcbLDQw="
+                                        ),
+                                        "url" : (
+                                            "https://lookaside.fbsbx.com/"
+                                            "whatsapp_business/attachments/"
+                                            "?mid=24230790383178626"
+                                            "&source=webhook"
                                         ),
                                     },
                                 },
@@ -371,8 +378,11 @@ def test_history_webhook_parses_later_media_details() -> None :
 
     value = payload.entry[0].changes[0].value
     assert not value.history
-    assert value.messages[0].image
-    assert value.messages[0].image.id == "24230790383178626"
+    message = value.messages[0]
+    assert message.user_id == "EC.1068627879474667"
+    assert message.video
+    assert message.video.id == "24230790383178626"
+    assert str(message.video.url).startswith("https://lookaside.fbsbx.com/")
 
 
 def test_smb_app_state_sync_parses_contact_changes() -> None :
