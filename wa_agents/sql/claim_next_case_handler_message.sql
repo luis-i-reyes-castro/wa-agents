@@ -1,7 +1,7 @@
 -- PARAMS:
   -- owner_token          : UUID
   -- handler_keys         : list[str]
-  -- fallback_handler_key : str
+  -- fallback_handler_key : str | None
 
 WITH CTE_candidate AS MATERIALIZED (
   SELECT
@@ -9,7 +9,9 @@ WITH CTE_candidate AS MATERIALIZED (
     que.id                                             AS id,
     que.handler_id                                     AS handler_id,
     que.msg_id                                         AS msg_id,
-    COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key,
+    COALESCE(
+      rou.handler_key, @fallback_handler_key::text
+    )                                                  AS handler_key,
     settings.silence_timeout_minutes                   AS silence_timeout_minutes
   FROM
     wa_agents.api_phone_numbers         AS num
@@ -23,12 +25,12 @@ WITH CTE_candidate AS MATERIALIZED (
     wa_agents.case_handler_routes       AS rou      ON rou.id     = que.handler_id
   LEFT JOIN
     wa_agents.case_handler_settings     AS settings ON
-      settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key )
+      settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key::text )
   WHERE
     ( num.registration_status = 'active'  ) AND
     ( que.msg_status          = 'pending' ) AND
     (
-      COALESCE( rou.handler_key, @fallback_handler_key ) = ANY( @handler_keys )
+      COALESCE( rou.handler_key, @fallback_handler_key::text ) = ANY( @handler_keys )
     ) AND
     NOT EXISTS (
       SELECT

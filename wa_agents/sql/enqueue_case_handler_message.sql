@@ -1,14 +1,26 @@
 -- PARAMS:
-  -- msg_id : WhatsAppMessageID
+  -- msg_id               : WhatsAppMessageID
+  -- fallback_handler_key : str | None
 
 INSERT INTO wa_agents.api_to_case_handler_queue (
   msg_id,
-  handler_id
+  handler_id,
+  msg_status
 )
 (
 SELECT
   msg.msg_id,
-  rou.id
+  rou.id,
+  CASE
+    WHEN (
+      ( rou.id                      IS NOT NULL ) OR
+      ( @fallback_handler_key::text IS NOT NULL )
+    )
+    THEN
+      'pending'::T_ENQUEUED_MESSAGE_STATUS
+    ELSE
+      'ignored'::T_ENQUEUED_MESSAGE_STATUS
+  END
 FROM
   wa_agents.api_phone_numbers    AS num
 JOIN

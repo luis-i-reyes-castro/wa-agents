@@ -61,8 +61,46 @@ SQL_CLAIM_NEXT_FOR_CONTACT = load_sql_script(
 )
 SQL_ENQUEUE          = load_sql_script( SQL_DIR / "enqueue_case_handler_message.sql")
 SQL_HAS_PENDING_ECHO = load_sql_script( SQL_DIR / "has_pending_message_echo.sql")
+SQL_IGNORE_UNROUTED  = load_sql_script(
+    SQL_DIR / "ignore_unrouted_case_handler_messages.sql"
+)
 SQL_MARK_DONE        = load_sql_script( SQL_DIR / "mark_case_handler_message_done.sql")
 SQL_MARK_ERROR       = load_sql_script( SQL_DIR / "mark_case_handler_message_error.sql")
+
+
+def _validate_fallback_handler_key(
+    fallback_handler_key : str | None,
+) -> str | None :
+    """
+    Accept a route key, or None when messages without a route are stored as ignored.
+    """
+    if fallback_handler_key is None :
+        return None
+    
+    try :
+        return TypeAdapter(NO_WS_str).validate_python(fallback_handler_key)
+    except ValidationError :
+        raise ValueError(
+            f"In {here()}: Invalid argument 'fallback_handler_key'"
+        )
+
+
+def _claimed_handler_keys(
+    fallback_handler_key : str | None,
+    handler_keys         : Collection[str] | None,
+) -> list[str] :
+    """
+    Resolve the keys a claim may take. \\
+    Returns:
+        The supplied keys, or the fallback key when no list is supplied.
+        An empty list when the fallback is null and no keys were supplied.
+    """
+    if handler_keys is None :
+        if fallback_handler_key is None :
+            return []
+        return [ fallback_handler_key ]
+    
+    return sorted(set(handler_keys))
 
 
 class PayloadEnqueueResult (TypedDict) :
@@ -161,20 +199,14 @@ class WhatsAppDatabaseQueue :
     def __init__(
         self,
         database_url         : str | None = None,
-        fallback_handler_key : str        = "default",
+        fallback_handler_key : str | None = "default",
     ) -> None :
         
         self.database_url = database_url or get_database_url()
         self.storage      = SyncSupabaseStorage(self.database_url)
-        
-        try :
-            self.fallback_handler_key = (
-                TypeAdapter(NO_WS_str).validate_python(fallback_handler_key)
-            )
-        except ValidationError :
-            raise ValueError(
-                f"In {here()}: Invalid argument 'fallback_handler_key'"
-            )
+        self.fallback_handler_key = _validate_fallback_handler_key(
+            fallback_handler_key,
+        )
         
         return
     
@@ -189,12 +221,40 @@ class WhatsAppDatabaseQueue :
         
         return dict(row) if row else None
     
+    def _execute(
+        self,
+        sql    : str,
+        params : dict[str, Any],
+    ) -> None :
+        
+        with sync_pooled_conection(self.database_url) as conn :
+            conn.execute( sql, params)
+        
+        return
+    
+    def _ignore_unrouted_messages(self) -> None :
+        """
+        Mark pending rows with no route as ignored when this queue has no fallback.
+        """
+        if self.fallback_handler_key is not None :
+            return
+        
+        self._execute(
+            SQL_IGNORE_UNROUTED,
+            { "fallback_handler_key" : None },
+        )
+        
+        return
+    
     def _enqueue_message( self, msg_id : str) -> bool :
         
         return bool(
             self._fetch_one(
                 SQL_ENQUEUE,
-                { "msg_id" : msg_id },
+                {
+                    "msg_id"               : msg_id,
+                    "fallback_handler_key" : self.fallback_handler_key,
+                },
             )
         )
 
@@ -533,10 +593,11 @@ class WhatsAppDatabaseQueue :
         """
         Atomically claim one message and its contact lease.
         """
-        claimed_keys = sorted(
-            set(handler_keys)
-            if handler_keys is not None else
-            { self.fallback_handler_key }
+        self._ignore_unrouted_messages()
+        
+        claimed_keys = _claimed_handler_keys(
+            self.fallback_handler_key,
+            handler_keys,
         )
         if not claimed_keys :
             return None
@@ -596,10 +657,11 @@ class WhatsAppDatabaseQueue :
         """
         Claim the next message for a contact using its existing active lease.
         """
-        claimed_keys = sorted(
-            set(handler_keys)
-            if ( handler_keys is not None ) else
-            { self.fallback_handler_key }
+        self._ignore_unrouted_messages()
+
+        claimed_keys = _claimed_handler_keys(
+            self.fallback_handler_key,
+            handler_keys,
         )
         if not claimed_keys :
             return None
@@ -666,20 +728,14 @@ class AsyncWhatsAppDatabaseQueue :
     def __init__(
         self,
         database_url         : str | None = None,
-        fallback_handler_key : str        = "default",
+        fallback_handler_key : str | None = "default",
     ) -> None :
         
         self.database_url = database_url or get_database_url()
         self.storage      = AsyncSupabaseStorage(self.database_url)
-        
-        try :
-            self.fallback_handler_key = (
-                TypeAdapter(NO_WS_str).validate_python(fallback_handler_key)
-            )
-        except ValidationError :
-            raise ValueError(
-                f"In {here()}: Invalid argument 'fallback_handler_key'"
-            )
+        self.fallback_handler_key = _validate_fallback_handler_key(
+            fallback_handler_key,
+        )
         
         return
 
@@ -710,12 +766,40 @@ class AsyncWhatsAppDatabaseQueue :
         
         return dict(row) if row else None
     
+    async def _execute(
+        self,
+        sql    : str,
+        params : dict[str, Any],
+    ) -> None :
+        
+        async with async_pooled_connection(self.database_url) as conn :
+            await conn.execute( sql, params)
+        
+        return
+    
+    async def _ignore_unrouted_messages(self) -> None :
+        """
+        Mark pending rows with no route as ignored when this queue has no fallback.
+        """
+        if self.fallback_handler_key is not None :
+            return
+        
+        await self._execute(
+            SQL_IGNORE_UNROUTED,
+            { "fallback_handler_key" : None },
+        )
+        
+        return
+    
     async def _enqueue_message( self, msg_id : str) -> bool :
         
         return bool(
             await self._fetch_one(
                 SQL_ENQUEUE,
-                { "msg_id" : msg_id },
+                {
+                    "msg_id"               : msg_id,
+                    "fallback_handler_key" : self.fallback_handler_key,
+                },
             )
         )
 
@@ -1054,10 +1138,11 @@ class AsyncWhatsAppDatabaseQueue :
         """
         Atomically claim one message and its contact lease.
         """
-        claimed_keys = sorted(
-            set(handler_keys)
-            if handler_keys is not None else
-            { self.fallback_handler_key }
+        await self._ignore_unrouted_messages()
+        
+        claimed_keys = _claimed_handler_keys(
+            self.fallback_handler_key,
+            handler_keys,
         )
         if not claimed_keys :
             return None
@@ -1120,10 +1205,11 @@ class AsyncWhatsAppDatabaseQueue :
         """
         Claim the next message for a contact using its existing active lease.
         """
-        claimed_keys = sorted(
-            set(handler_keys)
-            if ( handler_keys is not None ) else
-            { self.fallback_handler_key }
+        await self._ignore_unrouted_messages()
+        
+        claimed_keys = _claimed_handler_keys(
+            self.fallback_handler_key,
+            handler_keys,
         )
         if not claimed_keys :
             return None

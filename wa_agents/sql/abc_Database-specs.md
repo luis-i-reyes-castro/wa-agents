@@ -41,7 +41,7 @@ The two text-encryption helper functions are explicitly created in `public`.
 | `T_WHATSAPP_SIGNUP_SESSION_STATUS` | `pending`, `completed`, `failed`, `cancelled`, `expired` |
 | `T_WHATSAPP_APP_DATA_SYNC_TYPE` | `smb_app_state_sync`, `history` |
 | `T_WHATSAPP_APP_DATA_SYNC_STATUS` | `eligible`, `requesting`, `accepted`, `receiving`, `completed`, `declined`, `failed` |
-| `T_ENQUEUED_MESSAGE_STATUS` | `done`, `error`, `pending`, `processing` |
+| `T_ENQUEUED_MESSAGE_STATUS` | `done`, `error`, `ignored`, `pending`, `processing` |
 | `T_WHATSAPP_FLOW_STATUS` | `DRAFT`, `PUBLISHED`, `DEPRECATED`, `BLOCKED`, `THROTTLED` |
 | `T_WHATSAPP_FLOW_SESSION_STATUS` | `created`, `sent`, `active`, `completed`, `failed`, `expired`, `superseded` |
 | `T_WHATSAPP_FLOW_EXCHANGE_STATUS` | `processing`, `succeeded`, `failed` |

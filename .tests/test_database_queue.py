@@ -109,7 +109,10 @@ def test_queue_enqueues_persisted_message_id( monkeypatch) -> None :
     assert calls == [
         (
             database_queue.SQL_ENQUEUE,
-            { "msg_id" : "wamid.ABC123=" },
+            {
+                "msg_id"               : "wamid.ABC123=",
+                "fallback_handler_key" : "fallback",
+            },
         ),
     ]
 
@@ -143,6 +146,91 @@ def test_queue_claim_returns_message_and_lease_identity( monkeypatch) -> None :
     assert calls[0][1]["owner_token"] == item["owner_token"]
     assert calls[0][1]["handler_keys"] == [ "default" ]
     assert calls[0][1]["fallback_handler_key"] == "default"
+
+
+def test_null_fallback_handler_key_claims_nothing_without_keys(monkeypatch) -> None :
+    queue = database_queue.WhatsAppDatabaseQueue(
+        "postgresql://test",
+        fallback_handler_key = None,
+    )
+    calls    = []
+    executed = []
+
+    def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return None
+
+    def fake_execute( sql, params) :
+        executed.append(( sql, params))
+
+    monkeypatch.setattr( queue, "_fetch_one", fake_fetch_one)
+    monkeypatch.setattr( queue, "_execute", fake_execute)
+
+    assert queue.fallback_handler_key is None
+    assert queue.claim_next() is None
+    assert queue.claim_next_for_contact( 31, UUID(int = 1), 1) is None
+    assert calls == []
+    assert executed == [
+        (
+            database_queue.SQL_IGNORE_UNROUTED,
+            { "fallback_handler_key" : None },
+        ),
+        (
+            database_queue.SQL_IGNORE_UNROUTED,
+            { "fallback_handler_key" : None },
+        ),
+    ]
+
+
+def test_null_fallback_handler_key_is_passed_with_explicit_keys(monkeypatch) -> None :
+    queue         = database_queue.WhatsAppDatabaseQueue(
+        "postgresql://test",
+        fallback_handler_key = None,
+    )
+    queue.storage = _StorageStub()
+    calls          = []
+    executed       = []
+
+    def fake_fetch_one( sql, params) :
+        calls.append(( sql, params))
+        return {
+            "row_id"     : 1,
+            "msg_id"     : "wamid.ABC123=",
+            "msg_status" : "processing",
+            "contact"    : 31,
+            "handler_id" : 7,
+            "handler_key": "retail",
+        }
+
+    def fake_execute( sql, params) :
+        executed.append(( sql, params))
+
+    monkeypatch.setattr( queue, "_fetch_one", fake_fetch_one)
+    monkeypatch.setattr( queue, "_execute", fake_execute)
+    item = queue.claim_next([ "retail" ])
+
+    assert item["handler_key"] == "retail"
+    assert executed == [
+        (
+            database_queue.SQL_IGNORE_UNROUTED,
+            { "fallback_handler_key" : None },
+        ),
+    ]
+    assert calls[0][1]["handler_keys"] == [ "retail" ]
+    assert calls[0][1]["fallback_handler_key"] is None
+
+
+def test_blank_fallback_handler_key_is_rejected() -> None :
+    with pytest.raises( ValueError, match = "fallback_handler_key") :
+        database_queue.WhatsAppDatabaseQueue(
+            "postgresql://test",
+            fallback_handler_key = " ",
+        )
+    with pytest.raises( ValueError, match = "fallback_handler_key") :
+        database_queue.AsyncWhatsAppDatabaseQueue(
+            "postgresql://test",
+            fallback_handler_key = " ",
+        )
 
 
 def test_queue_claims_next_contact_message_with_existing_lease(monkeypatch) -> None :

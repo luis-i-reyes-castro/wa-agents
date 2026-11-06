@@ -184,7 +184,7 @@ def test_queue_claim_acquires_contact_lease_atomically() -> None :
     assert "INSERT INTO public.wa_case_handler_contact_leases" in normalized
     assert "FOR UPDATE OF que SKIP LOCKED" in normalized
     assert "@owner_token" in claim
-    assert "COALESCE( rou.handler_key, @fallback_handler_key )" in claim
+    assert "COALESCE( rou.handler_key, @fallback_handler_key::text )" in claim
     assert "= ANY( @handler_keys )" in claim
     assert "msg_status = 'processing'" in normalized
 
@@ -204,6 +204,9 @@ def test_contact_queue_claim_reuses_active_lease_and_preserves_fifo() -> None :
     assert normalized.index("LIMIT 1") < normalized.index(
         "can.handler_key = ANY( @handler_keys)"
     )
+    assert normalized.index(
+        "@fallback_handler_key::text ) IS NOT NULL"
+    ) < normalized.index("LIMIT 1")
     assert "heartbeat_at = now()" in normalized
     assert "expires_at = now() + INTERVAL '90 seconds'" in normalized
     assert "msg_status = 'processing'" in normalized

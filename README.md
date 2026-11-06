@@ -256,7 +256,9 @@ An example container recipe is available at [`docs/Dockerfile.fastapi`](docs/Doc
 Each handler class has a stable `HANDLER_KEY`.
 A route maps a business—and optionally one of its contacts—to that key.
 Contact-specific routes take precedence over the business default.
-Queue rows store the selected route ID; rows without a route use the queue's configured fallback key.
+Queue rows store the selected route ID. Rows without a route use the queue's configured fallback key.
+Pass `fallback_handler_key = None` to store those rows as `ignored`: no case handler runs, and no reply is sent.
+Numbers that should still use a handler, including a fallback handler, need an explicit route.
 
 ```python
 from wa_agents.api_server import WhatsAppAPIServer
@@ -327,7 +329,8 @@ The canonical DDL defines these objects for new or rebuilt databases.
 It does not migrate an already provisioned database; add the table and manifest column there before deploying this worker version.
 
 `handler_url` is reserved for future remote-handler dispatch.
-Changing a route affects its pending jobs; deleting it clears their nullable route reference and sends them through the configured fallback.
+Changing a route affects its pending jobs; deleting it clears their nullable route reference.
+A configured fallback then claims them. A null fallback marks those still-pending rows `ignored` on the next claim.
 A route whose key is not served by any worker stays pending.
 Before removing a handler deployment, inspect its pending or processing rows:
 ```sql

@@ -1,9 +1,9 @@
 -- PARAMS:
-  -- contact             : api_contacts.id
-  -- owner_token         : UUID
-  -- after_row_id        : api_to_case_handler_queue.id
-  -- handler_keys        : list[str]
-  -- fallback_handler_key : str
+  -- contact              : api_contacts.id
+  -- owner_token          : UUID
+  -- after_row_id         : api_to_case_handler_queue.id
+  -- handler_keys         : list[str]
+  -- fallback_handler_key : str | None
 
 WITH CTE_active_lease AS MATERIALIZED (
   SELECT
@@ -23,7 +23,9 @@ CTE_candidate AS MATERIALIZED (
     que.id                                             AS id,
     que.handler_id                                     AS handler_id,
     que.msg_id                                         AS msg_id,
-    COALESCE( rou.handler_key, @fallback_handler_key ) AS handler_key,
+    COALESCE(
+      rou.handler_key, @fallback_handler_key::text
+    )                                                  AS handler_key,
     settings.silence_timeout_minutes                   AS silence_timeout_minutes
   FROM
     wa_agents.api_phone_numbers         AS num
@@ -39,12 +41,15 @@ CTE_candidate AS MATERIALIZED (
     wa_agents.case_handler_routes       AS rou      ON rou.id     = que.handler_id
   LEFT JOIN
     wa_agents.case_handler_settings     AS settings ON
-      settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key )
+      settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key::text )
   WHERE
     ( msg.contact             = @contact      ) AND
     ( que.id                  > @after_row_id ) AND
     ( que.msg_status          = 'pending'     ) AND
-    ( num.registration_status = 'active'      )
+    ( num.registration_status = 'active'      ) AND
+    (
+      COALESCE( rou.handler_key, @fallback_handler_key::text ) IS NOT NULL
+    )
   ORDER BY
     que.created_at ASC,
     que.id         ASC

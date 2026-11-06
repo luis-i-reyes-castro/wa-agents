@@ -788,6 +788,7 @@ ALTER TABLE wa_agents.case_handler_settings
 CREATE TYPE T_ENQUEUED_MESSAGE_STATUS AS ENUM (
   'done',
   'error',
+  'ignored',
   'pending',
   'processing'
 );
@@ -801,7 +802,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_to_case_handler_queue (
   
   /*
   DESIGN NOTES:
-  - We made column `handler_id` nullable for those who don't need handler routing
+  - Column `handler_id` is nullable.
+    Worker behavior for null routes:
+    - If a fallback handler key was passed then null routes use it.
+    - Else, null routes are stored as `ignored` and not claimed.
   - In the FK constraint `handler_id` -> `case_handler_routes.id` we changed
     the usual `ON DELETE CASCADE` to `ON DELETE SET NULL` so that data is not lost
     when removing case handler routes.
