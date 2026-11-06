@@ -1276,6 +1276,45 @@ async def async_subscribe_to_waba(
     )
 
 
+def unsubscribe_from_waba(
+    waba_id        : str,
+    business_token : str,
+) -> bool :
+    """
+    Remove the configured Meta app's webhook subscription from one WABA
+    """
+    payload = graph_request(
+        method       = "DELETE",
+        path         = f"{waba_id}/subscribed_apps",
+        access_token = business_token,
+    )
+    if payload.get("success") is True :
+        return True
+    
+    raise MetaGraphError(
+        "Meta did not confirm removal of the WhatsApp Business Account subscription"
+    )
+
+async def async_unsubscribe_from_waba(
+    waba_id        : str,
+    business_token : str,
+) -> bool :
+    """
+    Remove the configured Meta app's webhook subscription from one WABA asynchronously
+    """
+    payload = await async_graph_request(
+        method       = "DELETE",
+        path         = f"{waba_id}/subscribed_apps",
+        access_token = business_token,
+    )
+    if payload.get("success") is True :
+        return True
+    
+    raise MetaGraphError(
+        "Meta did not confirm removal of the WhatsApp Business Account subscription"
+    )
+
+
 def exchange_code_for_business_token(
     code         : str,
     app_id       : str,

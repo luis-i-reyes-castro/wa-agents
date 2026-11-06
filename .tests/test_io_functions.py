@@ -373,6 +373,37 @@ def test_subscribe_to_waba_requires_success_confirmation(monkeypatch) -> None :
         io_functions.subscribe_to_waba( "waba-id", "business-token")
 
 
+def test_unsubscribe_from_waba_deletes_the_app_subscription(monkeypatch) -> None :
+    calls = []
+
+    def graph_request( **kwargs) :
+        calls.append(kwargs)
+        return { "success" : True }
+
+    monkeypatch.setattr( io_functions, "graph_request", graph_request)
+
+    assert io_functions.unsubscribe_from_waba( "waba-id", "business-token")
+    assert calls == [{
+        "method"       : "DELETE",
+        "path"         : "waba-id/subscribed_apps",
+        "access_token" : "business-token",
+    }]
+
+
+def test_unsubscribe_from_waba_requires_success_confirmation(monkeypatch) -> None :
+    monkeypatch.setattr(
+        io_functions,
+        "graph_request",
+        lambda **_kwargs : { "success" : False },
+    )
+
+    with pytest.raises(
+        io_functions.MetaGraphError,
+        match = "did not confirm removal",
+    ) :
+        io_functions.unsubscribe_from_waba( "waba-id", "business-token")
+
+
 def test_request_app_data_sync_posts_json_and_returns_request_id(monkeypatch) -> None :
     calls = []
 
