@@ -728,7 +728,7 @@ class AsyncWhatsAppDatabaseQueue :
     def __init__(
         self,
         database_url         : str | None = None,
-        fallback_handler_key : str | None = "default",
+        fallback_handler_key : str | None = None,
     ) -> None :
         
         self.database_url = database_url or get_database_url()
