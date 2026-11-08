@@ -674,7 +674,11 @@ class WhatsAppDatabaseQueue :
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
-            "silence_timeout_minutes" : queue_row.get("silence_timeout_minutes"),
+            "case_stale_hours"           : queue_row["case_stale_hours"],
+            "response_delay_seconds"     : queue_row["response_delay_seconds"],
+            "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
+            "burst_decay_seconds"        : queue_row["burst_decay_seconds"],
+            "silence_timeout_minutes"    : queue_row.get("silence_timeout_minutes"),
         }
     
     def has_pending_echo( self, contact : int, after_row_id : int) -> bool :
@@ -735,7 +739,11 @@ class WhatsAppDatabaseQueue :
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
-            "silence_timeout_minutes" : queue_row.get("silence_timeout_minutes"),
+            "case_stale_hours"           : queue_row["case_stale_hours"],
+            "response_delay_seconds"     : queue_row["response_delay_seconds"],
+            "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
+            "burst_decay_seconds"        : queue_row["burst_decay_seconds"],
+            "silence_timeout_minutes"    : queue_row.get("silence_timeout_minutes"),
         }
 
     def mark_done( self, row_id : int) -> bool :
@@ -1260,7 +1268,11 @@ class AsyncWhatsAppDatabaseQueue :
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
-            "silence_timeout_minutes" : queue_row.get("silence_timeout_minutes"),
+            "case_stale_hours"           : queue_row["case_stale_hours"],
+            "response_delay_seconds"     : queue_row["response_delay_seconds"],
+            "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
+            "burst_decay_seconds"        : queue_row["burst_decay_seconds"],
+            "silence_timeout_minutes"    : queue_row.get("silence_timeout_minutes"),
         }
     
     async def has_pending_echo(
@@ -1324,7 +1336,11 @@ class AsyncWhatsAppDatabaseQueue :
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
-            "silence_timeout_minutes" : queue_row.get("silence_timeout_minutes"),
+            "case_stale_hours"           : queue_row["case_stale_hours"],
+            "response_delay_seconds"     : queue_row["response_delay_seconds"],
+            "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
+            "burst_decay_seconds"        : queue_row["burst_decay_seconds"],
+            "silence_timeout_minutes"    : queue_row.get("silence_timeout_minutes"),
         }
 
     async def mark_done( self, row_id : int) -> bool :

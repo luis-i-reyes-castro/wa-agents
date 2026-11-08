@@ -26,11 +26,11 @@ WITH target_contact AS (
     bus.id                   AS business_id,
     phn.display_phone_number AS business_phone_number
   FROM
-    wa_agents.api_businesses AS bus
+    wa_agents.api_businesses    AS bus
   JOIN
-    wa_agents.api_phone_numbers AS phn ON phn.business = bus.id
+    wa_agents.api_phone_numbers AS phn ON bus.id = phn.business
   JOIN
-    wa_agents.api_contacts AS con ON con.phone_number = phn.id
+    wa_agents.api_contacts      AS con ON phn.id = con.phone_number
   WHERE
     ( phn.display_phone_number = :'business_display_phone_number' ) AND
     ( con.wa_id                = :'contact_wa_id'                  )
@@ -68,7 +68,7 @@ SELECT
   cas.machine_state            AS current_machine_state,
   cas.silenced_until           AS silenced_until,
   rou.id                       AS handler_route_id,
-  rou.handler_key              AS handler_key,
+  cfg.handler_key              AS handler_key,
   COALESCE( msg.message_count, 0)          AS message_count,
   COALESCE( his.snapshot_count, 0)         AS snapshot_count,
   COALESCE( his.initial_snapshot_count, 0) AS initial_snapshot_count,
@@ -92,13 +92,15 @@ FROM
 JOIN
   wa_agents.case_handler_case_manifests AS cas ON cas.contact = tar.contact_id
 LEFT JOIN
-  wa_agents.case_handler_routes AS rou ON rou.id = cas.handler_id
+  wa_agents.case_handler_routes         AS rou ON cas.handler_id = rou.id
 LEFT JOIN
-  wa_agents.case_handler_contact_leases AS lea ON lea.contact = tar.contact_id
+  wa_agents.case_handler_configurations AS cfg ON rou.handler_config = cfg.id
 LEFT JOIN
-  message_stats AS msg ON msg.case_id = cas.id
+  wa_agents.case_handler_contact_leases AS lea ON tar.contact_id = lea.contact
 LEFT JOIN
-  history_stats AS his ON his.case_manifest = cas.id
+  message_stats                         AS msg ON cas.id = msg.case_id
+LEFT JOIN
+  history_stats                         AS his ON cas.id = his.case_manifest
 LEFT JOIN LATERAL (
   SELECT
     state.created_at,
@@ -125,20 +127,22 @@ WITH target_cases AS (
     cas.is_open,
     cas.machine_state,
     cas.handler_id,
-    rou.handler_key
+    cfg.handler_key
   FROM
-    wa_agents.api_businesses AS bus
+    wa_agents.api_businesses      AS bus
   JOIN
-    wa_agents.api_phone_numbers AS phn ON phn.business = bus.id
+    wa_agents.api_phone_numbers   AS phn ON phn.business = bus.id
   JOIN
-    wa_agents.api_contacts AS con ON con.phone_number = phn.id
+    wa_agents.api_contacts        AS con ON con.phone_number = phn.id
   JOIN
     wa_agents.case_handler_case_manifests AS cas ON cas.contact = con.id
   LEFT JOIN
-    wa_agents.case_handler_routes AS rou ON rou.id = cas.handler_id
+    wa_agents.case_handler_routes         AS rou ON rou.id = cas.handler_id
+  LEFT JOIN
+    wa_agents.case_handler_configurations AS cfg ON cfg.id = rou.handler_config
   WHERE
     ( phn.display_phone_number = :'business_display_phone_number' ) AND
-    ( con.wa_id                = :'contact_wa_id'                  )
+    ( con.wa_id                = :'contact_wa_id'                 )
 ),
 case_events AS (
   SELECT
@@ -219,13 +223,13 @@ LEFT JOIN
     ( msg.case_id = evt.id              ) AND
     ( msg.id      = evt.case_message_id )
 LEFT JOIN
-  wa_agents.case_handler_to_api_bridge AS map ON map.case_handler_msg_id = msg.id
+  wa_agents.case_handler_to_api_bridge AS map     ON msg.id = map.case_handler_msg_id
 LEFT JOIN
-  wa_agents.api_inbound_messages AS api_in ON api_in.id = map.api_inbound_msg_id
+  wa_agents.api_inbound_messages       AS api_in  ON map.api_inbound_msg_id  = api_in.id
 LEFT JOIN
-  wa_agents.api_outbound_messages AS api_out ON api_out.id = map.api_outbound_msg_id
+  wa_agents.api_outbound_messages      AS api_out ON map.api_outbound_msg_id = api_out.id
 LEFT JOIN
-  wa_agents.api_to_case_handler_queue AS que ON que.msg_id = api_in.msg_id
+  wa_agents.api_to_case_handler_queue  AS que     ON api_in.msg_id = que.msg_id
 ORDER BY
   evt.case_index  ASC,
   evt.id          ASC,
@@ -238,11 +242,11 @@ WITH target_cases AS (
     cas.id,
     cas.case_index
   FROM
-    wa_agents.api_businesses AS bus
+    wa_agents.api_businesses    AS bus
   JOIN
-    wa_agents.api_phone_numbers AS phn ON phn.business = bus.id
+    wa_agents.api_phone_numbers AS phn ON bus.id = phn.business
   JOIN
-    wa_agents.api_contacts AS con ON con.phone_number = phn.id
+    wa_agents.api_contacts      AS con ON phn.id = con.phone_number
   JOIN
     wa_agents.case_handler_case_manifests AS cas ON cas.contact = con.id
   WHERE

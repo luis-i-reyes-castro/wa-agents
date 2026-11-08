@@ -19,36 +19,59 @@ WITH CTE_active_lease AS MATERIALIZED (
 ),
 CTE_candidate AS MATERIALIZED (
   SELECT
-    msg.contact                                        AS contact,
-    que.id                                             AS id,
-    que.handler_id                                     AS handler_id,
-    que.msg_id                                         AS msg_id,
+    msg.contact                       AS contact,
+    que.id                            AS id,
+    que.handler_id                    AS handler_id,
+    que.msg_id                        AS msg_id,
     COALESCE(
-      rou.handler_key, @fallback_handler_key::text
-    )                                                  AS handler_key,
-    settings.silence_timeout_minutes                   AS silence_timeout_minutes
+      cfg.handler_key,
+      fbk.handler_key
+    )                                 AS handler_key,
+    COALESCE(
+      cfg.case_stale_hours,
+      fbk.case_stale_hours
+    )                                 AS case_stale_hours,
+    COALESCE(
+      cfg.response_delay_seconds,
+      fbk.response_delay_seconds
+    )                                 AS response_delay_seconds,
+    COALESCE(
+      cfg.max_response_delay_seconds,
+      fbk.max_response_delay_seconds
+    )                                 AS max_response_delay_seconds,
+    COALESCE(
+      cfg.burst_decay_seconds,
+      fbk.burst_decay_seconds
+    )                                 AS burst_decay_seconds,
+    COALESCE(
+      cfg.silence_timeout_minutes,
+      fbk.silence_timeout_minutes
+    )                                 AS silence_timeout_minutes
   FROM
     wa_agents.api_phone_numbers         AS num
   JOIN
     wa_agents.api_contacts              AS con      ON num.id     = con.phone_number
   JOIN
-    CTE_active_lease                        AS lea      ON con.id     = lea.contact
+    CTE_active_lease                    AS lea      ON con.id     = lea.contact
   JOIN
     wa_agents.api_inbound_messages      AS msg      ON con.id     = msg.contact
   JOIN
     wa_agents.api_to_case_handler_queue AS que      ON msg.msg_id = que.msg_id
   LEFT JOIN
-    wa_agents.case_handler_routes       AS rou      ON rou.id     = que.handler_id
+    wa_agents.case_handler_routes          AS rou ON que.handler_id     = rou.id
   LEFT JOIN
-    wa_agents.case_handler_settings     AS settings ON
-      settings.handler_key = COALESCE( rou.handler_key, @fallback_handler_key::text )
+    wa_agents.case_handler_configurations  AS cfg ON rou.handler_config = cfg.id
+  LEFT JOIN
+    wa_agents.case_handler_configurations  AS fbk ON
+      ( rou.id          IS NULL                       ) AND
+      ( fbk.handler_key = @fallback_handler_key::text )
   WHERE
     ( msg.contact             = @contact      ) AND
     ( que.id                  > @after_row_id ) AND
     ( que.msg_status          = 'pending'     ) AND
     ( num.registration_status = 'active'      ) AND
     (
-      COALESCE( rou.handler_key, @fallback_handler_key::text ) IS NOT NULL
+      COALESCE( cfg.handler_key, fbk.handler_key) IS NOT NULL
     )
   ORDER BY
     que.created_at ASC,
@@ -84,11 +107,15 @@ JOIN
 WHERE
   ( que.id = can.id )
 RETURNING
-  can.contact                 AS contact,
-  lea.owner_token             AS owner_token,
-  que.id                      AS row_id,
-  can.handler_id              AS handler_id,
-  can.handler_key             AS handler_key,
-  can.silence_timeout_minutes AS silence_timeout_minutes,
-  que.msg_id                  AS msg_id,
-  que.msg_status              AS msg_status;
+  can.contact                     AS contact,
+  lea.owner_token                 AS owner_token,
+  que.id                          AS row_id,
+  can.handler_id                  AS handler_id,
+  can.handler_key                 AS handler_key,
+  can.case_stale_hours            AS case_stale_hours,
+  can.response_delay_seconds      AS response_delay_seconds,
+  can.max_response_delay_seconds  AS max_response_delay_seconds,
+  can.burst_decay_seconds         AS burst_decay_seconds,
+  can.silence_timeout_minutes     AS silence_timeout_minutes,
+  que.msg_id                      AS msg_id,
+  que.msg_status                  AS msg_status;

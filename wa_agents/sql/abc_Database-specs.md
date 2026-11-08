@@ -68,8 +68,8 @@ this schema and stay between two and four characters when practical.
 | `wa_agents.api_outbound_messages` | `waom` |
 | `wa_agents.api_media` | `wam` |
 | `wa_agents.api_statuses` | `was` |
+| `wa_agents.case_handler_configurations` | `chc` |
 | `wa_agents.case_handler_routes` | `chr` |
-| `wa_agents.case_handler_settings` | `chs` |
 | `wa_agents.api_to_case_handler_queue` | `chq` |
 | `wa_agents.case_handler_contact_leases` | `chl` |
 | `wa_agents.case_handler_case_manifests` | `chm` |
@@ -101,8 +101,8 @@ this schema and stay between two and four characters when practical.
 | `api_outbound_messages` | Messages sent by the chatbot through the WhatsApp API. |
 | `api_media` | Object-storage metadata for one inbound or outbound message. |
 | `api_statuses` | Delivery/read/failure status events for WhatsApp message IDs. |
-| `case_handler_routes` | Business-phone defaults and contact-specific handler routes. |
-| `case_handler_settings` | Settings keyed by handler implementation, currently the silence timeout. |
+| `case_handler_configurations` | Handler profile: key, stale-case hours, burst timing, and optional silence timeout. |
+| `case_handler_routes` | Business-phone defaults and contact-specific routes to a handler configuration. |
 | `api_to_case_handler_queue` | Durable queue of inbound messages awaiting case-handler processing. |
 | `case_handler_contact_leases` | Expiring ownership leases that serialize work per contact. |
 | `case_handler_case_manifests` | Numbered cases, open/closed state, current FSM state, and silence deadline. |
@@ -128,7 +128,7 @@ every row.
 
 | LEVEL | TABLES |
 | ----- | ------ |
-| **0** | `api_businesses` <br> `case_handler_settings` |
+| **0** | `api_businesses` <br> `case_handler_configurations` |
 | **1** | `api_embedded_signup_data` <br> `api_embedded_signup_sessions` <br> `api_flow_encryption_keys` <br> `api_phone_numbers` |
 | **2** | `api_contacts` <br> `api_embedded_signup_syncs` <br> `api_flows` |
 | **3** | `api_contact_profiles` <br> `api_inbound_payloads` <br> `api_outbound_messages` <br> `api_smb_app_contacts` <br> `case_handler_contact_leases` <br> `case_handler_routes` |
@@ -160,12 +160,18 @@ referenced business is deleted.
 | `api_businesses.id` | `api_embedded_signup_sessions.business` (`ON DELETE SET NULL`) |
 | `api_businesses.id` | `api_flow_encryption_keys.business` |
 
-### Table `case_handler_settings`
+### Table `case_handler_configurations`
 
 **OUTGOING REFERENCES:** None.
 
-**INCOMING REFERENCES:** None. The application associates rows with handlers through
-`handler_key`; the DDL intentionally declares no foreign key from route or Flow tables.
+**INCOMING REFERENCES:**
+
+| COLUMN | REFERENCE |
+| ------ | --------- |
+| `case_handler_configurations.id` | `case_handler_routes.handler_config` |
+
+`handler_key` is unique. Flow definitions still store their own application-level
+`handler_key` and do not reference this table.
 
 ## Level 1
 
@@ -353,6 +359,7 @@ Only trusted provisioning activates a registration; webhook ingestion never does
 | ------ | --------- |
 | `case_handler_routes.phone_number` | `api_phone_numbers.id` |
 | `case_handler_routes.(phone_number, contact)` | `api_contacts.(phone_number, id)` |
+| `case_handler_routes.handler_config` | `case_handler_configurations.id` |
 
 The composite contact reference is nullable: `contact = NULL` denotes a phone-number
 default route, while a non-null contact selects a contact-specific route.
@@ -616,7 +623,7 @@ indexes for these access patterns:
 - history synchronization progress;
 - inbound messages by payload, contact timeline, and history chunk;
 - outbound messages by contact and status events by payload or WhatsApp message ID;
-- routes by handler key and queued jobs by handler/status/creation order;
+- routes by handler configuration and queued jobs by handler/status/creation order;
 - expired contact leases and open/current cases by contact;
 - case-message composite references and state-history timelines;
 - inbound bridge uniqueness and all bridge rows for a case-handler message;
@@ -635,9 +642,9 @@ choices are important when querying or evolving the schema:
 
 - `api_statuses.msg_id` is deliberately polymorphic and unreferenced because it may
   identify an outbound message or an inbound echo, including an echo not yet stored.
-- `case_handler_routes.handler_key`, `case_handler_settings.handler_key`, and
-  `api_flows.handler_key` are application-level keys rather than database foreign
-  keys. This lets workers claim only handler implementations in their local registry.
+- `case_handler_configurations.handler_key` and `api_flows.handler_key` are
+  application-level keys rather than database foreign keys. Routes reference a
+  configuration row. Workers claim only handler keys in their local registry.
 - Queue rows and case manifests retain work when a route is deleted by setting their
   nullable route ID to `NULL`; the application then uses its configured fallback.
 - `case_handler_case_manifests.machine_state` caches the current FSM state, while

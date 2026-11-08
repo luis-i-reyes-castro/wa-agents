@@ -725,20 +725,71 @@ ALTER TABLE wa_agents.api_statuses
 
 /*
   =========================================================================================
-  CASE HANDLER ROUTING & SETTINGS
+  CASE HANDLER CONFIGURATION & ROUTING
   =========================================================================================
 */
 
-CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes (
+CREATE TABLE IF NOT EXISTS wa_agents.case_handler_configurations (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  phone_number  BIGINT      NOT NULL,
-  contact       BIGINT      DEFAULT NULL, -- For contact-specific handler
-  handler_key   T_NO_WS_STR NOT NULL,
-  handler_url   T_NO_WS_STR DEFAULT NULL, -- For remote handler URL
+  handler_key                 T_NO_WS_STR NOT NULL,
+  handler_url                 T_NO_WS_STR DEFAULT NULL, -- For remote handler URL
+  
+  /*
+  Case staleness limit in hours (formerly `time_limit_stale`)
+  */
+  case_stale_hours            SMALLINT  NOT NULL,
+  
+  /*
+  Response delay parameters
+  */
+  response_delay_seconds      INTEGER   NOT NULL,
+  max_response_delay_seconds  INTEGER   NOT NULL,
+  burst_decay_seconds         INTEGER   NOT NULL,
+  
+  /*
+  Silence timeout in minutes for Coexistence handlers, i.e., only for phone numbers onboarded through Embedded Signup.
+  */
+  silence_timeout_minutes     SMALLINT  DEFAULT NULL,
+  
+  CONSTRAINT case_handler_configurations_handler_key_unique
+    UNIQUE ( handler_key ),
+  
+  CONSTRAINT case_handler_configurations_case_stale_positive
+    CHECK ( case_stale_hours > 0 ),
+  
+  CONSTRAINT case_handler_configurations_response_delay_positive
+    CHECK ( response_delay_seconds > 0 ),
+
+  CONSTRAINT case_handler_configurations_max_delay_at_least_base
+    CHECK ( max_response_delay_seconds >= response_delay_seconds ),
+
+  CONSTRAINT case_handler_configurations_burst_decay_positive
+    CHECK ( burst_decay_seconds > 0 ),
+  
+  CONSTRAINT case_handler_configurations_silence_timeout_positive
+    CHECK (
+      ( silence_timeout_minutes IS NULL ) OR
+      ( silence_timeout_minutes > 0     )
+    )
+
+);
+
+ALTER TABLE wa_agents.case_handler_configurations
+  ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes (
+  
+  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  phone_number    BIGINT NOT NULL,
+  contact         BIGINT DEFAULT NULL, -- For contact-specific handler
+  handler_config  BIGINT NOT NULL,
   
   CONSTRAINT case_handler_routes_phone_number_fkey
     FOREIGN KEY (phone_number)
@@ -753,31 +804,21 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes (
     ON DELETE CASCADE,
   
   CONSTRAINT case_handler_routes_phone_number_contact_unique
-    UNIQUE NULLS NOT DISTINCT ( phone_number, contact)
+    UNIQUE NULLS NOT DISTINCT ( phone_number, contact),
+  
+  CONSTRAINT case_handler_routes_handler_config_fkey
+    FOREIGN KEY (handler_config)
+    REFERENCES wa_agents.case_handler_configurations(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
 
 );
 
-CREATE INDEX IF NOT EXISTS case_handler_routes_handler_key_idx
-  ON wa_agents.case_handler_routes (handler_key);
+CREATE INDEX IF NOT EXISTS case_handler_routes_handler_config_idx
+  ON wa_agents.case_handler_routes (handler_config);
 
 ALTER TABLE wa_agents.case_handler_routes
   ENABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS wa_agents.case_handler_settings (
-  
-  handler_key             T_NO_WS_STR PRIMARY KEY,
-  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-  silence_timeout_minutes INTEGER     NOT NULL,
-  
-  CONSTRAINT case_handler_settings_silence_timeout_positive
-    CHECK ( silence_timeout_minutes > 0 )
-
-);
-
-ALTER TABLE wa_agents.case_handler_settings
-  ENABLE ROW LEVEL SECURITY;
-
 
 /*
   =========================================================================================

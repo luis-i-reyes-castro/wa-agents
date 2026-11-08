@@ -13,8 +13,8 @@ SELECT
   rou.id,
   CASE
     WHEN (
-      ( rou.id                      IS NOT NULL ) OR
-      ( @fallback_handler_key::text IS NOT NULL )
+      ( rou.id IS NOT NULL ) OR
+      ( fbk.id IS NOT NULL )
     )
     THEN
       'pending'::T_ENQUEUED_MESSAGE_STATUS
@@ -40,6 +40,10 @@ LEFT JOIN LATERAL (
     ( rte.contact IS NOT NULL ) DESC
   LIMIT 1
 ) AS rou ON TRUE
+LEFT JOIN
+  wa_agents.case_handler_configurations AS fbk ON
+    ( rou.id          IS NULL                       ) AND
+    ( fbk.handler_key = @fallback_handler_key::text )
 JOIN
   wa_agents.api_inbound_messages AS msg ON con.id = msg.contact
 WHERE

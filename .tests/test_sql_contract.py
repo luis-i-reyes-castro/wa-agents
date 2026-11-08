@@ -181,10 +181,10 @@ def test_queue_claim_acquires_contact_lease_atomically() -> None :
     )
     normalized = _normalized_sql(claim)
 
-    assert "INSERT INTO public.wa_case_handler_contact_leases" in normalized
-    assert "FOR UPDATE OF que SKIP LOCKED" in normalized
+    assert "INSERT INTO wa_agents.case_handler_contact_leases" in normalized
+    assert "FOR UPDATE OF que, num SKIP LOCKED" in normalized
     assert "@owner_token" in claim
-    assert "COALESCE( rou.handler_key, @fallback_handler_key::text )" in claim
+    assert "COALESCE( cfg.handler_key, fbk.handler_key )" in normalized
     assert "= ANY( @handler_keys )" in claim
     assert "msg_status = 'processing'" in normalized
 
@@ -200,29 +200,37 @@ def test_contact_queue_claim_reuses_active_lease_and_preserves_fifo() -> None :
     assert "lea.expires_at > now()" in normalized
     assert "que.id > @after_row_id" in normalized
     assert "ORDER BY que.created_at ASC, que.id ASC LIMIT 1" in normalized
-    assert "FOR UPDATE OF que SKIP LOCKED" in normalized
+    assert "FOR UPDATE OF que, num SKIP LOCKED" in normalized
     assert normalized.index("LIMIT 1") < normalized.index(
         "can.handler_key = ANY( @handler_keys)"
     )
     assert normalized.index(
-        "@fallback_handler_key::text ) IS NOT NULL"
+        "COALESCE( cfg.handler_key, fbk.handler_key) IS NOT NULL"
     ) < normalized.index("LIMIT 1")
     assert "heartbeat_at = now()" in normalized
     assert "expires_at = now() + INTERVAL '90 seconds'" in normalized
     assert "msg_status = 'processing'" in normalized
 
 
-def test_queue_claim_returns_handler_silence_timeout() -> None :
+def test_queue_claim_returns_handler_configuration() -> None :
     claim = ( SQL_DIR / "claim_next_case_handler_message.sql").read_text(
         encoding = "utf-8"
     )
 
-    assert "CREATE TABLE IF NOT EXISTS public.wa_case_handler_settings" in DDL
-    assert "handler_key             T_NO_WS_STR PRIMARY KEY" in DDL
-    assert "silence_timeout_minutes INTEGER     NOT NULL" in DDL
-    assert "CHECK ( silence_timeout_minutes > 0 )" in DDL
-    assert "public.wa_case_handler_settings" in claim
-    assert "settings.silence_timeout_minutes" in claim
+    assert "CREATE TABLE IF NOT EXISTS wa_agents.case_handler_configurations" in DDL
+    assert "UNIQUE ( handler_key )" in DDL
+    assert "case_stale_hours            SMALLINT  NOT NULL" in DDL
+    assert "response_delay_seconds      INTEGER   NOT NULL" in DDL
+    assert "max_response_delay_seconds  INTEGER   NOT NULL" in DDL
+    assert "burst_decay_seconds         INTEGER   NOT NULL" in DDL
+    assert "silence_timeout_minutes     SMALLINT  DEFAULT NULL" in DDL
+    assert "max_response_delay_seconds >= response_delay_seconds" in DDL
+    assert "wa_agents.case_handler_configurations" in claim
+    assert "cfg.silence_timeout_minutes" in claim
+    assert "cfg.response_delay_seconds" in claim
+    assert "cfg.max_response_delay_seconds" in claim
+    assert "cfg.burst_decay_seconds" in claim
+    assert "cfg.case_stale_hours" in claim
 
 
 def test_pending_echo_query_is_contact_scoped_and_newer_than_job() -> None :
@@ -242,16 +250,18 @@ def test_queue_route_is_resolved_and_persisted_at_enqueue() -> None :
         encoding = "utf-8"
     )
 
-    assert "wa_case_handler_routes" in DDL
-    assert "handler_key   T_NO_WS_STR" in DDL
-    assert "wa_case_handler_routes_phone_number_fkey" in DDL
+    assert "wa_agents.case_handler_routes" in DDL
+    assert "handler_config  BIGINT NOT NULL" in DDL
+    assert "case_handler_routes_phone_number_fkey" in DDL
     assert "FOREIGN KEY ( phone_number, contact)" in DDL
     assert "UNIQUE NULLS NOT DISTINCT ( phone_number, contact)" in DDL
-    assert "handler_url   T_NO_WS_STR DEFAULT NULL" in DDL
+    assert "handler_url                 T_NO_WS_STR DEFAULT NULL" in DDL
+    assert "case_handler_routes_handler_config_fkey" in DDL
     assert "ON DELETE SET NULL" in DDL
-    assert "INSERT INTO public.wa_api_to_case_handler_queue ( msg_id, handler_id )" in (
-        _normalized_sql(enqueue)
-    )
+    assert (
+        "INSERT INTO wa_agents.api_to_case_handler_queue "
+        "( msg_id, handler_id, msg_status )"
+    ) in _normalized_sql(enqueue)
     assert "( rte.contact IS NOT NULL ) DESC" in enqueue
 
 

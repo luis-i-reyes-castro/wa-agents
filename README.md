@@ -129,35 +129,22 @@ Configure the new registration's routes explicitly; previous routes are not copi
 
 | Variable                        | Default | Purpose |
 | ------------------------------- | ------- | --- |
-| `QUEUE_POLL_INTERVAL_BUSY`      | `1.0`   | worker sleep when active |
-| `QUEUE_POLL_INTERVAL_IDLE`      | `1.0`   | worker sleep when idle |
-| `QUEUE_RESPONSE_DELAY`          | `1.0`   | base quiet period before applying the contact’s burst score |
-| `QUEUE_SILENCE_TIMEOUT_MINUTES` | `30`    | fallback echo silence timeout in minutes |
+| `QUEUE_POLL_INTERVAL_BUSY` | `1.0` | worker sleep when active |
+| `QUEUE_POLL_INTERVAL_IDLE` | `1.0` | worker sleep when idle |
 
-Override them per application with the `poll_interval_busy`, `poll_interval_idle`, `response_delay`, and `silence_timeout` constructor arguments.
-Set the adaptive maximum and decay period through `max_response_delay` and `burst_decay_period`:
-```python
-from datetime import timedelta
+Override the poll intervals with the `poll_interval_busy` and `poll_interval_idle` constructor arguments.
 
-app = WhatsAppAPIServer(
-    handler_cls        = CaseHandler,
-    response_delay     = 4.0,
-    max_response_delay = 60.0,
-    burst_decay_period = timedelta( hours = 1),
-)
-```
-
-`response_delay` is the base interval for a trailing-edge debounce for delayed handler responses.
+Each handler configuration stores the burst timing. `response_delay_seconds` is the base interval for a trailing-edge debounce for delayed handler responses. `max_response_delay_seconds` caps that quiet period, and `burst_decay_seconds` is the time that removes one burst-score point.
 While the worker holds a contact lease, each newer queued message is persisted into the same case and restarts the quiet period.
 Once the contact remains quiet for the configured interval, the worker calls `run_while_in_action` once with the complete persisted context.
 Replies sent directly by `process_message` remain immediate.
 
 Each contact has a persistent **burst score**, initially zero and hard-capped at 10.
 An additional customer message received before a successful handler send adds one point.
-Each arrival first applies linear decay: the default `burst_decay_period` removes one point per hour.
-The quiet period is `min(max_response_delay, response_delay * 2**score)`.
-Ignoring the small decay between rapid messages, the example above gives delays of 4, 8, 16, 32, then 60 seconds.
-The package defaults to a 1-second base, giving 1, 2, 4, 8, 16, 32, then 60 seconds.
+Each arrival first applies linear decay: `burst_decay_seconds` removes one point over that many seconds. One hour is `3600`.
+The quiet period is `min(max_response_delay_seconds, response_delay_seconds * 2**score)`.
+Ignoring the small decay between rapid messages, a 4-second base and a 60-second maximum give delays of 4, 8, 16, 32, then 60 seconds.
+A 1-second base gives 1, 2, 4, 8, 16, 32, then 60 seconds.
 The score can keep increasing to 10 while the delay remains 60 seconds, so sustained bursts take longer to recover.
 A reply ends the unanswered-message window but does not reset the score.
 
@@ -170,7 +157,7 @@ Stored scores describe their last recorded arrival; subtract elapsed decay when 
 
 The maximum caps the quiet period, not generation time or total burst duration.
 Messages that arrive only after the bot has already replied do not build a burst score.
-Both delays must be finite and positive, the maximum must be at least the base, and the decay period must be positive.
+The configuration requires a positive base, a maximum at least as large as that base, and a positive decay period.
 Setting the maximum equal to the base gives a fixed quiet period.
 
 Before deploying this version to an existing database, provision the two burst-score tables and the outbound contact/time index from `abc_DDL.sql`.
@@ -285,71 +272,89 @@ app = WhatsAppAPIServer(
 
 Manage routes directly in PostgreSQL for now:
 ```sql
-INSERT INTO wa_agents.case_handler_routes (
-  business,
-  contact,
-  handler_key
-)
-VALUES (
-  41,
-  NULL,
-  'retail'
-)
-ON CONFLICT ( business, contact)
-DO UPDATE
-SET
-  handler_key = EXCLUDED.handler_key,
-  updated_at  = now();
-```
-
-Message echoes put the selected handler into silence mode.
-Configure a handler-specific timeout in minutes with:
-```sql
-INSERT INTO wa_agents.case_handler_settings (
+INSERT INTO wa_agents.case_handler_configurations (
   handler_key,
+  case_stale_hours,
+  response_delay_seconds,
+  max_response_delay_seconds,
+  burst_decay_seconds,
   silence_timeout_minutes
 )
 VALUES (
   'retail',
-  30
+  48,
+  4,
+  60,
+  3600,
+  NULL
 )
 ON CONFLICT (handler_key)
 DO UPDATE
 SET
-  silence_timeout_minutes = EXCLUDED.silence_timeout_minutes,
-  updated_at              = now();
+  case_stale_hours           = EXCLUDED.case_stale_hours,
+  response_delay_seconds     = EXCLUDED.response_delay_seconds,
+  max_response_delay_seconds = EXCLUDED.max_response_delay_seconds,
+  burst_decay_seconds        = EXCLUDED.burst_decay_seconds,
+  silence_timeout_minutes    = EXCLUDED.silence_timeout_minutes,
+  updated_at                 = now();
+
+INSERT INTO wa_agents.case_handler_routes (
+  phone_number,
+  contact,
+  handler_config
+)
+VALUES (
+  41,
+  NULL,
+  (
+    SELECT id
+    FROM wa_agents.case_handler_configurations
+    WHERE handler_key = 'retail'
+  )
+)
+ON CONFLICT ( phone_number, contact)
+DO UPDATE
+SET
+  handler_config = EXCLUDED.handler_config,
+  updated_at     = now();
 ```
 
-Handlers without a settings row use the worker's configured fallback, which defaults to 30 minutes.
+`case_stale_hours` replaces the handler class `TIME_LIMIT_STALE` value for queued WhatsApp work.
+`response_delay_seconds`, `max_response_delay_seconds`, and `burst_decay_seconds` are that handler's burst-score base, cap, and decay.
+`silence_timeout_minutes` is optional and applies to coexistence numbers; `NULL` disables echo silence.
+
+Message echoes put the selected handler into silence mode when that timeout is set.
 Each echo rolls the deadline to one full timeout after that echo is processed.
 Customer messages received during silence are persisted for audit without advancing the state machine or agent contexts and do not receive a response.
 The open case is closed lazily on the first message after the deadline, and that message starts a fresh case and context.
 
 The canonical DDL defines these objects for new or rebuilt databases.
-It does not migrate an already provisioned database; add the table and manifest column there before deploying this worker version.
+Apply `.migrations/` before deploying this change to an existing database. That migration drops queue rows, route rows, and the old settings table.
 
 `handler_url` is reserved for future remote-handler dispatch.
 Changing a route affects its pending jobs; deleting it clears their nullable route reference.
-A configured fallback then claims them. A null fallback marks those still-pending rows `ignored` on the next claim.
+A fallback whose key has a configuration row then claims them. A null fallback, or a fallback key without a configuration, marks those still-pending rows `ignored` on the next claim.
 A route whose key is not served by any worker stays pending.
 Before removing a handler deployment, inspect its pending or processing rows:
 ```sql
 SELECT
-  rou.handler_key    AS handler_key,
-  que.msg_status     AS msg_status,
-  count(*)           AS count,
+  cfg.handler_key     AS handler_key,
+  que.msg_status      AS msg_status,
+  count(*)            AS count,
   min(que.created_at) AS oldest
 FROM
   wa_agents.api_to_case_handler_queue AS que
 LEFT JOIN
   wa_agents.case_handler_routes AS rou ON rou.id = que.handler_id
+LEFT JOIN
+  wa_agents.case_handler_configurations AS cfg ON cfg.id = rou.handler_config
 WHERE
   ( que.msg_status IN ( 'pending', 'processing' ) )
 GROUP BY
-  rou.handler_key,
+  cfg.handler_key,
   que.msg_status
 ORDER BY
-  rou.handler_key,
+  cfg.handler_key,
   que.msg_status;
 ```
 
@@ -358,7 +363,7 @@ A monolith can register every handler; later, separate containers or droplets ca
 
 ### Edge Case Possibilities Not Yet Addressed
 
-Changing an existing route's `handler_key` intentionally propagates to its pending messages and open cases.
+Changing an existing route's configuration intentionally propagates to its pending messages and open cases.
 Because the route keeps the same ID, the newly selected handler may continue an open case—including its persisted FSM state and context—that was previously handled by a different handler implementation.
 This is acceptable when the handlers use compatible case state, or when route changes happen only while no affected work is active.
 If incompatible handlers must be switched while cases are open, add a handler-key or route-revision snapshot to case manifests so the old case can be closed or migrated explicitly.
@@ -704,7 +709,7 @@ resp = await agent.get_response(
 
 - business/contact lookup when constructed with database row IDs,
 - per-user data lookup from the resolved contact (`UserData`),
-- stale-case rollover (`TIME_LIMIT_STALE`, default 48h),
+- stale-case rollover (`case_stale_hours` from the handler configuration, or `TIME_LIMIT_STALE`, default 48h),
 - case manifests reconstructed from stored message rows,
 - context replay into your optional handler state machine,
 - S3 access and stored-media hydration,

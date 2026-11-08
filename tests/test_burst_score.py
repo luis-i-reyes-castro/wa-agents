@@ -88,6 +88,10 @@ class BurstWorkerTests (unittest.IsolatedAsyncioTestCase) :
             api_inbound_msg_id = 1,
             owner_token = uuid4(),
             silence_timeout = timedelta( minutes = 30),
+            case_stale_hours = 48,
+            response_delay = 4.0,
+            max_response_delay = 60.0,
+            burst_decay_period = timedelta( hours = 1),
         )
         self.message = SimpleNamespace( media_data = None)
         self.reconstruct = patch(
@@ -190,32 +194,14 @@ class BurstWorkerTests (unittest.IsolatedAsyncioTestCase) :
 
     def test_configuration(self) -> None :
         
-        with patch.dict( "os.environ", { "QUEUE_RESPONSE_DELAY" : "8" }) :
-            worker = WhatsAppAPIWorker( handler_cls = Handler, queue = self.queue)
-        self.assertEqual( worker.response_delay, 8.0)
         server = WhatsAppAPIServer(
             apps = ( { "app" : "test", "id" : "123", "secret" : "test-secret" }, ),
             handler_cls = Handler,
             queue = self.queue,
-            response_delay = 2.0,
-            max_response_delay = 32.0,
-            burst_decay_period = timedelta( days = 1),
         )
-        self.assertEqual( server.max_response_delay, 32.0)
-        self.assertEqual( server.burst_decay_period, timedelta( days = 1))
-        for kwargs in (
-            { "response_delay" : 0 },
-            { "response_delay" : math.nan },
-            { "max_response_delay" : math.inf },
-            { "response_delay" : 8, "max_response_delay" : 4 },
-            { "burst_decay_period" : timedelta(0) },
-        ) :
-            with self.subTest(kwargs = kwargs), self.assertRaises(ValueError) :
-                WhatsAppAPIWorker(
-                    handler_cls = Handler,
-                    queue = self.queue,
-                    **kwargs,
-                )
+        worker = WhatsAppAPIWorker( handler_cls = Handler, queue = self.queue)
+        self.assertIs( server.queue, self.queue)
+        self.assertIs( worker.queue, self.queue)
 
 
 class BurstStorageTests (unittest.IsolatedAsyncioTestCase) :

@@ -97,10 +97,9 @@ response has already been generated or sent.
 
 ## Trailing-Edge Response Debounce
 
-Delayed responses are stored in memory with at most one scheduled job per
-contact. The effective quiet period is measured from the latest successfully
-ingested message that requested a response. `response_delay` is its base; the
-contact’s persistent burst score scales it exponentially.
+Delayed responses are stored in memory with at most one scheduled job per contact.
+The effective quiet period is measured from the latest successfully ingested message that requested a response.
+`response_delay_seconds` is its base; the contact’s persistent burst score scales it exponentially.
 
 While the quiet period is active, the worker retains the contact lease and uses
 it to claim the contact's next pending row in strict FIFO order. This owned-contact
@@ -177,8 +176,8 @@ For each eligible arrival:
 
 ```python
 elapsed = max(timedelta(0), arrival_time - previous_arrival_time)
-score = min(10, max(0, previous_score - elapsed / burst_decay_period) + increment)
-delay = min(max_response_delay, response_delay * 2**score)
+score = min(10, max(0, previous_score - elapsed.total_seconds() / burst_decay_seconds) + increment)
+delay = min(max_response_delay_seconds, response_delay_seconds * 2**score)
 ```
 
 The first arrival has score zero. `increment` is one only when no successful
@@ -255,21 +254,21 @@ old case during the next case decision.
 
 ## Timing Configuration
 
-Timing values can be passed to the worker/server constructor. When omitted, the
-polling values and response delay read their `QUEUE_*` environment variables and
-then use package defaults. The silence timeout additionally supports a durable
-per-handler database override, which takes precedence over the worker fallback.
+Poll intervals are worker constructor settings. When omitted, they read
+`QUEUE_POLL_INTERVAL_BUSY` and `QUEUE_POLL_INTERVAL_IDLE`, then use the package
+default of 1 second.
 
-The relevant settings are:
+Burst timing, echo silence, and the stale-case threshold live on
+`case_handler_configurations` and travel with the claimed route:
 
-- `poll_interval_busy`: sleep between ticks while work or delayed jobs exist.
-- `poll_interval_idle`: sleep between ticks while the worker is idle.
-- `response_delay`: base quiet period in seconds (default 1; existing environment override retained).
-- `max_response_delay`: maximum quiet period in seconds (default 60; constructor only).
-- `burst_decay_period`: time to remove one score point (default `timedelta(hours=1)`; constructor only).
-- `silence_timeout`: fallback duration for message-echo silence.
+- `case_stale_hours`: open-case rollover threshold passed into the handler.
+- `response_delay_seconds`: base quiet period before burst scaling.
+- `max_response_delay_seconds`: quiet-period cap. It must be at least the base.
+- `burst_decay_seconds`: elapsed time that removes one burst-score point.
+- `silence_timeout_minutes`: optional coexistence echo-silence timeout. `NULL` disables silence.
 
-Require finite positive delays, maximum ≥ base, and positive decay duration.
+The configuration requires a positive base, a maximum at least as large as that base,
+and a positive decay duration.
 Equal base and maximum give a fixed quiet period. The score cap is always 10 and
 is not configurable. Provision the burst-score tables and outbound contact/time
 index before deploying; existing contacts initialize lazily without backfilling.

@@ -419,6 +419,17 @@ def test_smb_app_state_sync_parses_contact_changes() -> None :
                                     },
                                     "metadata" : { "timestamp" : "1738346010" },
                                 },
+                                {
+                                    "type"    : "contact",
+                                    "action"  : "remove",
+                                    "contact" : {
+                                        "phone_number" : "16505550000",
+                                    },
+                                    "metadata" : {
+                                        "timestamp" : "0",
+                                        "version"   : 3,
+                                    },
+                                },
                             ],
                         },
                     },
@@ -432,6 +443,8 @@ def test_smb_app_state_sync_parses_contact_changes() -> None :
     assert state_sync[0].action == "add"
     assert state_sync[1].contact.full_name is None
     assert state_sync[1].action == "remove"
+    assert state_sync[2].metadata.timestamp == "0"
+    assert state_sync[2].metadata.version == 3
 
 
 def test_account_updates_parse_observed_variants() -> None :

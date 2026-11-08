@@ -1,33 +1,32 @@
 -- PARAMS:
-  -- phone_number  : api_phone_numbers.id
-  -- contact       : api_contacts.id | None
-  -- handler_key   : str
-  -- handler_url   : str | None
+  -- phone_number : api_phone_numbers.id
+  -- contact      : api_contacts.id | None
+  -- handler_key  : case_handler_configurations.handler_key
 
 INSERT INTO wa_agents.case_handler_routes AS rou (
   phone_number,
   contact,
-  handler_key,
-  handler_url
+  handler_config
 )
-VALUES (
+SELECT
   @phone_number,
   @contact,
-  @handler_key,
-  @handler_url
-)
-ON CONFLICT ( phone_number, contact)
+  cfg.id
+FROM
+  wa_agents.case_handler_configurations AS cfg
+WHERE
+  ( cfg.handler_key = @handler_key )
+ON CONFLICT
+  ( phone_number, contact )
 DO
   UPDATE
 SET
-  handler_key   = EXCLUDED.handler_key,
-  handler_url   = EXCLUDED.handler_url,
-  updated_at    = now()
+  handler_config = EXCLUDED.handler_config,
+  updated_at     = now()
 RETURNING
   rou.id,
   rou.phone_number,
   rou.contact,
-  rou.handler_key,
-  rou.handler_url,
+  rou.handler_config,
   rou.created_at,
   rou.updated_at;

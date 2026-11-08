@@ -2,11 +2,14 @@
   -- route_id : case_handler_routes.id
 
 DELETE FROM
-  wa_agents.case_handler_routes
+  wa_agents.case_handler_routes         AS rou
+USING
+  wa_agents.case_handler_configurations AS cfg
 WHERE
-  ( id = @route_id )
+  ( rou.id = @route_id          ) AND
+  ( cfg.id = rou.handler_config )
 RETURNING
-  id,
-  phone_number,
-  contact,
-  handler_key;
+  rou.id,
+  rou.phone_number,
+  rou.contact,
+  cfg.handler_key;

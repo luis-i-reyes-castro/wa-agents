@@ -4,7 +4,6 @@ import hmac
 import json
 
 from contextlib import asynccontextmanager
-from datetime import timedelta
 from typing import Any
 
 from fastapi import FastAPI
@@ -255,14 +254,10 @@ def test_server_forwards_worker_timing() -> None :
         queue              = StubQueue(),
         poll_interval_busy = 0.1,
         poll_interval_idle = 2.0,
-        response_delay     = 3.0,
-        silence_timeout    = timedelta( minutes = 45),
     )
 
     assert server.poll_interval_busy == 0.1
     assert server.poll_interval_idle == 2.0
-    assert server.response_delay == 3.0
-    assert server.silence_timeout == timedelta( minutes = 45)
 
 
 @pytest.mark.parametrize( "app", TEST_APPS)

@@ -45,10 +45,14 @@ def _queue_item(
         "waba_id"             : "123456789012345",
         "phone_number_id"     : "1234567890",
         "display_phone_number" : "15551234567",
-        "handler_id"           : 7,
-        "handler_key"          : "default",
-        "silence_timeout_minutes" : None,
-        "owner_token"         : uuid4(),
+        "handler_id"              : 7,
+        "handler_key"             : "default",
+        "case_stale_hours"           : 48,
+        "response_delay_seconds"     : 1,
+        "max_response_delay_seconds" : 60,
+        "burst_decay_seconds"        : 3600,
+        "silence_timeout_minutes"    : None,
+        "owner_token"             : uuid4(),
     }
 
 
@@ -92,7 +96,7 @@ class _AsyncQueueStub :
         self.pending_echo  = False
         self.pending_echo_checks = []
         self.released_leases = []
-        self.storage      = object()
+        self.storage      = _StorageStub()
 
     async def claim_next( self, handler_keys) -> dict | None :
         self.claimed_keys = handler_keys
@@ -131,6 +135,12 @@ class _AsyncQueueStub :
     async def has_pending_echo( self, contact : int, after_row_id : int) -> bool :
         self.pending_echo_checks.append(( contact, after_row_id))
         return self.pending_echo
+
+
+class _StorageStub :
+
+    async def update_contact_burst_score( self, **_kwargs) -> None :
+        return None
 
 
 class _ImmediateReplyHandler :
@@ -207,10 +217,7 @@ class _DelayedReplyHandler :
 
 
 def test_queue_row_reconstructs_job_and_message() -> None :
-    job, message = _job_and_message(
-        _queue_item(),
-        timedelta( minutes = 30),
-    )
+    job, message = _job_and_message(_queue_item())
 
     assert job.operator.row_id == 41
     assert job.user.row_id == 31
@@ -218,14 +225,17 @@ def test_queue_row_reconstructs_job_and_message() -> None :
     assert job.handler_id == 7
     assert job.handler_key == "default"
     assert job.queue_row_id == 1
-    assert job.silence_timeout == timedelta( minutes = 30)
+    assert job.case_stale_hours == 48
+    assert job.response_delay == 1.0
+    assert job.max_response_delay == 60.0
+    assert job.burst_decay_period == timedelta( seconds = 3600)
+    assert job.silence_timeout is None
     assert isinstance( hash(job), int)
     assert message.id == "wamid.ABC123="
     assert message.text.body == "Hola"
 
 
-def test_api_worker_releases_lease_after_ingest_reply(monkeypatch) -> None :
-    monkeypatch.delenv( "QUEUE_SILENCE_TIMEOUT_MINUTES", raising = False)
+def test_api_worker_releases_lease_after_ingest_reply() -> None :
     _ImmediateReplyHandler.instances.clear()
     queue  = _AsyncQueueStub()
     worker = WhatsAppAPIWorker(
@@ -240,9 +250,8 @@ def test_api_worker_releases_lease_after_ingest_reply(monkeypatch) -> None :
     assert _ImmediateReplyHandler.instances[0].released is True
     assert _ImmediateReplyHandler.instances[0].user.row_id == 31
     assert _ImmediateReplyHandler.instances[0].kwargs["handler_id"] == 7
-    assert _ImmediateReplyHandler.instances[0].kwargs["silence_timeout"] == (
-        timedelta( minutes = 30)
-    )
+    assert _ImmediateReplyHandler.instances[0].kwargs["silence_timeout"] is None
+    assert _ImmediateReplyHandler.instances[0].kwargs["case_stale_hours"] == 48
     assert queue.claimed_keys == ( "default", )
 
 
@@ -291,16 +300,19 @@ def test_api_worker_holds_lease_through_delayed_response() -> None :
     assert not worker._job_td
 
 
-def test_api_worker_uses_constructor_timing(monkeypatch) -> None :
-    monkeypatch.setenv( "QUEUE_SILENCE_TIMEOUT_MINUTES", "60")
+def test_api_worker_uses_configuration_timing(monkeypatch) -> None :
     _DelayedReplyHandler.instances.clear()
+    queue = _AsyncQueueStub()
+    queue.item["response_delay_seconds"]     = 3
+    queue.item["max_response_delay_seconds"] = 30
+    queue.item["burst_decay_seconds"]        = 1800
+    queue.item["silence_timeout_minutes"]    = 45
+    queue.item["case_stale_hours"]           = 2
     worker = WhatsAppAPIWorker(
         handler_cls        = _DelayedReplyHandler,
-        queue              = _AsyncQueueStub(),
+        queue              = queue,
         poll_interval_busy = 0.1,
         poll_interval_idle = 2.0,
-        response_delay     = 3.0,
-        silence_timeout    = timedelta( minutes = 45),
     )
     monkeypatch.setattr( api_worker.time, "time", lambda : 10.0)
 
@@ -310,26 +322,17 @@ def test_api_worker_uses_constructor_timing(monkeypatch) -> None :
     timed = next(iter(worker._job_td.values()))
     assert timed.response_time == 13.0
     assert timed.job.silence_timeout == timedelta( minutes = 45)
-
-
-def test_api_worker_uses_environment_silence_timeout(monkeypatch) -> None :
-    monkeypatch.setenv( "QUEUE_SILENCE_TIMEOUT_MINUTES", "45")
-    worker = WhatsAppAPIWorker(
-        handler_cls = _ImmediateReplyHandler,
-        queue       = _AsyncQueueStub(),
-    )
-
-    assert worker.silence_timeout == timedelta( minutes = 45)
+    assert timed.job.case_stale_hours == 2
+    assert timed.job.response_delay == 3.0
+    assert timed.job.max_response_delay == 30.0
+    assert timed.job.burst_decay_period == timedelta( seconds = 1800)
 
 
 def test_api_worker_uses_configured_silence_timeout() -> None :
     item                            = _queue_item()
     item["silence_timeout_minutes"] = 15
 
-    job, _message = _job_and_message(
-        item,
-        timedelta( minutes = 30),
-    )
+    job, _message = _job_and_message(item)
 
     assert job.silence_timeout == timedelta( minutes = 15)
 
@@ -404,10 +407,10 @@ def test_response_delay_debounces_contact_message_burst(monkeypatch) -> None :
     _DelayedReplyHandler.instances.clear()
     now    = [ 10.0 ]
     queue  = _AsyncQueueStub()
+    queue.item["response_delay_seconds"] = 5
     worker = WhatsAppAPIWorker(
-        handler_cls    = _DelayedReplyHandler,
-        queue          = queue,
-        response_delay = 5.0,
+        handler_cls = _DelayedReplyHandler,
+        queue       = queue,
     )
     monkeypatch.setattr( api_worker.time, "time", lambda : now[0])
 
@@ -417,13 +420,13 @@ def test_response_delay_debounces_contact_message_burst(monkeypatch) -> None :
         owner     = first_job.owner_token
 
         now[0] = 11.0
-        queue.contact_items.append(
-            _queue_item(
-                row_id     = 2,
-                message_id = 22,
-                msg_id     = "wamid.SECOND=",
-            )
+        second = _queue_item(
+            row_id     = 2,
+            message_id = 22,
+            msg_id     = "wamid.SECOND=",
         )
+        second["response_delay_seconds"] = 5
+        queue.contact_items.append(second)
         assert await worker._process_pending_job_messages() == { 31 }
         second_timed = next(iter(worker._job_td.values()))
         assert second_timed.job.queue_row_id == 2
@@ -431,13 +434,13 @@ def test_response_delay_debounces_contact_message_burst(monkeypatch) -> None :
         assert second_timed.response_time == 16.0
 
         now[0] = 12.0
-        queue.contact_items.append(
-            _queue_item(
-                row_id     = 3,
-                message_id = 23,
-                msg_id     = "wamid.THIRD=",
-            )
+        third = _queue_item(
+            row_id     = 3,
+            message_id = 23,
+            msg_id     = "wamid.THIRD=",
         )
+        third["response_delay_seconds"] = 5
+        queue.contact_items.append(third)
         assert await worker._process_pending_job_messages() == { 31 }
         latest_timed = next(iter(worker._job_td.values()))
         assert latest_timed.job.queue_row_id == 3
@@ -464,10 +467,7 @@ def test_response_delay_debounces_contact_message_burst(monkeypatch) -> None :
 
 def test_delayed_response_deadlines_are_independent_per_contact() -> None :
     jobs = api_worker.JobTimeDict()
-    first, _ = _job_and_message(
-        _queue_item( contact = 31),
-        timedelta( minutes = 30),
-    )
+    first, _ = _job_and_message( _queue_item( contact = 31) )
     second, _ = _job_and_message(
         _queue_item(
             row_id     = 2,
@@ -475,7 +475,6 @@ def test_delayed_response_deadlines_are_independent_per_contact() -> None :
             msg_id     = "wamid.SECOND=",
             contact    = 32,
         ),
-        timedelta( minutes = 30),
     )
     first_latest, _ = _job_and_message(
         _queue_item(
@@ -484,7 +483,6 @@ def test_delayed_response_deadlines_are_independent_per_contact() -> None :
             msg_id     = "wamid.THIRD=",
             contact    = 31,
         ),
-        timedelta( minutes = 30),
     )
 
     jobs.schedule( first, 10.0)
@@ -500,10 +498,10 @@ def test_messages_after_quiet_period_start_a_new_burst(monkeypatch) -> None :
     _DelayedReplyHandler.instances.clear()
     now    = [ 10.0 ]
     queue  = _AsyncQueueStub()
+    queue.item["response_delay_seconds"] = 5
     worker = WhatsAppAPIWorker(
-        handler_cls    = _DelayedReplyHandler,
-        queue          = queue,
-        response_delay = 5.0,
+        handler_cls = _DelayedReplyHandler,
+        queue       = queue,
     )
     monkeypatch.setattr( api_worker.time, "time", lambda : now[0])
 
@@ -519,6 +517,7 @@ def test_messages_after_quiet_period_start_a_new_burst(monkeypatch) -> None :
             message_id = 22,
             msg_id     = "wamid.SECOND=",
         )
+        queue.item["response_delay_seconds"] = 5
         assert await worker._process_message() is True
 
         now[0] = 20.0

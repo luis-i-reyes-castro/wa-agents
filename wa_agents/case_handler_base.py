@@ -319,24 +319,26 @@ class CaseHandlerBase (ABC) :
         business : int | WhatsAppDatabaseRecord_Business,
         contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
-        database_url    : str | None        = None,
-        debug           : bool              = False,
-        handler_id      : int | None        = None,
-        hydrate_media   : bool              = True,
-        owner_token     : UUID | str | None = None,
-        silence_timeout : timedelta | None  = None,
+        case_stale_hours : int | None       = None,
+        database_url     : str | None       = None,
+        debug            : bool             = False,
+        handler_id       : int | None       = None,
+        hydrate_media    : bool             = True,
+        owner_token      : UUID | str | None = None,
+        silence_timeout  : timedelta | None = None,
     ) -> None :
         """
         Initialize a transport-neutral handler for one persisted contact. \\
         Args:
             business : Row ID `api_phone_numbers.id` or DB record object.
             contact  : Row ID `api_contacts.id` or DB record object.
-            database_url  : Optional PostgreSQL URL override.
-            debug         : Whether downstream components should emit debug output.
-            handler_id    : Optional `case_handler_routes.id`.
-            hydrate_media : Whether to hydrate media during `context_build()`.
-            owner_token   : Token owning the contact lease.
-            silence_timeout : Duration of message-echo silence mode.
+            case_stale_hours : Open-case staleness threshold in hours.
+            database_url     : Optional PostgreSQL URL override.
+            debug            : Whether downstream components should emit debug output.
+            handler_id       : Optional `case_handler_routes.id`.
+            hydrate_media    : Whether to hydrate media during `context_build()`.
+            owner_token      : Token owning the contact lease.
+            silence_timeout  : Duration of message-echo silence mode.
         """
         self.storage = SyncSupabaseStorage(database_url)
         
@@ -347,6 +349,11 @@ class CaseHandlerBase (ABC) :
         self.business_id = business_record.row_id
         self.contact_id  = contact_record.row_id
         
+        self.case_stale_hours = (
+            self.TIME_LIMIT_STALE
+            if case_stale_hours is None else
+            case_stale_hours
+        )
         self.debug           = debug
         self.handler_id      = handler_id
         self.hydrate_media   = hydrate_media
@@ -565,13 +572,13 @@ class CaseHandlerBase (ABC) :
             self.case_close(manifest)
             manifest = None
         if (
-            manifest              and
-            self.TIME_LIMIT_STALE and
+            manifest                and
+            self.case_stale_hours   and
             ( not manifest.silenced_until )
         ) :
             last = manifest.updated_at or manifest.created_at
             age  = now - last
-            if age > timedelta( hours = self.TIME_LIMIT_STALE) :
+            if age > timedelta( hours = self.case_stale_hours) :
                 self.case_close(manifest)
                 manifest = None
 
@@ -877,6 +884,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
         api_inbound_msg_id : int | None        = None,
+        case_stale_hours   : int | None        = None,
         database_url       : str | None        = None,
         debug              : bool              = False,
         handler_id         : int | None        = None,
@@ -890,6 +898,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             business : Row ID `api_phone_numbers.id` or DB record object.
             contact  : Row ID `api_contacts.id` or DB record object.
             api_inbound_msg_id : Current `api_inbound_messages.id`, if any.
+            case_stale_hours   : Open-case staleness threshold in hours.
             database_url       : Optional PostgreSQL URL override.
             debug              : Whether downstream components should emit debug output.
             handler_id         : Optional `case_handler_routes.id`.
@@ -898,14 +907,15 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             silence_timeout    : Duration of message-echo silence mode.
         """
         super().__init__(
-            business        = business,
-            contact         = contact,
-            database_url    = database_url,
-            debug           = debug,
-            handler_id      = handler_id,
-            hydrate_media   = hydrate_media,
-            owner_token     = owner_token,
-            silence_timeout = silence_timeout,
+            business         = business,
+            contact          = contact,
+            case_stale_hours = case_stale_hours,
+            database_url     = database_url,
+            debug            = debug,
+            handler_id       = handler_id,
+            hydrate_media    = hydrate_media,
+            owner_token      = owner_token,
+            silence_timeout  = silence_timeout,
         )
         
         self.api_inbound_msg_id = api_inbound_msg_id
@@ -1301,24 +1311,26 @@ class AsyncCaseHandlerBase (ABC) :
         business : int | WhatsAppDatabaseRecord_Business,
         contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
-        database_url    : str | None        = None,
-        debug           : bool              = False,
-        handler_id      : int | None        = None,
-        hydrate_media   : bool              = True,
-        owner_token     : UUID | str | None = None,
-        silence_timeout : timedelta | None  = None,
+        case_stale_hours : int | None       = None,
+        database_url     : str | None       = None,
+        debug            : bool             = False,
+        handler_id       : int | None       = None,
+        hydrate_media    : bool             = True,
+        owner_token      : UUID | str | None = None,
+        silence_timeout  : timedelta | None = None,
     ) -> None :
         """
         Initialize a transport-neutral handler for one persisted contact. \\
         Args:
             business : Row ID `api_phone_numbers.id` or DB record object.
             contact  : Row ID `api_contacts.id` or DB record object.
-            database_url  : Optional PostgreSQL URL override.
-            debug         : Whether downstream components should emit debug output.
-            handler_id    : Optional `case_handler_routes.id`.
-            hydrate_media : Whether to hydrate media during `context_build()`.
-            owner_token   : Token owning the contact lease.
-            silence_timeout : Duration of message-echo silence mode.
+            case_stale_hours : Open-case staleness threshold in hours.
+            database_url     : Optional PostgreSQL URL override.
+            debug            : Whether downstream components should emit debug output.
+            handler_id       : Optional `case_handler_routes.id`.
+            hydrate_media    : Whether to hydrate media during `context_build()`.
+            owner_token      : Token owning the contact lease.
+            silence_timeout  : Duration of message-echo silence mode.
         """
         self.storage = AsyncSupabaseStorage(database_url)
         
@@ -1332,11 +1344,16 @@ class AsyncCaseHandlerBase (ABC) :
         self.business_id = business_record.row_id
         self.contact_id  = contact_record.row_id
         
-        self.debug           = debug
-        self.handler_id      = handler_id
-        self.hydrate_media   = hydrate_media
-        self.owner_token     = owner_token or uuid4()
-        self.silence_timeout = silence_timeout
+        self.debug            = debug
+        self.handler_id       = handler_id
+        self.case_stale_hours = (
+            self.TIME_LIMIT_STALE
+            if case_stale_hours is None else
+            case_stale_hours
+        )
+        self.hydrate_media    = hydrate_media
+        self.owner_token      = owner_token or uuid4()
+        self.silence_timeout  = silence_timeout
         
         self.operator_waba = business_record.waba_id
         self.operator_num  = business_record.display_phone_number
@@ -1550,12 +1567,12 @@ class AsyncCaseHandlerBase (ABC) :
             manifest = None
         if (
             manifest              and
-            self.TIME_LIMIT_STALE and
+            self.case_stale_hours and
             not manifest.silenced_until
         ) :
             last = manifest.updated_at or manifest.created_at
             age  = now - last
-            if age > timedelta( hours = self.TIME_LIMIT_STALE) :
+            if age > timedelta( hours = self.case_stale_hours) :
                 await self.case_close(manifest)
                 manifest = None
 
@@ -1860,6 +1877,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
         api_inbound_msg_id : int | None        = None,
+        case_stale_hours   : int | None        = None,
         database_url       : str | None        = None,
         debug              : bool              = False,
         handler_id         : int | None        = None,
@@ -1873,6 +1891,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             business : Row ID `api_phone_numbers.id` or DB record object.
             contact  : Row ID `api_contacts.id` or DB record object.
             api_inbound_msg_id : Current `api_inbound_messages.id`, if any.
+            case_stale_hours   : Open-case staleness threshold in hours.
             database_url       : Optional PostgreSQL URL override.
             debug              : Whether downstream components should emit debug output.
             handler_id         : Optional `case_handler_routes.id`.
@@ -1881,14 +1900,15 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             silence_timeout    : Duration of message-echo silence mode.
         """
         super().__init__(
-            business        = business,
-            contact         = contact,
-            database_url    = database_url,
-            debug           = debug,
-            handler_id      = handler_id,
-            hydrate_media   = hydrate_media,
-            owner_token     = owner_token,
-            silence_timeout = silence_timeout,
+            business         = business,
+            contact          = contact,
+            case_stale_hours = case_stale_hours,
+            database_url     = database_url,
+            debug            = debug,
+            handler_id       = handler_id,
+            hydrate_media    = hydrate_media,
+            owner_token      = owner_token,
+            silence_timeout  = silence_timeout,
         )
         
         self.api_inbound_msg_id = api_inbound_msg_id
