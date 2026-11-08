@@ -126,6 +126,15 @@ type WhatsAppTextBody = Annotated[
 ]
 """ WhatsApp text body """
 
+type WhatsAppStateSyncTimestamp = Annotated[
+    str,
+    Field( pattern = r"^(?:0|[1-9][0-9]*)$"),
+]
+"""
+Unix timestamp for a WhatsApp Business app contact change.
+Meta sends "0" when a historical removal has no change time.
+"""
+
 # Literal-constrained strings
 
 type WhatsAppAppDataSyncType = Literal[
@@ -874,11 +883,13 @@ class WhatsApp_IB_SMBAppContact (BaseModel) :
 
 class WhatsApp_IB_StateSyncMetadata (BaseModel) :
     """
-    Timestamp for one WhatsApp Business app state change
+    Timestamp for one WhatsApp Business app state change.
+    `version` is the contact-sync protocol version when Meta includes it.
     """
     model_config = ConfigDict( frozen = True)
     
-    timestamp : UnixTS
+    timestamp : WhatsAppStateSyncTimestamp
+    version   : int | None = None
 
 class WhatsApp_IB_StateSync (BaseModel) :
     """
