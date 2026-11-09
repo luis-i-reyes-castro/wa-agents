@@ -1118,6 +1118,53 @@ CREATE UNIQUE INDEX IF NOT EXISTS case_handler_messages_case_id_id_idx
 ALTER TABLE wa_agents.case_handler_messages
   ENABLE ROW LEVEL SECURITY;
 
+-- OPENROUTER USAGE
+
+CREATE TABLE IF NOT EXISTS wa_agents.case_handler_openrouter_usage (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  case_message       BIGINT           NOT NULL,
+  model              T_NO_WS_STR      DEFAULT NULL,
+  prompt_tokens      INTEGER          NOT NULL,
+  completion_tokens  INTEGER          NOT NULL,
+  total_tokens       INTEGER          NOT NULL,
+  cost               NUMERIC          DEFAULT NULL,
+  usage              JSONB            NOT NULL,
+  
+  CONSTRAINT case_handler_openrouter_usage_case_message_fkey
+    FOREIGN KEY (case_message)
+    REFERENCES wa_agents.case_handler_messages(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT case_handler_openrouter_usage_case_message_unique
+    UNIQUE (case_message),
+  
+  CONSTRAINT case_handler_openrouter_usage_prompt_tokens_nonnegative
+    CHECK ( prompt_tokens >= 0 ),
+  
+  CONSTRAINT case_handler_openrouter_usage_completion_tokens_nonnegative
+    CHECK ( completion_tokens >= 0 ),
+  
+  CONSTRAINT case_handler_openrouter_usage_total_tokens_nonnegative
+    CHECK ( total_tokens >= 0 ),
+  
+  CONSTRAINT case_handler_openrouter_usage_cost_nonnegative
+    CHECK (
+      ( cost IS NULL ) OR
+      ( cost >= 0    )
+    ),
+  
+  CONSTRAINT case_handler_openrouter_usage_object
+    CHECK ( jsonb_typeof(usage) = 'object' )
+
+);
+
+ALTER TABLE wa_agents.case_handler_openrouter_usage
+  ENABLE ROW LEVEL SECURITY;
+
 -- STATE HISTORIES
 
 CREATE TABLE IF NOT EXISTS wa_agents.case_handler_state_histories (

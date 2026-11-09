@@ -75,6 +75,7 @@ this schema and stay between two and four characters when practical.
 | `wa_agents.case_handler_contact_leases` | `chl` |
 | `wa_agents.case_handler_case_manifests` | `chm` |
 | `wa_agents.case_handler_messages` | `cmsg` |
+| `wa_agents.case_handler_openrouter_usage` | `chou` |
 | `wa_agents.case_handler_state_histories` | `csh` |
 | `wa_agents.case_handler_to_api_bridge` | `cab` |
 | `wa_agents.case_handler_agent_contexts` | `cac` |
@@ -109,6 +110,7 @@ this schema and stay between two and four characters when practical.
 | `case_handler_contact_leases` | Expiring ownership leases that serialize work per contact. |
 | `case_handler_case_manifests` | Numbered cases, open/closed state, current FSM state, and silence deadline. |
 | `case_handler_messages` | Ordered, typed messages persisted within a case. |
+| `case_handler_openrouter_usage` | Token counts and cost for one persisted OpenRouter assistant response. |
 | `case_handler_state_histories` | Append-only FSM snapshots for case creation and persisted messages. |
 | `case_handler_to_api_bridge` | Mapping between case-handler messages and inbound/outbound API messages. |
 | `case_handler_agent_contexts` | Ordered membership of case messages in named agent contexts. |
@@ -136,7 +138,7 @@ every row.
 | **3** | `api_contact_profiles` <br> `api_inbound_payloads` <br> `api_outbound_messages` <br> `api_smb_app_contacts` <br> `case_handler_contact_leases` <br> `case_handler_routes` |
 | **4** | `api_flow_events` <br> `api_history_chunks` <br> `api_statuses` <br> `case_handler_case_manifests` |
 | **5** | `api_inbound_messages` <br> `case_handler_messages` |
-| **6** | `api_flow_sessions` <br> `api_media` <br> `api_to_case_handler_queue` <br> `case_handler_agent_contexts` <br> `case_handler_state_histories` <br> `case_handler_to_api_bridge` |
+| **6** | `api_flow_sessions` <br> `api_media` <br> `api_to_case_handler_queue` <br> `case_handler_agent_contexts` <br> `case_handler_openrouter_usage` <br> `case_handler_state_histories` <br> `case_handler_to_api_bridge` |
 | **7** | `api_flow_data_exchanges` |
 
 # References and Foreign Keys
@@ -476,10 +478,25 @@ payload that would provide the matching inbound row.
 | ------ | --------- |
 | `case_handler_messages.(case_id, id)` | `case_handler_state_histories.(case_manifest, case_message)` |
 | `case_handler_messages.id` | `case_handler_to_api_bridge.case_handler_msg_id` |
+| `case_handler_messages.id` | `case_handler_openrouter_usage.case_message` |
 | `case_handler_messages.(case_id, id)` | `case_handler_agent_contexts.(case_manifest, case_message)` |
 | `case_handler_messages.id` | `api_flow_sessions.case_handler_message` |
 
 ## Level 6
+
+### Table `case_handler_openrouter_usage`
+
+**OUTGOING REFERENCES:**
+
+| COLUMN | REFERENCE |
+| ------ | --------- |
+| `case_handler_openrouter_usage.case_message` | `case_handler_messages.id` |
+
+**INCOMING REFERENCES:** None.
+
+One row per persisted assistant message that carried an OpenRouter `usage` object.
+`cost` is US dollars, stored as `NUMERIC` so fractions of a penny stay exact.
+`usage` keeps the full object, including details the scalar columns do not.
 
 ### Table `api_flow_sessions`
 

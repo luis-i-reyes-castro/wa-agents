@@ -25,7 +25,6 @@ from typing import (
 )
 
 from sofia_utils.io import (
-    extract_code_block,
     load_file_as_string,
     load_json_file,
     load_json_string,
@@ -41,10 +40,21 @@ from .case_handler_models import (
     BasicMsg,
     HumanContentMsg,
     Message,
+    OpenRouterCompletionUsage,
     StructuredDataMsg,
     ToolCall,
     ToolResultsMsg,
 )
+
+
+class OpenRouterChatCompletion (ChatCompletion) :
+    
+    usage : OpenRouterCompletionUsage | None = None
+
+
+class OpenRouterParsedChatCompletion (ParsedChatCompletion) :
+    
+    usage : OpenRouterCompletionUsage | None = None
 
 
 class AgentBase (ABC) :
@@ -460,111 +470,88 @@ class AgentBase (ABC) :
         Returns:
             Parsed assistant response
         """
-        ag_resp_obj = AssistantMsg(
-            origin       = here(),
+        msg = AssistantMsg(
+            origin       = origin or here(),
             agent        = self.name,
             api          = self.api,
-            model        = getattr( response, "model", None),
+            model        = response.model,
             instructions = self.prompts_merged,
             tools        = self.tools,
             context      = [
-                message.id for message in context if message.id is not None
+                message.id
+                for message in context if message.id is not None
             ],
+            usage        = (
+                OpenRouterCompletionUsage.model_validate(
+                    response.usage.model_dump()
+                )
+                if response.usage else
+                None
+            ),
         )
         
-        usage = getattr( response, "usage", None)
-        if usage :
-            ag_resp_obj.tokens_input  = getattr( usage, "prompt_tokens", None)
-            ag_resp_obj.tokens_output = getattr( usage, "completion_tokens", None)
-            ag_resp_obj.tokens_total  = getattr( usage, "total_tokens", None)
-            ag_resp_obj.tokens_cost   = getattr( usage, "cost", None)
-        
-        if (
-            hasattr( response, "choices")
-            and isinstance( response.choices, list)
-            and response.choices
-            and ( choice := response.choices[0] )
-        ) :
-            # Collect text
-            content = getattr( choice.message, "content", None)
-            if isinstance( content, str) :
-                ag_resp_obj.append_to_text(content)
-            elif isinstance( content, list) :
-                for item in content :
-                    if isinstance( item, str) :
-                        ag_resp_obj.append_to_text(item)
-                    elif isinstance( item, dict) :
-                        item_text = item.get("text")
-                        if item_text :
-                            ag_resp_obj.append_to_text(item_text)
-            elif isinstance( content, dict) :
-                text_value = content.get("text")
-                if text_value :
-                    ag_resp_obj.append_to_text(text_value)
+        if response.choices and ( choice := response.choices[0] ) :
             
-            # Collect tool calls
-            tool_calls = getattr( choice.message, "tool_calls", None)
-            if tool_calls :
-                for tool_call in tool_calls :
-                    # Parse tool call arguments
-                    arguments = tool_call.function.arguments
-                    if isinstance( arguments, str) :
-                        arguments = load_json_string(arguments)
-                    # Create tool call object
-                    tc = ToolCall( id    = tool_call.id,
-                                   name  = tool_call.function.name,
-                                   input = arguments )
-                    ag_resp_obj.tool_calls.append(tc)
+            msg.text   = choice.message.content
+            tool_calls = []
             
-            # Collect structured output
-            if isinstance( output_st, type) and issubclass( output_st, BaseModel) :
+            for tool_call in choice.message.tool_calls or [] :
                 
-                parsed = getattr( choice.message, "parsed", None)
-                if parsed and isinstance( parsed, BaseModel) :
-                    ag_resp_obj.st_output = parsed.model_dump()
-                    ag_resp_obj.st_out_bm = parsed.__class__.__name__
+                arguments = tool_call.function.arguments
+                if isinstance( arguments, str) :
+                    arguments = load_json_string(arguments)
                 
-                elif ag_resp_obj.text :
-                    try :
-                        code = extract_code_block(ag_resp_obj.text)
-                        ag_resp_obj.st_output = output_st.model_validate_json(code)
-                        ag_resp_obj.st_out_bm = output_st.__name__
-                    except Exception :
-                        pass
+                tool_calls.append(
+                    ToolCall(
+                        id    = tool_call.id,
+                        name  = tool_call.function.name,
+                        input = arguments,
+                    )
+                )
             
-            # If structured output was collected then clear text
-            if ag_resp_obj.st_output :
-                ag_resp_obj.text = None
-        
-        return ag_resp_obj
+            msg.tool_calls = tool_calls
+            
+            if (
+                isinstance( output_st, type)                and
+                issubclass( output_st, BaseModel)           and
+                isinstance( response, ParsedChatCompletion) and
+                ( parsed := choice.message.parsed )         and
+                isinstance( parsed, BaseModel)
+            ) :
+                msg.st_out_bm = parsed.__class__.__name__
+                msg.st_output = parsed.model_dump()
+            
+            msg.finish_reason = choice.finish_reason
+            
+        return msg
     
     def validate_and_post_process_response(
         self,
-        ag_resp_obj : AssistantMsg | None,
+        msg : AssistantMsg | None,
     ) -> AssistantMsg | None :
         """
         Validate and post-process an assistant response \\
         Args:
-            ag_resp_obj : Response object returned by OpenRouter
+            msg : Response object returned by OpenRouter
         Returns:
             Post-processed response, or None if empty.
         """
         
-        if not ag_resp_obj :
+        if not msg :
             print_sep()
             print("In Agent get_response: No response received.")
             return None
         
-        elif ag_resp_obj.is_empty() :
+        elif msg.is_empty() :
             print_sep()
             print("In Agent get_response: Response received is empty.")
             return None
         
-        if ag_resp_obj.text :
+        if msg.text :
             for post_processor_ in self.post_processors :
-                ag_resp_obj.text = post_processor_(ag_resp_obj.text)
+                msg.text = post_processor_(msg.text)
         
-        return ag_resp_obj
+        return msg
 
 
 class Agent (AgentBase) :

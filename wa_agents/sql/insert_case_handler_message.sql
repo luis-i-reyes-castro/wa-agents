@@ -139,6 +139,32 @@ CTE_extended_agent_contexts AS (
   ON CONFLICT DO NOTHING
   RETURNING
     agent_name
+),
+CTE_openrouter_usage AS (
+  INSERT INTO wa_agents.case_handler_openrouter_usage (
+    case_message,
+    model,
+    prompt_tokens,
+    completion_tokens,
+    total_tokens,
+    cost,
+    usage
+  )
+  SELECT
+    message.id,
+    NULLIF( message.data ->> 'model', ''),
+    ( message.data -> 'usage' ->> 'prompt_tokens'     )::INTEGER,
+    ( message.data -> 'usage' ->> 'completion_tokens' )::INTEGER,
+    ( message.data -> 'usage' ->> 'total_tokens'      )::INTEGER,
+    ( message.data -> 'usage' ->> 'cost'              )::NUMERIC,
+    message.data -> 'usage'
+  FROM
+    CTE_inserted_message AS message
+  WHERE
+    ( message.basemodel = 'AssistantMsg'                 ) AND
+    ( jsonb_typeof( message.data -> 'usage' ) = 'object' )
+  RETURNING
+    case_message
 )
 SELECT
   msg.id,
@@ -159,4 +185,6 @@ JOIN
   (
     ( msg.case_id = history.case_manifest ) AND
     ( msg.id      = history.case_message  )
-  );
+  )
+LEFT JOIN
+  CTE_openrouter_usage AS usage    ON msg.id = usage.case_message;

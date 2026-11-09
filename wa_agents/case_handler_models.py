@@ -11,6 +11,7 @@ from datetime import (
     datetime,
 )
 from mimetypes import guess_type
+from openai.types import CompletionUsage
 from pathlib import Path
 from pydantic import (
     BaseModel,
@@ -544,6 +545,10 @@ class ServerDocumentMsg (ServerMediaMsg) :
 # -----------------------------------------------------------------------------------------
 # ASSISTANT MESSAGES
 
+class OpenRouterCompletionUsage (CompletionUsage) :
+    
+    cost : NonNegativeFloat | None = None
+
 class AssistantMsg (BasicMsg) :
     """
     Assistant (AI/LLM) Message
@@ -555,26 +560,12 @@ class AssistantMsg (BasicMsg) :
     agent         : NE_str | None = None
     api           : NE_str | None = None
     model         : NE_str | None = None
-    tokens_input  : NonNegativeInt | None = None
-    tokens_output : NonNegativeInt | None = None
-    tokens_total  : NonNegativeInt | None = None
-    tokens_cost   : NonNegativeFloat | None = None
-    instructions  : str            | None = None
-    tools         : list[Any]      | None = None
+    instructions  : str               | None = None
+    tools         : list[Any]         | None = None
     context       : list[PositiveInt] | None = None
     
-    def append_to_text( self, text_block : str | None) -> None :
-        
-        if text_block and isinstance( text_block, str): 
-            if not self.text :
-                self.text = text_block
-            else :
-                if self.text.endswith("\n") :
-                    self.text += ( "\n" + text_block )
-                else :
-                    self.text += ( "\n\n" + text_block )
-        
-        return
+    finish_reason : str                       | None = None
+    usage         : OpenRouterCompletionUsage | None = None
     
     def is_empty(self) -> bool :
         return not bool( self.text or self.tool_calls or self.st_output )
