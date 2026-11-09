@@ -134,7 +134,16 @@ def collect_send_results(
     """
     Validate a Graph send response and pair its message IDs with the request data.
     """
-    response_data = response.json()
+    try :
+        response_data = response.json()
+    except ValueError :
+        raise MetaGraphError(
+            message = (
+                "Graph send returned a non-JSON response "
+                f"(HTTP {response.status_code})"
+            ),
+            status_code = response.status_code,
+        ) from None
     
     if debug :
         print_sep()

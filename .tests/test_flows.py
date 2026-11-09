@@ -29,6 +29,7 @@ from wa_agents.flows import (
     generate_flow_key_pair,
 )
 from wa_agents.io_functions import (
+    MetaGraphError,
     collect_send_results,
     write_payload,
 )
@@ -246,6 +247,33 @@ def test_flow_launch_payload_and_persisted_token_redaction(capsys) -> None :
 
     assert stored["action"]["parameters"]["flow_token"] == "[REDACTED]"
     assert _message_data(message).obj["flow_token"] == "[REDACTED]"
+
+
+@pytest.mark.parametrize( "status_code", [ 200, 502, 503 ])
+@pytest.mark.parametrize( "content", [ b"", b"<html>upstream failure</html>" ])
+def test_flow_send_non_json_response_reports_status(
+    capsys,
+    status_code : int,
+    content     : bytes,
+) -> None :
+    
+    message = ServerFlowMsg(
+        flow_id    = "123456",
+        flow_token = "secret-token",
+        flow_cta   = "Open",
+        body       = "Start here",
+        screen     = "START",
+    )
+    payload  = write_payload( "593999999999", message)
+    response = httpx.Response( status_code, content = content)
+    
+    with pytest.raises( MetaGraphError, match = f"HTTP {status_code}") as error :
+        collect_send_results( payload, response, debug = True)
+    
+    assert error.value.status_code == status_code
+    assert "secret-token" not in str(error.value)
+    assert "upstream failure" not in str(error.value)
+    assert capsys.readouterr().out == ""
 
 
 def test_nfm_reply_parses_safe_completion_payload() -> None :
