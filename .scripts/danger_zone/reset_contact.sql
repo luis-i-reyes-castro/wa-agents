@@ -1,6 +1,6 @@
 -- WARNING:
 -- This permanently deletes all database state associated with matching WhatsApp
--- contacts while preserving the contacts and their case-handler routes.
+-- contacts while preserving the contacts and both case-handler route tables.
 --
 -- Replace the contact placeholder and set DISPLAY_PHONE_NUMBER to one business
 -- display phone number or `all` before running this script manually in the
@@ -11,7 +11,7 @@
 --   - WhatsApp phone numbers
 --   - all contacts
 --   - WhatsApp Business app contact metadata
---   - all case-handler routes
+--   - phone-number routes and contact routes
 --   - Flow WABA provisioning keys
 --   - Flow definitions
 --   - WABA-level Flow health exchanges and webhook events
@@ -19,7 +19,9 @@
 -- Deleted:
 --   - contact profiles
 --   - inbound/outbound message rows, statuses, media metadata, and queue rows
---   - case manifests, messages, state histories, contexts, and leases
+--   - case manifests, messages, state histories, contexts, leases, and
+--     OpenRouter usage
+--   - contact burst scores and their histories
 --   - Flow sessions and their session-bound data exchanges
 --
 -- This does not delete media bytes from external object storage or messages

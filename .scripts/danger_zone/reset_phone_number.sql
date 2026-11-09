@@ -12,7 +12,7 @@
 --   - WhatsApp phone numbers
 --   - all contacts
 --   - WhatsApp Business app contact metadata
---   - all case-handler routes
+--   - phone-number routes and contact routes
 --   - Flow WABA provisioning keys
 --   - Flow definitions
 --   - WABA-level Flow health exchanges and webhook events
@@ -20,7 +20,9 @@
 -- Deleted:
 --   - contact profiles
 --   - inbound/outbound message rows, statuses, media metadata, and queue rows
---   - case manifests, messages, state histories, contexts, and leases
+--   - case manifests, messages, state histories, contexts, leases, and
+--     OpenRouter usage
+--   - contact burst scores and their histories
 --   - Flow sessions and their session-bound data exchanges
 --
 -- This does not delete media bytes from external object storage or messages
