@@ -670,7 +670,8 @@ class WhatsAppDatabaseQueue :
         return {
             **message_row,
             "row_id"                  : queue_row["row_id"],
-            "handler_id"              : queue_row["handler_id"],
+            "route_by_phone_number"   : queue_row["route_by_phone_number"],
+            "route_by_contact"        : queue_row["route_by_contact"],
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
@@ -735,7 +736,8 @@ class WhatsAppDatabaseQueue :
         return {
             **message_row,
             "row_id"                  : queue_row["row_id"],
-            "handler_id"              : queue_row["handler_id"],
+            "route_by_phone_number"   : queue_row["route_by_phone_number"],
+            "route_by_contact"        : queue_row["route_by_contact"],
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
@@ -1264,7 +1266,8 @@ class AsyncWhatsAppDatabaseQueue :
         return {
             **message_row,
             "row_id"                  : queue_row["row_id"],
-            "handler_id"              : queue_row["handler_id"],
+            "route_by_phone_number"   : queue_row["route_by_phone_number"],
+            "route_by_contact"        : queue_row["route_by_contact"],
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
@@ -1332,7 +1335,8 @@ class AsyncWhatsAppDatabaseQueue :
         return {
             **message_row,
             "row_id"                  : queue_row["row_id"],
-            "handler_id"              : queue_row["handler_id"],
+            "route_by_phone_number"   : queue_row["route_by_phone_number"],
+            "route_by_contact"        : queue_row["route_by_contact"],
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,

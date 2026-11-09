@@ -129,7 +129,8 @@ def test_queue_claim_returns_message_and_lease_identity( monkeypatch) -> None :
             "msg_id"     : "wamid.ABC123=",
             "msg_status" : "processing",
             "contact"    : 31,
-            "handler_id" : 7,
+            "route_by_phone_number" : 7,
+            "route_by_contact"      : None,
             "handler_key": "default",
         }
 
@@ -139,7 +140,7 @@ def test_queue_claim_returns_message_and_lease_identity( monkeypatch) -> None :
     assert item["id"] == 21
     assert item["row_id"] == 1
     assert item["contact"] == 31
-    assert item["handler_id"] == 7
+    assert item["route_by_phone_number"] == 7
     assert item["handler_key"] == "default"
     assert isinstance( item["owner_token"], UUID)
     assert calls[0][0] == database_queue.SQL_CLAIM_NEXT
@@ -198,7 +199,8 @@ def test_null_fallback_handler_key_is_passed_with_explicit_keys(monkeypatch) -> 
             "msg_id"     : "wamid.ABC123=",
             "msg_status" : "processing",
             "contact"    : 31,
-            "handler_id" : 7,
+            "route_by_phone_number" : 7,
+            "route_by_contact"      : None,
             "handler_key": "retail",
         }
 
@@ -246,7 +248,8 @@ def test_queue_claims_next_contact_message_with_existing_lease(monkeypatch) -> N
             "msg_id"     : "wamid.SECOND=",
             "msg_status" : "processing",
             "contact"    : 31,
-            "handler_id" : 7,
+            "route_by_phone_number" : 7,
+            "route_by_contact"      : None,
             "handler_key": "default",
         }
 
@@ -290,7 +293,8 @@ def test_async_queue_claims_next_contact_message_with_existing_lease(
             "msg_id"     : "wamid.SECOND=",
             "msg_status" : "processing",
             "contact"    : 31,
-            "handler_id" : 7,
+            "route_by_phone_number" : 7,
+            "route_by_contact"      : None,
             "handler_key": "default",
         }
 

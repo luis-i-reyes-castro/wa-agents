@@ -42,7 +42,7 @@ class _StorageStub :
         self.messages      = []
         self.agent_contexts = {}
         self.insert_states = []
-        self.inserted_handler_ids = []
+        self.inserted_phone_routes = []
         self.inserted_agent_names = []
         self.context_changes = []
         self.inserted_texts  = []
@@ -94,20 +94,23 @@ class _StorageStub :
 
     def insert_case_manifest(
         self,
-        handler_id    : int | None,
         contact       : int,
         machine_state : str | None,
         agent_names   : list[str] | None = None,
+        *,
+        route_by_phone_number : int | None = None,
+        route_by_contact      : int | None = None,
     ) -> CaseManifest :
-        self.inserted_handler_ids.append(handler_id)
+        self.inserted_phone_routes.append(route_by_phone_number)
         self.inserted_agent_names.append(agent_names or [])
         next_case_index = self.manifest.case_index + 1
         self.manifest = CaseManifest(
-            id            = 12,
-            contact       = contact,
-            handler_id    = handler_id,
-            case_index    = next_case_index,
-            machine_state = machine_state,
+            id                    = 12,
+            contact               = contact,
+            route_by_phone_number = route_by_phone_number,
+            route_by_contact      = route_by_contact,
+            case_index            = next_case_index,
+            machine_state         = machine_state,
         )
         return self.manifest
 
@@ -125,7 +128,7 @@ class _StateHandler (CaseHandlerBase) :
     def __init__(
         self,
         manifest   : CaseManifest,
-        handler_id : int | None = None,
+        route_by_phone_number : int | None = None,
     ) -> None :
         business = WhatsAppDatabaseRecord_Business(
             row_id               = 41,
@@ -142,7 +145,7 @@ class _StateHandler (CaseHandlerBase) :
             business,
             contact,
             database_url = "postgresql://test",
-            handler_id   = handler_id,
+            route_by_phone_number = route_by_phone_number,
         )
         self.ingested = []
         self.storage  = _StorageStub(manifest)
@@ -396,7 +399,7 @@ class _AsyncRouteStorage :
 
     def __init__( self, manifest : CaseManifest) -> None :
         self.manifest          = manifest
-        self.inserted_handler_ids = []
+        self.inserted_phone_routes = []
 
     async def get_open_case_manifest( self, _contact : int) -> CaseManifest :
         return self.manifest
@@ -410,16 +413,20 @@ class _AsyncRouteStorage :
 
     async def insert_case_manifest(
         self,
-        handler_id    : int | None,
         contact       : int,
         machine_state : str | None,
+        agent_names   : list[str] | None = None,
+        *,
+        route_by_phone_number : int | None = None,
+        route_by_contact      : int | None = None,
     ) -> CaseManifest :
-        self.inserted_handler_ids.append(handler_id)
+        self.inserted_phone_routes.append(route_by_phone_number)
         self.manifest = CaseManifest(
-            id            = 12,
-            contact       = contact,
-            handler_id    = handler_id,
-            machine_state = machine_state,
+            id                    = 12,
+            contact               = contact,
+            route_by_phone_number = route_by_phone_number,
+            route_by_contact      = route_by_contact,
+            machine_state         = machine_state,
         )
         return self.manifest
 
@@ -780,7 +787,7 @@ def test_active_silence_takes_precedence_over_stale_case_timeout() -> None :
     assert case_id == manifest.id
     assert current is manifest
     assert current.is_open is True
-    assert handler.storage.inserted_handler_ids == []
+    assert handler.storage.inserted_phone_routes == []
 
 
 def test_state_callbacks_run_after_triggering_message_is_persisted() -> None :
@@ -924,23 +931,23 @@ def test_case_registration_initializes_declared_agent_contexts() -> None :
 
 def test_handler_change_closes_open_case_and_starts_clean() -> None :
     manifest            = _manifest()
-    manifest.handler_id = 8
-    handler             = _StateHandler( manifest, handler_id = 7)
+    manifest.route_by_phone_number = 8
+    handler                        = _StateHandler( manifest, route_by_phone_number = 7)
 
     case_id, current = handler.case_decide()
 
     assert case_id == 12
-    assert current.handler_id == 7
-    assert handler.storage.inserted_handler_ids == [ 7 ]
+    assert current.route_by_phone_number == 7
+    assert handler.storage.inserted_phone_routes == [ 7 ]
 
 
 def test_async_handler_change_starts_clean_case() -> None :
     manifest             = _manifest()
-    manifest.handler_id  = 8
+    manifest.route_by_phone_number = 8
     handler              = object.__new__(_AsyncIDHandler)
     handler.storage      = _AsyncRouteStorage(manifest)
     handler.contact_id   = 31
-    handler.handler_id   = 7
+    handler.route_by_phone_number = 7
     handler.case_id      = None
     handler.case_manifest = None
     handler.machine      = None
@@ -949,8 +956,8 @@ def test_async_handler_change_starts_clean_case() -> None :
     case_id, current = asyncio.run(handler.case_decide())
 
     assert case_id == 12
-    assert current.handler_id == 7
-    assert handler.storage.inserted_handler_ids == [ 7 ]
+    assert current.route_by_phone_number == 7
+    assert handler.storage.inserted_phone_routes == [ 7 ]
 
 
 def test_whatsapp_methods_live_on_transport_adapters() -> None :

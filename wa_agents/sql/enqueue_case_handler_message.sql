@@ -4,16 +4,19 @@
 
 INSERT INTO wa_agents.api_to_case_handler_queue (
   msg_id,
-  handler_id,
+  route_by_phone_number,
+  route_by_contact,
   msg_status
 )
 (
 SELECT
   msg.msg_id,
-  rou.id,
+  phn.id,
+  ctc.id,
   CASE
     WHEN (
-      ( rou.id IS NOT NULL ) OR
+      ( phn.id IS NOT NULL ) OR
+      ( ctc.id IS NOT NULL ) OR
       ( fbk.id IS NOT NULL )
     )
     THEN
@@ -25,24 +28,14 @@ FROM
   wa_agents.api_phone_numbers    AS num
 JOIN
   wa_agents.api_contacts         AS con ON num.id = con.phone_number
-LEFT JOIN LATERAL (
-  SELECT
-    rte.id
-  FROM
-    wa_agents.case_handler_routes AS rte
-  WHERE
-    ( rte.phone_number = con.phone_number ) AND
-    (
-      ( rte.contact = con.id ) OR
-      ( rte.contact IS NULL  )
-    )
-  ORDER BY
-    ( rte.contact IS NOT NULL ) DESC
-  LIMIT 1
-) AS rou ON TRUE
+LEFT JOIN
+  wa_agents.case_handler_routes_by_contact      AS ctc ON con.id = ctc.contact
+LEFT JOIN
+  wa_agents.case_handler_routes_by_phone_number AS phn ON con.phone_number = phn.phone_number
 LEFT JOIN
   wa_agents.case_handler_configurations AS fbk ON
-    ( rou.id          IS NULL                       ) AND
+    ( phn.id          IS NULL                       ) AND
+    ( ctc.id          IS NULL                       ) AND
     ( fbk.handler_key = @fallback_handler_key::text )
 JOIN
   wa_agents.api_inbound_messages AS msg ON con.id = msg.contact
@@ -59,6 +52,7 @@ RETURNING
   created_at,
   updated_at,
   last_error_at,
-  handler_id,
+  route_by_phone_number,
+  route_by_contact,
   msg_id,
   msg_status;

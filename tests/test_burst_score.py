@@ -76,7 +76,8 @@ class BurstWorkerTests (unittest.IsolatedAsyncioTestCase) :
         self.worker._handler = Mock( return_value = self.handler)
         self.job = HandlerJob(
             queue_row_id = 1,
-            handler_id = None,
+            route_by_phone_number = None,
+            route_by_contact      = None,
             handler_key = "default",
             operator = WhatsAppDatabaseRecord_Business(
                 row_id = 1,

@@ -813,32 +813,25 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_configurations (
 ALTER TABLE wa_agents.case_handler_configurations
   ENABLE ROW LEVEL SECURITY;
 
-CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes (
+CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes_by_phone_number (
   
   id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   
   phone_number    BIGINT NOT NULL,
-  contact         BIGINT DEFAULT NULL, -- For contact-specific handler
   handler_config  BIGINT NOT NULL,
   
-  CONSTRAINT case_handler_routes_phone_number_fkey
+  CONSTRAINT case_handler_routes_by_phone_number_phone_number_fkey
     FOREIGN KEY (phone_number)
     REFERENCES wa_agents.api_phone_numbers(id)
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
-  CONSTRAINT case_handler_routes_contact_fkey
-    FOREIGN KEY ( phone_number, contact)
-    REFERENCES wa_agents.api_contacts( phone_number, id)
-    ON UPDATE CASCADE
-    ON DELETE CASCADE,
+  CONSTRAINT case_handler_routes_by_phone_number_phone_number_unique
+    UNIQUE (phone_number),
   
-  CONSTRAINT case_handler_routes_phone_number_contact_unique
-    UNIQUE NULLS NOT DISTINCT ( phone_number, contact),
-  
-  CONSTRAINT case_handler_routes_handler_config_fkey
+  CONSTRAINT case_handler_routes_by_phone_number_handler_config_fkey
     FOREIGN KEY (handler_config)
     REFERENCES wa_agents.case_handler_configurations(id)
     ON UPDATE CASCADE
@@ -846,10 +839,42 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes (
 
 );
 
-CREATE INDEX IF NOT EXISTS case_handler_routes_handler_config_idx
-  ON wa_agents.case_handler_routes (handler_config);
+CREATE INDEX IF NOT EXISTS case_handler_routes_by_phone_number_config_idx
+  ON wa_agents.case_handler_routes_by_phone_number (handler_config);
 
-ALTER TABLE wa_agents.case_handler_routes
+ALTER TABLE wa_agents.case_handler_routes_by_phone_number
+  ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes_by_contact (
+  
+  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  contact         BIGINT NOT NULL,
+  handler_config  BIGINT NOT NULL,
+  
+  CONSTRAINT case_handler_routes_by_contact_contact_fkey
+    FOREIGN KEY (contact)
+    REFERENCES wa_agents.api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT case_handler_routes_by_contact_contact_unique
+    UNIQUE (contact),
+  
+  CONSTRAINT case_handler_routes_by_contact_handler_config_fkey
+    FOREIGN KEY (handler_config)
+    REFERENCES wa_agents.case_handler_configurations(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+
+);
+
+CREATE INDEX IF NOT EXISTS case_handler_routes_by_contact_config_idx
+  ON wa_agents.case_handler_routes_by_contact (handler_config);
+
+ALTER TABLE wa_agents.case_handler_routes_by_contact
   ENABLE ROW LEVEL SECURITY;
 
 /*
@@ -875,22 +900,29 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_to_case_handler_queue (
   
   /*
   DESIGN NOTES:
-  - Column `handler_id` is nullable.
-    Worker behavior for null routes:
-    - If a fallback handler key was passed then null routes use it.
-    - Else, null routes are stored as `ignored` and not claimed.
-  - In the FK constraint `handler_id` -> `case_handler_routes.id` we changed
-    the usual `ON DELETE CASCADE` to `ON DELETE SET NULL` so that data is not lost
-    when removing case handler routes.
+  - Both route columns are nullable.
+    A contact route trumps the phone-number route only while its row exists.
+    When neither route remains:
+    - a configured fallback handler key claims the row;
+    - otherwise the row is stored as `ignored` and not claimed.
+  - Both foreign keys use `ON DELETE SET NULL` so removing a route keeps the
+    queued message.
   */
   
-  handler_id    BIGINT                    DEFAULT NULL,
-  msg_id        T_NO_WS_STR               NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
-  msg_status    T_ENQUEUED_MESSAGE_STATUS NOT NULL DEFAULT 'pending',
+  route_by_phone_number  BIGINT                    DEFAULT NULL,
+  route_by_contact       BIGINT                    DEFAULT NULL,
+  msg_id                 T_NO_WS_STR               NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
+  msg_status             T_ENQUEUED_MESSAGE_STATUS NOT NULL DEFAULT 'pending',
   
-  CONSTRAINT api_to_case_handler_queue_handler_id_fkey
-    FOREIGN KEY (handler_id)
-    REFERENCES wa_agents.case_handler_routes(id)
+  CONSTRAINT api_to_case_handler_queue_route_by_phone_number_fkey
+    FOREIGN KEY (route_by_phone_number)
+    REFERENCES wa_agents.case_handler_routes_by_phone_number(id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL,
+  
+  CONSTRAINT api_to_case_handler_queue_route_by_contact_fkey
+    FOREIGN KEY (route_by_contact)
+    REFERENCES wa_agents.case_handler_routes_by_contact(id)
     ON UPDATE CASCADE
     ON DELETE SET NULL,
   
@@ -905,9 +937,8 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_to_case_handler_queue (
 
 );
 
-CREATE INDEX IF NOT EXISTS api_to_case_handler_queue_handler_status_idx
+CREATE INDEX IF NOT EXISTS api_to_case_handler_queue_status_idx
   ON wa_agents.api_to_case_handler_queue (
-    handler_id,
     msg_status,
     created_at,
     id
@@ -1036,20 +1067,28 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_case_manifests (
   
   /*
   DESIGN NOTES:
-  - Column `handler_id` has the same constraints as in `api_to_case_handler_queue`
+  - Route columns match `api_to_case_handler_queue`.
+    A contact route trumps the phone-number route only while its row exists.
   */
   
-  handler_id         BIGINT       DEFAULT NULL,
-  contact            BIGINT       NOT NULL,
+  route_by_phone_number  BIGINT       DEFAULT NULL,
+  route_by_contact       BIGINT       DEFAULT NULL,
+  contact                BIGINT       NOT NULL,
   case_index         INT          NOT NULL,
   next_message_index INT          NOT NULL DEFAULT 1,
   is_open            BOOLEAN      NOT NULL DEFAULT TRUE,
   machine_state      T_NO_WS_STR  DEFAULT NULL,
   silenced_until     TIMESTAMPTZ  DEFAULT NULL,
   
-  CONSTRAINT case_handler_case_manifests_handler_id_fkey
-    FOREIGN KEY (handler_id)
-    REFERENCES wa_agents.case_handler_routes(id)
+  CONSTRAINT case_handler_case_manifests_route_by_phone_number_fkey
+    FOREIGN KEY (route_by_phone_number)
+    REFERENCES wa_agents.case_handler_routes_by_phone_number(id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL,
+  
+  CONSTRAINT case_handler_case_manifests_route_by_contact_fkey
+    FOREIGN KEY (route_by_contact)
+    REFERENCES wa_agents.case_handler_routes_by_contact(id)
     ON UPDATE CASCADE
     ON DELETE SET NULL,
   

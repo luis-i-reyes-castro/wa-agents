@@ -68,18 +68,21 @@ class HandlerJob :
     """
     Everything required to reconstruct a contact-bound handler.
     """
-    queue_row_id       : int
-    handler_id         : int | None
-    handler_key        : str
-    operator           : WhatsAppDatabaseRecord_Business
-    user               : WhatsAppDatabaseRecord_Contact
-    api_inbound_msg_id : int
-    owner_token        : UUID | str
-    silence_timeout    : timedelta | None
-    case_stale_hours   : int
-    response_delay     : float
-    max_response_delay : float
-    burst_decay_period : timedelta
+    queue_row_id          : int
+    route_by_phone_number : int | None
+    route_by_contact      : int | None
+    handler_key           : str
+    
+    operator              : WhatsAppDatabaseRecord_Business
+    user                  : WhatsAppDatabaseRecord_Contact
+    api_inbound_msg_id    : int
+    owner_token           : UUID | str
+    
+    case_stale_hours      : int
+    response_delay        : float
+    max_response_delay    : float
+    burst_decay_period    : timedelta
+    silence_timeout       : timedelta | None
 
 
 @dataclass( frozen = True)
@@ -186,18 +189,19 @@ def _job_and_message(
     )
     
     job = HandlerJob(
-        queue_row_id       = item["row_id"],
-        handler_id         = item.get("handler_id"),
-        handler_key        = item["handler_key"],
-        operator           = operator,
-        user               = user,
-        api_inbound_msg_id = item["id"],
-        owner_token        = item["owner_token"],
-        silence_timeout    = silence_timeout,
-        case_stale_hours   = int(stale_hours),
-        response_delay     = float(delay_seconds),
-        max_response_delay = float(max_delay_seconds),
-        burst_decay_period = timedelta( minutes = decay_minutes),
+        queue_row_id          = item["row_id"],
+        route_by_phone_number = item.get("route_by_phone_number"),
+        route_by_contact      = item.get("route_by_contact"),
+        handler_key           = item["handler_key"],
+        operator              = operator,
+        user                  = user,
+        api_inbound_msg_id    = item["id"],
+        owner_token           = item["owner_token"],
+        case_stale_hours      = int(stale_hours),
+        response_delay        = float(delay_seconds),
+        max_response_delay    = float(max_delay_seconds),
+        burst_decay_period    = timedelta( minutes = decay_minutes),
+        silence_timeout       = silence_timeout,
     )
     
     return job, message
@@ -534,12 +538,13 @@ class WhatsAppAPIWorker (FastAPI) :
         return Handler(
             job.operator,
             job.user,
-            api_inbound_msg_id = job.api_inbound_msg_id,
-            case_stale_hours   = job.case_stale_hours,
-            debug              = self.debug,
-            handler_id         = job.handler_id,
-            owner_token        = job.owner_token,
-            silence_timeout    = job.silence_timeout,
+            api_inbound_msg_id    = job.api_inbound_msg_id,
+            case_stale_hours      = job.case_stale_hours,
+            debug                 = self.debug,
+            owner_token           = job.owner_token,
+            route_by_phone_number = job.route_by_phone_number,
+            route_by_contact      = job.route_by_contact,
+            silence_timeout       = job.silence_timeout,
         )
     
     def stop( self, *_ : object) -> None :

@@ -45,7 +45,8 @@ def _queue_item(
         "waba_id"             : "123456789012345",
         "phone_number_id"     : "1234567890",
         "display_phone_number" : "15551234567",
-        "handler_id"              : 7,
+        "route_by_phone_number"   : 7,
+        "route_by_contact"        : None,
         "handler_key"             : "default",
         "case_stale_hours"           : 48,
         "response_delay_seconds"     : 1,
@@ -222,7 +223,8 @@ def test_queue_row_reconstructs_job_and_message() -> None :
     assert job.operator.row_id == 41
     assert job.user.row_id == 31
     assert job.api_inbound_msg_id == 21
-    assert job.handler_id == 7
+    assert job.route_by_phone_number == 7
+    assert job.route_by_contact is None
     assert job.handler_key == "default"
     assert job.queue_row_id == 1
     assert job.case_stale_hours == 48
@@ -249,7 +251,7 @@ def test_api_worker_releases_lease_after_ingest_reply() -> None :
     assert not worker._job_td
     assert _ImmediateReplyHandler.instances[0].released is True
     assert _ImmediateReplyHandler.instances[0].user.row_id == 31
-    assert _ImmediateReplyHandler.instances[0].kwargs["handler_id"] == 7
+    assert _ImmediateReplyHandler.instances[0].kwargs["route_by_phone_number"] == 7
     assert _ImmediateReplyHandler.instances[0].kwargs["silence_timeout"] is None
     assert _ImmediateReplyHandler.instances[0].kwargs["case_stale_hours"] == 48
     assert queue.claimed_keys == ( "default", )

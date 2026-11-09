@@ -82,7 +82,12 @@ CTE_arrival AS (
       WHERE
         ( manifest.contact        = msg.contact                       ) AND
         ( manifest.is_open                                            ) AND
-        ( manifest.handler_id     IS NOT DISTINCT FROM que.handler_id ) AND
+        ( manifest.route_by_phone_number
+                                  IS NOT DISTINCT FROM
+                                    que.route_by_phone_number         ) AND
+        ( manifest.route_by_contact
+                                  IS NOT DISTINCT FROM
+                                    que.route_by_contact              ) AND
         ( manifest.silenced_until > now()                             )
     )
 ),

@@ -92,9 +92,17 @@ FROM
 JOIN
   wa_agents.case_handler_case_manifests AS cas ON cas.contact = tar.contact_id
 LEFT JOIN
-  wa_agents.case_handler_routes         AS rou ON cas.handler_id = rou.id
+  wa_agents.case_handler_routes_by_contact
+                                        AS ctc ON cas.route_by_contact = ctc.id
 LEFT JOIN
-  wa_agents.case_handler_configurations AS cfg ON rou.handler_config = cfg.id
+  wa_agents.case_handler_routes_by_phone_number
+                                        AS phn
+                                        ON cas.route_by_phone_number = phn.id
+LEFT JOIN
+  wa_agents.case_handler_configurations AS cfg ON cfg.id = COALESCE(
+                                                    ctc.handler_config,
+                                                    phn.handler_config
+                                                  )
 LEFT JOIN
   wa_agents.case_handler_contact_leases AS lea ON tar.contact_id = lea.contact
 LEFT JOIN
@@ -126,7 +134,8 @@ WITH target_cases AS (
     cas.updated_at,
     cas.is_open,
     cas.machine_state,
-    cas.handler_id,
+    cas.route_by_phone_number,
+    cas.route_by_contact,
     cfg.handler_key
   FROM
     wa_agents.api_businesses      AS bus
@@ -135,11 +144,20 @@ WITH target_cases AS (
   JOIN
     wa_agents.api_contacts        AS con ON con.phone_number = phn.id
   JOIN
-    wa_agents.case_handler_case_manifests AS cas ON cas.contact = con.id
+    wa_agents.case_handler_case_manifests
+                                  AS cas ON cas.contact = con.id
   LEFT JOIN
-    wa_agents.case_handler_routes         AS rou ON rou.id = cas.handler_id
+    wa_agents.case_handler_routes_by_contact
+                                  AS ctc ON cas.route_by_contact = ctc.id
   LEFT JOIN
-    wa_agents.case_handler_configurations AS cfg ON cfg.id = rou.handler_config
+    wa_agents.case_handler_routes_by_phone_number
+                                  AS phn ON cas.route_by_phone_number = phn.id
+  LEFT JOIN
+    wa_agents.case_handler_configurations
+                                  AS cfg ON cfg.id = COALESCE(
+                                                        ctc.handler_config,
+                                                        phn.handler_config
+                                                      )
   WHERE
     ( phn.display_phone_number = :'business_display_phone_number' ) AND
     ( con.wa_id                = :'contact_wa_id'                 )
@@ -184,7 +202,8 @@ SELECT
   evt.updated_at               AS case_updated_at,
   evt.is_open                  AS case_is_open,
   evt.machine_state            AS current_machine_state,
-  evt.handler_id               AS handler_route_id,
+  evt.route_by_phone_number    AS route_by_phone_number,
+  evt.route_by_contact         AS route_by_contact,
   evt.handler_key              AS handler_key,
   evt.event_index              AS event_index,
   CASE

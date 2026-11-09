@@ -7,7 +7,8 @@ WITH CTE_candidate AS MATERIALIZED (
   SELECT
     msg.contact                       AS contact,
     que.id                            AS id,
-    que.handler_id                    AS handler_id,
+    que.route_by_phone_number         AS route_by_phone_number,
+    que.route_by_contact              AS route_by_contact,
     que.msg_id                        AS msg_id,
     COALESCE(
       cfg.handler_key,
@@ -36,18 +37,27 @@ WITH CTE_candidate AS MATERIALIZED (
   FROM
     wa_agents.api_phone_numbers         AS num
   JOIN
-    wa_agents.api_contacts              AS con      ON num.id     = con.phone_number
+    wa_agents.api_contacts              AS con ON num.id     = con.phone_number
   JOIN
-    wa_agents.api_inbound_messages      AS msg      ON con.id     = msg.contact
+    wa_agents.api_inbound_messages      AS msg ON con.id     = msg.contact
   JOIN
-    wa_agents.api_to_case_handler_queue AS que      ON msg.msg_id = que.msg_id
+    wa_agents.api_to_case_handler_queue AS que ON msg.msg_id = que.msg_id
   LEFT JOIN
-    wa_agents.case_handler_routes          AS rou ON que.handler_id     = rou.id
+    wa_agents.case_handler_routes_by_contact
+                                        AS ctc ON que.route_by_contact = ctc.id
   LEFT JOIN
-    wa_agents.case_handler_configurations  AS cfg ON rou.handler_config = cfg.id
+    wa_agents.case_handler_routes_by_phone_number
+                                        AS phn ON que.route_by_phone_number = phn.id
   LEFT JOIN
-    wa_agents.case_handler_configurations  AS fbk ON
-      ( rou.id          IS NULL                       ) AND
+    wa_agents.case_handler_configurations
+                                        AS cfg ON cfg.id = COALESCE(
+                                                              ctc.handler_config,
+                                                              phn.handler_config
+                                                            )
+  LEFT JOIN
+    wa_agents.case_handler_configurations          AS fbk ON
+      ( ctc.id          IS NULL                       ) AND
+      ( phn.id          IS NULL                       ) AND
       ( fbk.handler_key = @fallback_handler_key::text )
   WHERE
     ( num.registration_status = 'active'  ) AND
@@ -116,7 +126,8 @@ RETURNING
   can.contact                     AS contact,
   lea.owner_token                 AS owner_token,
   que.id                          AS row_id,
-  can.handler_id                  AS handler_id,
+  can.route_by_phone_number       AS route_by_phone_number,
+  can.route_by_contact            AS route_by_contact,
   can.handler_key                 AS handler_key,
   can.case_stale_hours            AS case_stale_hours,
   can.response_delay_seconds      AS response_delay_seconds,

@@ -312,16 +312,17 @@ def _manifest_from_row(
         return None
     
     return CaseManifest(
-        id             = row["id"],
-        handler_id     = row.get("handler_id"),
-        contact        = row["contact"],
-        case_index     = row.get( "case_index", 1),
-        created_at     = row["created_at"],
-        updated_at     = row.get("updated_at"),
-        is_open        = row["is_open"],
-        machine_state  = row.get("machine_state"),
-        silenced_until = row.get("silenced_until"),
-        message_ids    = message_ids or [],
+        id                    = row["id"],
+        route_by_phone_number = row.get("route_by_phone_number"),
+        route_by_contact      = row.get("route_by_contact"),
+        contact               = row["contact"],
+        case_index            = row.get( "case_index", 1),
+        created_at            = row["created_at"],
+        updated_at            = row.get("updated_at"),
+        is_open               = row["is_open"],
+        machine_state         = row.get("machine_state"),
+        silenced_until        = row.get("silenced_until"),
+        message_ids           = message_ids or [],
     )
 
 
@@ -1206,19 +1207,22 @@ class SyncSupabaseStorage :
     
     def insert_case_manifest(
         self,
-        handler_id    : int | None,
         contact       : int,
         machine_state : str | None,
         agent_names   : list[str] | None = None,
+        *,
+        route_by_phone_number : int | None = None,
+        route_by_contact      : int | None = None,
     ) -> CaseManifest | None :
         
         row = self._fetch_one(
             SQL_INSERT_CASE_MANIFEST,
             {
-                "handler_id"    : handler_id,
-                "contact"       : contact,
-                "machine_state" : machine_state,
-                "agent_names"   : agent_names or [],
+                "route_by_phone_number" : route_by_phone_number,
+                "route_by_contact"      : route_by_contact,
+                "contact"               : contact,
+                "machine_state"         : machine_state,
+                "agent_names"           : agent_names or [],
             },
         )
         return _manifest_from_row(row)
@@ -2254,19 +2258,22 @@ class AsyncSupabaseStorage :
     
     async def insert_case_manifest(
         self,
-        handler_id    : int | None,
         contact       : int,
         machine_state : str | None,
         agent_names   : list[str] | None = None,
+        *,
+        route_by_phone_number : int | None = None,
+        route_by_contact      : int | None = None,
     ) -> CaseManifest | None :
         
         row = await self._fetch_one(
             SQL_INSERT_CASE_MANIFEST,
             {
-                "handler_id"    : handler_id,
-                "contact"       : contact,
-                "machine_state" : machine_state,
-                "agent_names"   : agent_names or [],
+                "route_by_phone_number" : route_by_phone_number,
+                "route_by_contact"      : route_by_contact,
+                "contact"               : contact,
+                "machine_state"         : machine_state,
+                "agent_names"           : agent_names or [],
             },
         )
         return _manifest_from_row(row)

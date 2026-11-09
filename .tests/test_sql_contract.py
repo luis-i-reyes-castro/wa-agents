@@ -250,19 +250,18 @@ def test_queue_route_is_resolved_and_persisted_at_enqueue() -> None :
         encoding = "utf-8"
     )
 
-    assert "wa_agents.case_handler_routes" in DDL
-    assert "handler_config  BIGINT NOT NULL" in DDL
-    assert "case_handler_routes_phone_number_fkey" in DDL
-    assert "FOREIGN KEY ( phone_number, contact)" in DDL
-    assert "UNIQUE NULLS NOT DISTINCT ( phone_number, contact)" in DDL
+    assert "wa_agents.case_handler_routes_by_phone_number" in DDL
+    assert "wa_agents.case_handler_routes_by_contact" in DDL
+    assert "case_handler_routes_by_phone_number_phone_number_fkey" in DDL
+    assert "case_handler_routes_by_contact_contact_fkey" in DDL
+    assert "FOREIGN KEY ( phone_number, contact)" not in DDL
     assert "handler_url                 T_NO_WS_STR DEFAULT NULL" in DDL
-    assert "case_handler_routes_handler_config_fkey" in DDL
     assert "ON DELETE SET NULL" in DDL
     assert (
         "INSERT INTO wa_agents.api_to_case_handler_queue "
-        "( msg_id, handler_id, msg_status )"
+        "( msg_id, route_by_phone_number, route_by_contact, msg_status )"
     ) in _normalized_sql(enqueue)
-    assert "( rte.contact IS NOT NULL ) DESC" in enqueue
+    assert "COALESCE( ctc.handler_config, phn.handler_config )" in enqueue
 
 
 def test_history_chunks_and_messages_preserve_import_context() -> None :
@@ -301,13 +300,15 @@ def test_smb_app_contacts_update_existing_contact_and_sync_rows() -> None :
     assert "sync_status  = 'completed'" in complete
 
 
-def test_case_manifests_are_bound_to_handler_id() -> None :
+def test_case_manifests_are_bound_to_route_ids() -> None :
     insert_manifest = ( SQL_DIR / "insert_case_manifest.sql").read_text(
         encoding = "utf-8"
     )
 
-    assert re.search( r"handler_id\s+BIGINT\s+DEFAULT NULL", DDL)
-    assert "@handler_id" in insert_manifest
+    assert re.search( r"route_by_phone_number\s+BIGINT\s+DEFAULT NULL", DDL)
+    assert re.search( r"route_by_contact\s+BIGINT\s+DEFAULT NULL", DDL)
+    assert "@route_by_phone_number" in insert_manifest
+    assert "@route_by_contact" in insert_manifest
 
 
 def test_case_and_message_indices_are_one_based_and_scoped() -> None :

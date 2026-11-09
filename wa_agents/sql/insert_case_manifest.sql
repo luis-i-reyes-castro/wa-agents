@@ -1,6 +1,7 @@
 -- PARAMS:
-  -- handler_id    : case_handler_routes.id | None
-  -- contact       : api_contacts.id
+  -- route_by_phone_number : case_handler_routes_by_phone_number.id | None
+  -- route_by_contact      : case_handler_routes_by_contact.id | None
+  -- contact               : api_contacts.id
   -- machine_state : str | None
   -- agent_names   : list[str]
 
@@ -14,13 +15,15 @@ WITH CTE_next_case AS (
 ),
 CTE_manifest AS (
   INSERT INTO wa_agents.case_handler_case_manifests (
-    handler_id,
+    route_by_phone_number,
+    route_by_contact,
     contact,
     case_index,
     machine_state
   )
   SELECT
-    @handler_id,
+    @route_by_phone_number,
+    @route_by_contact,
     @contact,
     CTE_next_case.case_index,
     @machine_state
@@ -33,7 +36,8 @@ CTE_manifest AS (
     id,
     created_at,
     updated_at,
-    handler_id,
+    route_by_phone_number,
+    route_by_contact,
     contact,
     case_index,
     is_open,
@@ -78,7 +82,8 @@ SELECT
   CTE_manifest.id,
   CTE_manifest.created_at,
   CTE_manifest.updated_at,
-  CTE_manifest.handler_id,
+  CTE_manifest.route_by_phone_number,
+  CTE_manifest.route_by_contact,
   CTE_manifest.contact,
   CTE_manifest.case_index,
   CTE_manifest.is_open,

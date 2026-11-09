@@ -7,8 +7,9 @@ SET
   msg_status = 'ignored'::T_ENQUEUED_MESSAGE_STATUS,
   updated_at = now()
 WHERE
-  ( que.msg_status = 'pending' ) AND
-  ( que.handler_id IS NULL     ) AND
+  ( que.msg_status            = 'pending' ) AND
+  ( que.route_by_phone_number IS NULL     ) AND
+  ( que.route_by_contact      IS NULL     ) AND
   (
     ( @fallback_handler_key::text IS NULL ) OR
     NOT EXISTS (

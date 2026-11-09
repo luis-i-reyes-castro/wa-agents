@@ -331,26 +331,28 @@ class CaseHandlerBase (ABC) :
         business : int | WhatsAppDatabaseRecord_Business,
         contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
-        case_stale_hours : int | None       = None,
-        database_url     : str | None       = None,
-        debug            : bool             = False,
-        handler_id       : int | None       = None,
-        hydrate_media    : bool             = True,
-        owner_token      : UUID | str | None = None,
-        silence_timeout  : timedelta | None = None,
+        case_stale_hours      : int | None        = None,
+        database_url          : str | None        = None,
+        debug                 : bool              = False,
+        hydrate_media         : bool              = True,
+        owner_token           : UUID | str | None = None,
+        route_by_phone_number : int | None        = None,
+        route_by_contact      : int | None        = None,
+        silence_timeout       : timedelta | None  = None,
     ) -> None :
         """
         Initialize a transport-neutral handler for one persisted contact. \\
         Args:
             business : Row ID `api_phone_numbers.id` or DB record object.
             contact  : Row ID `api_contacts.id` or DB record object.
-            case_stale_hours : Open-case staleness threshold in hours.
-            database_url     : Optional PostgreSQL URL override.
-            debug            : Whether downstream components should emit debug output.
-            handler_id       : Optional `case_handler_routes.id`.
-            hydrate_media    : Whether to hydrate media during `context_build()`.
-            owner_token      : Token owning the contact lease.
-            silence_timeout  : Duration of message-echo silence mode.
+            case_stale_hours      : Open-case staleness threshold in hours.
+            database_url          : Optional PostgreSQL URL override.
+            debug                 : Whether downstream components should emit debug output.
+            hydrate_media         : Whether to hydrate media during `context_build()`.
+            owner_token           : Token owning the contact lease.
+            route_by_phone_number : Optional phone-number route id.
+            route_by_contact      : Optional contact route id. It trumps the phone route.
+            silence_timeout       : Duration of message-echo silence mode.
         """
         self.storage = SyncSupabaseStorage(database_url)
         
@@ -361,16 +363,17 @@ class CaseHandlerBase (ABC) :
         self.business_id = business_record.row_id
         self.contact_id  = contact_record.row_id
         
-        self.case_stale_hours = (
+        self.case_stale_hours      = (
             self.DEFAULT_CASE_STALE_HOURS
             if case_stale_hours is None else
             case_stale_hours
         )
-        self.debug           = debug
-        self.handler_id      = handler_id
-        self.hydrate_media   = hydrate_media
-        self.owner_token     = owner_token or uuid4()
-        self.silence_timeout = silence_timeout
+        self.debug                 = debug
+        self.hydrate_media         = hydrate_media
+        self.owner_token           = owner_token or uuid4()
+        self.route_by_phone_number = route_by_phone_number
+        self.route_by_contact      = route_by_contact
+        self.silence_timeout       = silence_timeout
         
         self.operator_waba = business_record.waba_id
         self.operator_num  = business_record.display_phone_number
@@ -568,9 +571,9 @@ class CaseHandlerBase (ABC) :
         Continue the open case when current; otherwise create a new case.
         """
         manifest = self.storage.get_open_case_manifest(self.contact_id)
-        if (
-            manifest and
-            ( manifest.handler_id != self.handler_id )
+        if manifest and (
+            ( manifest.route_by_phone_number != self.route_by_phone_number ) or
+            ( manifest.route_by_contact      != self.route_by_contact      )
         ) :
             self.case_close(manifest)
             manifest = None
@@ -618,16 +621,18 @@ class CaseHandlerBase (ABC) :
         """
         if self.AGENT_NAMES :
             manifest = self.storage.insert_case_manifest(
-                self.handler_id,
                 self.contact_id,
                 self._machine_state(),
                 list(self.AGENT_NAMES),
+                route_by_phone_number = self.route_by_phone_number,
+                route_by_contact      = self.route_by_contact,
             )
         else :
             manifest = self.storage.insert_case_manifest(
-                self.handler_id,
                 self.contact_id,
                 self._machine_state(),
+                route_by_phone_number = self.route_by_phone_number,
+                route_by_contact      = self.route_by_contact,
             )
 
         if not manifest :
@@ -895,39 +900,42 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         business : int | WhatsAppDatabaseRecord_Business,
         contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
-        api_inbound_msg_id : int | None        = None,
-        case_stale_hours   : int | None        = None,
-        database_url       : str | None        = None,
-        debug              : bool              = False,
-        handler_id         : int | None        = None,
-        hydrate_media      : bool              = True,
-        owner_token        : UUID | str | None = None,
-        silence_timeout    : timedelta | None  = None,
+        api_inbound_msg_id    : int | None        = None,
+        case_stale_hours      : int | None        = None,
+        database_url          : str | None        = None,
+        debug                 : bool              = False,
+        hydrate_media         : bool              = True,
+        owner_token           : UUID | str | None = None,
+        route_by_phone_number : int | None        = None,
+        route_by_contact      : int | None        = None,
+        silence_timeout       : timedelta | None  = None,
     ) -> None :
         """
         Initialize a WhatsApp handler for one normalized contact. \\
         Args:
             business : Row ID `api_phone_numbers.id` or DB record object.
             contact  : Row ID `api_contacts.id` or DB record object.
-            api_inbound_msg_id : Current `api_inbound_messages.id`, if any.
-            case_stale_hours   : Open-case staleness threshold in hours.
-            database_url       : Optional PostgreSQL URL override.
-            debug              : Whether downstream components should emit debug output.
-            handler_id         : Optional `case_handler_routes.id`.
-            hydrate_media      : Whether to hydrate media during `context_build()`.
-            owner_token        : Token owning the contact lease.
-            silence_timeout    : Duration of message-echo silence mode.
+            api_inbound_msg_id    : Current `api_inbound_messages.id`, if any.
+            case_stale_hours      : Open-case staleness threshold in hours.
+            database_url          : Optional PostgreSQL URL override.
+            debug                 : Whether downstream components should emit debug output.
+            hydrate_media         : Whether to hydrate media during `context_build()`.
+            owner_token           : Token owning the contact lease.
+            route_by_phone_number : Optional phone-number route id.
+            route_by_contact      : Optional contact route id. It trumps the phone route.
+            silence_timeout       : Duration of message-echo silence mode.
         """
         super().__init__(
-            business         = business,
-            contact          = contact,
-            case_stale_hours = case_stale_hours,
-            database_url     = database_url,
-            debug            = debug,
-            handler_id       = handler_id,
-            hydrate_media    = hydrate_media,
-            owner_token      = owner_token,
-            silence_timeout  = silence_timeout,
+            business              = business,
+            contact               = contact,
+            case_stale_hours      = case_stale_hours,
+            database_url          = database_url,
+            debug                 = debug,
+            hydrate_media         = hydrate_media,
+            owner_token           = owner_token,
+            route_by_phone_number = route_by_phone_number,
+            route_by_contact      = route_by_contact,
+            silence_timeout       = silence_timeout,
         )
         
         self.api_inbound_msg_id = api_inbound_msg_id
@@ -1335,26 +1343,28 @@ class AsyncCaseHandlerBase (ABC) :
         business : int | WhatsAppDatabaseRecord_Business,
         contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
-        case_stale_hours : int | None       = None,
-        database_url     : str | None       = None,
-        debug            : bool             = False,
-        handler_id       : int | None       = None,
-        hydrate_media    : bool             = True,
-        owner_token      : UUID | str | None = None,
-        silence_timeout  : timedelta | None = None,
+        case_stale_hours      : int | None        = None,
+        database_url          : str | None        = None,
+        debug                 : bool              = False,
+        hydrate_media         : bool              = True,
+        owner_token           : UUID | str | None = None,
+        route_by_phone_number : int | None        = None,
+        route_by_contact      : int | None        = None,
+        silence_timeout       : timedelta | None  = None,
     ) -> None :
         """
         Initialize a transport-neutral handler for one persisted contact. \\
         Args:
             business : Row ID `api_phone_numbers.id` or DB record object.
             contact  : Row ID `api_contacts.id` or DB record object.
-            case_stale_hours : Open-case staleness threshold in hours.
-            database_url     : Optional PostgreSQL URL override.
-            debug            : Whether downstream components should emit debug output.
-            handler_id       : Optional `case_handler_routes.id`.
-            hydrate_media    : Whether to hydrate media during `context_build()`.
-            owner_token      : Token owning the contact lease.
-            silence_timeout  : Duration of message-echo silence mode.
+            case_stale_hours      : Open-case staleness threshold in hours.
+            database_url          : Optional PostgreSQL URL override.
+            debug                 : Whether downstream components should emit debug output.
+            hydrate_media         : Whether to hydrate media during `context_build()`.
+            owner_token           : Token owning the contact lease.
+            route_by_phone_number : Optional phone-number route id.
+            route_by_contact      : Optional contact route id. It trumps the phone route.
+            silence_timeout       : Duration of message-echo silence mode.
         """
         self.storage = AsyncSupabaseStorage(database_url)
         
@@ -1368,16 +1378,17 @@ class AsyncCaseHandlerBase (ABC) :
         self.business_id = business_record.row_id
         self.contact_id  = contact_record.row_id
         
-        self.debug            = debug
-        self.handler_id       = handler_id
-        self.case_stale_hours = (
+        self.case_stale_hours      = (
             self.DEFAULT_CASE_STALE_HOURS
             if case_stale_hours is None else
             case_stale_hours
         )
-        self.hydrate_media    = hydrate_media
-        self.owner_token      = owner_token or uuid4()
-        self.silence_timeout  = silence_timeout
+        self.debug                 = debug
+        self.hydrate_media         = hydrate_media
+        self.owner_token           = owner_token or uuid4()
+        self.route_by_phone_number = route_by_phone_number
+        self.route_by_contact      = route_by_contact
+        self.silence_timeout       = silence_timeout
         
         self.operator_waba = business_record.waba_id
         self.operator_num  = business_record.display_phone_number
@@ -1574,9 +1585,9 @@ class AsyncCaseHandlerBase (ABC) :
         Continue the open case when current; otherwise create a new case.
         """
         manifest = await self.storage.get_open_case_manifest(self.contact_id)
-        if (
-            manifest and
-            ( manifest.handler_id != self.handler_id )
+        if manifest and (
+            ( manifest.route_by_phone_number != self.route_by_phone_number ) or
+            ( manifest.route_by_contact      != self.route_by_contact      )
         ) :
             await self.case_close(manifest)
             manifest = None
@@ -1624,16 +1635,18 @@ class AsyncCaseHandlerBase (ABC) :
         """
         if self.AGENT_NAMES :
             manifest = await self.storage.insert_case_manifest(
-                self.handler_id,
                 self.contact_id,
                 self._machine_state(),
                 list(self.AGENT_NAMES),
+                route_by_phone_number = self.route_by_phone_number,
+                route_by_contact      = self.route_by_contact,
             )
         else :
             manifest = await self.storage.insert_case_manifest(
-                self.handler_id,
                 self.contact_id,
                 self._machine_state(),
+                route_by_phone_number = self.route_by_phone_number,
+                route_by_contact      = self.route_by_contact,
             )
 
         if not manifest :
@@ -1900,39 +1913,42 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         business : int | WhatsAppDatabaseRecord_Business,
         contact  : int | WhatsAppDatabaseRecord_Contact,
         *,
-        api_inbound_msg_id : int | None        = None,
-        case_stale_hours   : int | None        = None,
-        database_url       : str | None        = None,
-        debug              : bool              = False,
-        handler_id         : int | None        = None,
-        hydrate_media      : bool              = True,
-        owner_token        : UUID | str | None = None,
-        silence_timeout    : timedelta | None  = None,
+        api_inbound_msg_id    : int | None        = None,
+        case_stale_hours      : int | None        = None,
+        database_url          : str | None        = None,
+        debug                 : bool              = False,
+        hydrate_media         : bool              = True,
+        owner_token           : UUID | str | None = None,
+        route_by_phone_number : int | None        = None,
+        route_by_contact      : int | None        = None,
+        silence_timeout       : timedelta | None  = None,
     ) -> None :
         """
         Initialize an asynchronous WhatsApp handler for one normalized contact. \\
         Args:
             business : Row ID `api_phone_numbers.id` or DB record object.
             contact  : Row ID `api_contacts.id` or DB record object.
-            api_inbound_msg_id : Current `api_inbound_messages.id`, if any.
-            case_stale_hours   : Open-case staleness threshold in hours.
-            database_url       : Optional PostgreSQL URL override.
-            debug              : Whether downstream components should emit debug output.
-            handler_id         : Optional `case_handler_routes.id`.
-            hydrate_media      : Whether to hydrate media during `context_build()`.
-            owner_token        : Token owning the contact lease.
-            silence_timeout    : Duration of message-echo silence mode.
+            api_inbound_msg_id    : Current `api_inbound_messages.id`, if any.
+            case_stale_hours      : Open-case staleness threshold in hours.
+            database_url          : Optional PostgreSQL URL override.
+            debug                 : Whether downstream components should emit debug output.
+            hydrate_media         : Whether to hydrate media during `context_build()`.
+            owner_token           : Token owning the contact lease.
+            route_by_phone_number : Optional phone-number route id.
+            route_by_contact      : Optional contact route id. It trumps the phone route.
+            silence_timeout       : Duration of message-echo silence mode.
         """
         super().__init__(
-            business         = business,
-            contact          = contact,
-            case_stale_hours = case_stale_hours,
-            database_url     = database_url,
-            debug            = debug,
-            handler_id       = handler_id,
-            hydrate_media    = hydrate_media,
-            owner_token      = owner_token,
-            silence_timeout  = silence_timeout,
+            business              = business,
+            contact               = contact,
+            case_stale_hours      = case_stale_hours,
+            database_url          = database_url,
+            debug                 = debug,
+            hydrate_media         = hydrate_media,
+            owner_token           = owner_token,
+            route_by_phone_number = route_by_phone_number,
+            route_by_contact      = route_by_contact,
+            silence_timeout       = silence_timeout,
         )
         
         self.api_inbound_msg_id = api_inbound_msg_id

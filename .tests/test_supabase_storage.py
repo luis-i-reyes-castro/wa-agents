@@ -308,7 +308,8 @@ def test_manifest_loads_ordered_message_ids( monkeypatch) -> None :
             "created_at"    : now,
             "updated_at"    : now,
             "is_open"       : True,
-            "handler_id"    : 7,
+            "route_by_phone_number" : 7,
+            "route_by_contact"      : None,
             "machine_state" : "confirm_model",
             "silenced_until": now,
         },
@@ -323,7 +324,7 @@ def test_manifest_loads_ordered_message_ids( monkeypatch) -> None :
 
     assert isinstance( manifest, CaseManifest)
     assert manifest.machine_state == "confirm_model"
-    assert manifest.handler_id == 7
+    assert manifest.route_by_phone_number == 7
     assert manifest.case_index == 2
     assert manifest.silenced_until == now
     assert manifest.message_ids == [ 11, 12 ]
