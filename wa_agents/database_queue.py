@@ -677,7 +677,7 @@ class WhatsAppDatabaseQueue :
             "case_stale_hours"           : queue_row["case_stale_hours"],
             "response_delay_seconds"     : queue_row["response_delay_seconds"],
             "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
-            "burst_decay_seconds"        : queue_row["burst_decay_seconds"],
+            "burst_decay_minutes"        : queue_row["burst_decay_minutes"],
             "silence_timeout_minutes"    : queue_row.get("silence_timeout_minutes"),
         }
     
@@ -742,7 +742,7 @@ class WhatsAppDatabaseQueue :
             "case_stale_hours"           : queue_row["case_stale_hours"],
             "response_delay_seconds"     : queue_row["response_delay_seconds"],
             "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
-            "burst_decay_seconds"        : queue_row["burst_decay_seconds"],
+            "burst_decay_minutes"        : queue_row["burst_decay_minutes"],
             "silence_timeout_minutes"    : queue_row.get("silence_timeout_minutes"),
         }
 
@@ -1271,7 +1271,7 @@ class AsyncWhatsAppDatabaseQueue :
             "case_stale_hours"           : queue_row["case_stale_hours"],
             "response_delay_seconds"     : queue_row["response_delay_seconds"],
             "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
-            "burst_decay_seconds"        : queue_row["burst_decay_seconds"],
+            "burst_decay_minutes"        : queue_row["burst_decay_minutes"],
             "silence_timeout_minutes"    : queue_row.get("silence_timeout_minutes"),
         }
     
@@ -1339,7 +1339,7 @@ class AsyncWhatsAppDatabaseQueue :
             "case_stale_hours"           : queue_row["case_stale_hours"],
             "response_delay_seconds"     : queue_row["response_delay_seconds"],
             "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
-            "burst_decay_seconds"        : queue_row["burst_decay_seconds"],
+            "burst_decay_minutes"        : queue_row["burst_decay_minutes"],
             "silence_timeout_minutes"    : queue_row.get("silence_timeout_minutes"),
         }
 

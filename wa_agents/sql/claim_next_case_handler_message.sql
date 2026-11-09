@@ -26,9 +26,9 @@ WITH CTE_candidate AS MATERIALIZED (
       fbk.max_response_delay_seconds
     )                                 AS max_response_delay_seconds,
     COALESCE(
-      cfg.burst_decay_seconds,
-      fbk.burst_decay_seconds
-    )                                 AS burst_decay_seconds,
+      cfg.burst_decay_minutes,
+      fbk.burst_decay_minutes
+    )                                 AS burst_decay_minutes,
     COALESCE(
       cfg.silence_timeout_minutes,
       fbk.silence_timeout_minutes
@@ -121,7 +121,7 @@ RETURNING
   can.case_stale_hours            AS case_stale_hours,
   can.response_delay_seconds      AS response_delay_seconds,
   can.max_response_delay_seconds  AS max_response_delay_seconds,
-  can.burst_decay_seconds         AS burst_decay_seconds,
+  can.burst_decay_minutes         AS burst_decay_minutes,
   can.silence_timeout_minutes     AS silence_timeout_minutes,
   que.msg_id                      AS msg_id,
   que.msg_status                  AS msg_status;

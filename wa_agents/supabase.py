@@ -147,6 +147,9 @@ SQL_LOCK_BURST_SCORE_CONTACT        = _load_sql("lock_burst_score_contact.sql")
 SQL_ACQUIRE_CONTACT_LEASE           = _load_sql("acquire_contact_lease.sql")
 SQL_CASE_HANDLER_MESSAGE_EXISTS     = _load_sql("case_handler_message_exists.sql")
 SQL_GET_AGENT_CONTEXTS              = _load_sql("get_agent_contexts.sql")
+SQL_GET_API_WORKER_CONFIGURATION    = _load_sql(
+    "get_api_worker_configuration.sql"
+)
 SQL_GET_BUSINESS                    = _load_sql("get_business.sql")
 SQL_GET_BUSINESS_TOKEN              = _load_sql("get_business_token.sql")
 SQL_GET_CASE_HANDLER_MEDIA          = _load_sql("get_case_handler_media.sql")
@@ -480,6 +483,16 @@ class SyncSupabaseStorage :
             )
         
         return token
+    
+    def get_api_worker_configuration(
+        self,
+        server_name : str,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_GET_API_WORKER_CONFIGURATION,
+            { "server_name" : server_name },
+        )
     
     def get_contact( self, contact : int) -> dict[ str, Any] | None :
         
@@ -1512,6 +1525,16 @@ class AsyncSupabaseStorage :
             )
         
         return token
+    
+    async def get_api_worker_configuration(
+        self,
+        server_name : str,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_GET_API_WORKER_CONFIGURATION,
+            { "server_name" : server_name },
+        )
     
     async def get_contact(
         self,

@@ -176,7 +176,7 @@ For each eligible arrival:
 
 ```python
 elapsed = max(timedelta(0), arrival_time - previous_arrival_time)
-score = min(10, max(0, previous_score - elapsed.total_seconds() / burst_decay_seconds) + increment)
+score = min(10, max(0, previous_score - elapsed.total_seconds() / ( burst_decay_minutes * 60)) + increment)
 delay = min(max_response_delay_seconds, response_delay_seconds * 2**score)
 ```
 
@@ -254,9 +254,11 @@ old case during the next case decision.
 
 ## Timing Configuration
 
-Poll intervals are worker constructor settings. When omitted, they read
-`QUEUE_POLL_INTERVAL_BUSY` and `QUEUE_POLL_INTERVAL_IDLE`, then use the package
-default of 1 second.
+Poll intervals are read from `api_worker_configurations` for the worker's
+`server_name`. When that row is absent, or `server_name` is omitted, the worker
+uses `WhatsAppAPIWorker.DEFAULT_POLL_INTERVAL_BUSY` and
+`DEFAULT_POLL_INTERVAL_IDLE`, both 1 second. An explicit constructor argument
+overrides the table and the class default.
 
 Burst timing, echo silence, and the stale-case threshold live on
 `case_handler_configurations` and travel with the claimed route:
@@ -264,8 +266,13 @@ Burst timing, echo silence, and the stale-case threshold live on
 - `case_stale_hours`: open-case rollover threshold passed into the handler.
 - `response_delay_seconds`: base quiet period before burst scaling.
 - `max_response_delay_seconds`: quiet-period cap. It must be at least the base.
-- `burst_decay_seconds`: elapsed time that removes one burst-score point.
+- `burst_decay_minutes`: minutes that remove one burst-score point.
 - `silence_timeout_minutes`: optional coexistence echo-silence timeout. `NULL` disables silence.
+
+Direct handler construction uses `DEFAULT_CASE_STALE_HOURS` when `case_stale_hours`
+is omitted. `DEFAULT_RESPONSE_DELAY_SECONDS`, `DEFAULT_MAX_RESPONSE_DELAY_SECONDS`,
+`DEFAULT_BURST_DECAY_MINUTES`, and `DEFAULT_SILENCE_TIMEOUT_MINUTES` are the
+package defaults for a new configuration. Queued work reads the configuration row.
 
 The configuration requires a positive base, a maximum at least as large as that base,
 and a positive decay duration.

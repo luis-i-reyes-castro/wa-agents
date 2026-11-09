@@ -46,6 +46,7 @@ class WhatsAppAPIServer (
         poll_interval_busy : float | None = None,
         poll_interval_idle : float | None = None,
         queue              : AsyncWhatsAppDatabaseQueue | None = None,
+        server_name        : str | None = None,
         verify_signatures  : bool             = True,
         **kwargs           : Any,
     ) -> None :
@@ -60,6 +61,7 @@ class WhatsAppAPIServer (
             poll_interval_busy : Poll interval while the worker has pending jobs
             poll_interval_idle : Poll interval while the worker is idle
             queue              : Optional async WhatsApp database queue
+            server_name        : `api_worker_configurations.server_name`
             verify_signatures  : Whether to verify payload signatures
             kwargs             : Forwarded to FastAPI
         """
@@ -80,6 +82,7 @@ class WhatsAppAPIServer (
             poll_interval_busy  = poll_interval_busy,
             poll_interval_idle  = poll_interval_idle,
             queue               = queue,
+            server_name         = server_name,
         )
         
         kwargs.setdefault( "debug", debug)

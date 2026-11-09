@@ -5,7 +5,6 @@ FastAPI worker for normalized inbound WhatsApp messages.
 
 import asyncio
 import logging
-import os
 import time
 
 from collections.abc import (
@@ -58,15 +57,10 @@ from .io_models import (
     WhatsApp_IB_Profile,
 )
 from .supabase import (
+    SyncSupabaseStorage,
     WhatsAppDatabaseRecord_Business,
     WhatsAppDatabaseRecord_Contact,
 )
-
-
-DEFAULT_POLL_INTERVAL_BUSY = 1.0
-""" Poll interval to use while the worker has pending jobs. """
-DEFAULT_POLL_INTERVAL_IDLE = 1.0
-""" Poll interval to use while the worker does not have pending jobs. """
 
 
 @dataclass( frozen = True)
@@ -175,12 +169,12 @@ def _job_and_message(
     stale_hours        = item["case_stale_hours"]
     delay_seconds      = item["response_delay_seconds"]
     max_delay_seconds  = item["max_response_delay_seconds"]
-    decay_seconds      = item["burst_decay_seconds"]
+    decay_minutes      = item["burst_decay_minutes"]
     if (
         ( stale_hours is None )       or
         ( delay_seconds is None )     or
         ( max_delay_seconds is None ) or
-        ( decay_seconds is None )
+        ( decay_minutes is None )
     ) :
         raise ValueError(
             f"In {here()}: Claimed handler configuration is missing timing values"
@@ -203,7 +197,7 @@ def _job_and_message(
         case_stale_hours   = int(stale_hours),
         response_delay     = float(delay_seconds),
         max_response_delay = float(max_delay_seconds),
-        burst_decay_period = timedelta( seconds = decay_seconds),
+        burst_decay_period = timedelta( minutes = decay_minutes),
     )
     
     return job, message
@@ -213,6 +207,12 @@ class WhatsAppAPIWorker (FastAPI) :
     """
     Asynchronous message worker and synchronous Flow data endpoint.
     """
+    
+    DEFAULT_POLL_INTERVAL_BUSY : float = 1.0
+    """ Poll interval in seconds while the worker has pending jobs. """
+    
+    DEFAULT_POLL_INTERVAL_IDLE : float = 1.0
+    """ Poll interval in seconds while the worker is idle. """
     
     def __init__(
         self,
@@ -224,6 +224,7 @@ class WhatsAppAPIWorker (FastAPI) :
         poll_interval_busy  : float | None = None,
         poll_interval_idle  : float | None = None,
         queue               : AsyncWhatsAppDatabaseQueue | None = None,
+        server_name         : str | None = None,
         **kwargs            : Any,
     ) -> None :
         """
@@ -236,6 +237,7 @@ class WhatsAppAPIWorker (FastAPI) :
             poll_interval_busy  : Poll interval while the worker has pending jobs
             poll_interval_idle  : Poll interval while the worker is idle
             queue               : Optional async WhatsApp database queue
+            server_name         : `api_worker_configurations.server_name`
             kwargs              : Forwarded to FastAPI
         """
         self._init_worker(
@@ -246,6 +248,7 @@ class WhatsAppAPIWorker (FastAPI) :
             poll_interval_busy  = poll_interval_busy,
             poll_interval_idle  = poll_interval_idle,
             queue               = queue or AsyncWhatsAppDatabaseQueue(),
+            server_name         = server_name,
         )
         kwargs.setdefault( "debug", debug)
         kwargs.setdefault( "lifespan", self.worker_lifespan)
@@ -318,21 +321,43 @@ class WhatsAppAPIWorker (FastAPI) :
         flow_endpoint_path  : str,
         poll_interval_busy  : float | None,
         poll_interval_idle  : float | None,
+        server_name         : str | None,
     ) -> None :
         """
         Initialize worker state without initializing FastAPI.
         """
         self.debug = debug
         self.queue = queue
-        self.poll_interval_busy = (
-            float( os.getenv( "QUEUE_POLL_INTERVAL_BUSY", DEFAULT_POLL_INTERVAL_BUSY))
-            if poll_interval_busy is None else
-            poll_interval_busy
+        configured = (
+            SyncSupabaseStorage(
+                self.queue.storage.database_url
+            ).get_api_worker_configuration(server_name)
+            if server_name is not None else
+            None
         )
-        self.poll_interval_idle = (
-            float( os.getenv( "QUEUE_POLL_INTERVAL_IDLE", DEFAULT_POLL_INTERVAL_IDLE))
-            if poll_interval_idle is None else
+        configured_busy = (
+            None
+            if configured is None else
+            configured["poll_interval_busy"]
+        )
+        configured_idle = (
+            None
+            if configured is None else
+            configured["poll_interval_idle"]
+        )
+        self.poll_interval_busy = float(
+            poll_interval_busy
+            if ( poll_interval_busy is not None ) else
+            configured_busy
+            if ( configured_busy    is not None ) else
+            self.DEFAULT_POLL_INTERVAL_BUSY
+        )
+        self.poll_interval_idle = float(
             poll_interval_idle
+            if ( poll_interval_idle is not None ) else
+            configured_idle
+            if ( configured_idle    is not None ) else
+            self.DEFAULT_POLL_INTERVAL_IDLE
         )
         self.handler_keys = self._build_handler_registry(
             handler_cls,

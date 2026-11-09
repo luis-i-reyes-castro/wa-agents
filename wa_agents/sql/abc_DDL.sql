@@ -725,6 +725,37 @@ ALTER TABLE wa_agents.api_statuses
 
 /*
   =========================================================================================
+  API WORKER CONFIGURATION
+  =========================================================================================
+*/
+
+CREATE TABLE IF NOT EXISTS wa_agents.api_worker_configurations (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  server_name         T_NO_WS_STR      NOT NULL,
+  poll_interval_busy  DOUBLE PRECISION NOT NULL, -- Seconds
+  poll_interval_idle  DOUBLE PRECISION NOT NULL, -- Seconds
+  
+  CONSTRAINT api_worker_configurations_server_name_unique
+    UNIQUE ( server_name ),
+  
+  CONSTRAINT api_worker_configurations_poll_interval_busy_positive
+    CHECK ( poll_interval_busy > 0 ),
+  
+  CONSTRAINT api_worker_configurations_poll_interval_idle_positive
+    CHECK ( poll_interval_idle > 0 )
+
+);
+
+ALTER TABLE wa_agents.api_worker_configurations
+  ENABLE ROW LEVEL SECURITY;
+
+
+/*
+  =========================================================================================
   CASE HANDLER CONFIGURATION & ROUTING
   =========================================================================================
 */
@@ -744,11 +775,12 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_configurations (
   case_stale_hours            SMALLINT  NOT NULL,
   
   /*
-  Response delay parameters
+  Response delay parameters.
+  `burst_decay_minutes` is the time that removes one burst-score point.
   */
   response_delay_seconds      INTEGER   NOT NULL,
   max_response_delay_seconds  INTEGER   NOT NULL,
-  burst_decay_seconds         INTEGER   NOT NULL,
+  burst_decay_minutes         SMALLINT  NOT NULL,
   
   /*
   Silence timeout in minutes for Coexistence handlers, i.e., only for phone numbers onboarded through Embedded Signup.
@@ -768,7 +800,7 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_configurations (
     CHECK ( max_response_delay_seconds >= response_delay_seconds ),
 
   CONSTRAINT case_handler_configurations_burst_decay_positive
-    CHECK ( burst_decay_seconds > 0 ),
+    CHECK ( burst_decay_minutes > 0 ),
   
   CONSTRAINT case_handler_configurations_silence_timeout_positive
     CHECK (

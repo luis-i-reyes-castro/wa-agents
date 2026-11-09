@@ -68,6 +68,7 @@ this schema and stay between two and four characters when practical.
 | `wa_agents.api_outbound_messages` | `waom` |
 | `wa_agents.api_media` | `wam` |
 | `wa_agents.api_statuses` | `was` |
+| `wa_agents.api_worker_configurations` | `awc` |
 | `wa_agents.case_handler_configurations` | `chc` |
 | `wa_agents.case_handler_routes` | `chr` |
 | `wa_agents.api_to_case_handler_queue` | `chq` |
@@ -101,6 +102,7 @@ this schema and stay between two and four characters when practical.
 | `api_outbound_messages` | Messages sent by the chatbot through the WhatsApp API. |
 | `api_media` | Object-storage metadata for one inbound or outbound message. |
 | `api_statuses` | Delivery/read/failure status events for WhatsApp message IDs. |
+| `api_worker_configurations` | Poll intervals for one API worker, keyed by server name. |
 | `case_handler_configurations` | Handler profile: key, stale-case hours, burst timing, and optional silence timeout. |
 | `case_handler_routes` | Business-phone defaults and contact-specific routes to a handler configuration. |
 | `api_to_case_handler_queue` | Durable queue of inbound messages awaiting case-handler processing. |
@@ -128,7 +130,7 @@ every row.
 
 | LEVEL | TABLES |
 | ----- | ------ |
-| **0** | `api_businesses` <br> `case_handler_configurations` |
+| **0** | `api_businesses` <br> `api_worker_configurations` <br> `case_handler_configurations` |
 | **1** | `api_embedded_signup_data` <br> `api_embedded_signup_sessions` <br> `api_flow_encryption_keys` <br> `api_phone_numbers` |
 | **2** | `api_contacts` <br> `api_embedded_signup_syncs` <br> `api_flows` |
 | **3** | `api_contact_profiles` <br> `api_inbound_payloads` <br> `api_outbound_messages` <br> `api_smb_app_contacts` <br> `case_handler_contact_leases` <br> `case_handler_routes` |
@@ -159,6 +161,15 @@ referenced business is deleted.
 | `api_businesses.id` | `api_embedded_signup_data.business` |
 | `api_businesses.id` | `api_embedded_signup_sessions.business` (`ON DELETE SET NULL`) |
 | `api_businesses.id` | `api_flow_encryption_keys.business` |
+
+### Table `api_worker_configurations`
+
+**OUTGOING REFERENCES:** None.
+
+**INCOMING REFERENCES:** None.
+
+`server_name` is unique. A worker looks up its poll intervals by that name and
+uses its class defaults when the row is absent.
 
 ### Table `case_handler_configurations`
 

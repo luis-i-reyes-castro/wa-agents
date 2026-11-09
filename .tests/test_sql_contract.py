@@ -222,14 +222,14 @@ def test_queue_claim_returns_handler_configuration() -> None :
     assert "case_stale_hours            SMALLINT  NOT NULL" in DDL
     assert "response_delay_seconds      INTEGER   NOT NULL" in DDL
     assert "max_response_delay_seconds  INTEGER   NOT NULL" in DDL
-    assert "burst_decay_seconds         INTEGER   NOT NULL" in DDL
+    assert "burst_decay_minutes         SMALLINT  NOT NULL" in DDL
     assert "silence_timeout_minutes     SMALLINT  DEFAULT NULL" in DDL
     assert "max_response_delay_seconds >= response_delay_seconds" in DDL
     assert "wa_agents.case_handler_configurations" in claim
     assert "cfg.silence_timeout_minutes" in claim
     assert "cfg.response_delay_seconds" in claim
     assert "cfg.max_response_delay_seconds" in claim
-    assert "cfg.burst_decay_seconds" in claim
+    assert "cfg.burst_decay_minutes" in claim
     assert "cfg.case_stale_hours" in claim
 
 

@@ -311,8 +311,20 @@ class CaseHandlerBase (ABC) :
     MAX_CONTEXT_LEN  : int | None = 20
     """ Maximum number of LLM-readable messages retained in context. """
 
-    TIME_LIMIT_STALE : int | None = 48
+    DEFAULT_CASE_STALE_HOURS           : int | None = 48
     """ Open-case staleness threshold in hours. """
+
+    DEFAULT_RESPONSE_DELAY_SECONDS     : int        = 1
+    """ Base quiet period in seconds before burst scaling. """
+
+    DEFAULT_MAX_RESPONSE_DELAY_SECONDS : int        = 60
+    """ Quiet-period cap in seconds. """
+
+    DEFAULT_BURST_DECAY_MINUTES        : int        = 60
+    """ Minutes that remove one burst-score point. """
+
+    DEFAULT_SILENCE_TIMEOUT_MINUTES    : int | None = None
+    """ Echo-silence timeout in minutes. None disables silence. """
 
     def __init__(
         self,
@@ -350,7 +362,7 @@ class CaseHandlerBase (ABC) :
         self.contact_id  = contact_record.row_id
         
         self.case_stale_hours = (
-            self.TIME_LIMIT_STALE
+            self.DEFAULT_CASE_STALE_HOURS
             if case_stale_hours is None else
             case_stale_hours
         )
@@ -1303,8 +1315,20 @@ class AsyncCaseHandlerBase (ABC) :
     MAX_CONTEXT_LEN  : int | None = 20
     """ Maximum number of LLM-readable messages retained in context. """
 
-    TIME_LIMIT_STALE : int | None = 48
+    DEFAULT_CASE_STALE_HOURS           : int | None = 48
     """ Open-case staleness threshold in hours. """
+    
+    DEFAULT_RESPONSE_DELAY_SECONDS     : int        = 1
+    """ Base quiet period in seconds before burst scaling. """
+    
+    DEFAULT_MAX_RESPONSE_DELAY_SECONDS : int        = 60
+    """ Quiet-period cap in seconds. """
+    
+    DEFAULT_BURST_DECAY_MINUTES        : int        = 60
+    """ Minutes that remove one burst-score point. """
+    
+    DEFAULT_SILENCE_TIMEOUT_MINUTES    : int | None = None
+    """ Echo-silence timeout in minutes. None disables silence. """
 
     def __init__(
         self,
@@ -1347,7 +1371,7 @@ class AsyncCaseHandlerBase (ABC) :
         self.debug            = debug
         self.handler_id       = handler_id
         self.case_stale_hours = (
-            self.TIME_LIMIT_STALE
+            self.DEFAULT_CASE_STALE_HOURS
             if case_stale_hours is None else
             case_stale_hours
         )

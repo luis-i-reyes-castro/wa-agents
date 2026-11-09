@@ -125,23 +125,18 @@ Configure the new registration's routes explicitly; previous routes are not copi
 - `OPENAI_API_KEY`
 - `MISTRAL_API_KEY`
 
-### Queue tuning (optional)
+### Queue tuning
 
-| Variable                        | Default | Purpose |
-| ------------------------------- | ------- | --- |
-| `QUEUE_POLL_INTERVAL_BUSY` | `1.0` | worker sleep when active |
-| `QUEUE_POLL_INTERVAL_IDLE` | `1.0` | worker sleep when idle |
+Poll intervals come from `api_worker_configurations`, selected by the `server_name` passed to the worker. If that row is missing, the worker uses its class defaults of 1 second. `poll_interval_busy` and `poll_interval_idle` constructor arguments override the row.
 
-Override the poll intervals with the `poll_interval_busy` and `poll_interval_idle` constructor arguments.
-
-Each handler configuration stores the burst timing. `response_delay_seconds` is the base interval for a trailing-edge debounce for delayed handler responses. `max_response_delay_seconds` caps that quiet period, and `burst_decay_seconds` is the time that removes one burst-score point.
+Each handler configuration stores the burst timing. `response_delay_seconds` is the base interval for a trailing-edge debounce for delayed handler responses. `max_response_delay_seconds` caps that quiet period, and `burst_decay_minutes` is the time that removes one burst-score point.
 While the worker holds a contact lease, each newer queued message is persisted into the same case and restarts the quiet period.
 Once the contact remains quiet for the configured interval, the worker calls `run_while_in_action` once with the complete persisted context.
 Replies sent directly by `process_message` remain immediate.
 
 Each contact has a persistent **burst score**, initially zero and hard-capped at 10.
 An additional customer message received before a successful handler send adds one point.
-Each arrival first applies linear decay: `burst_decay_seconds` removes one point over that many seconds. One hour is `3600`.
+Each arrival first applies linear decay: `burst_decay_minutes` removes one point over that many minutes. One hour is `60`.
 The quiet period is `min(max_response_delay_seconds, response_delay_seconds * 2**score)`.
 Ignoring the small decay between rapid messages, a 4-second base and a 60-second maximum give delays of 4, 8, 16, 32, then 60 seconds.
 A 1-second base gives 1, 2, 4, 8, 16, 32, then 60 seconds.
@@ -277,7 +272,7 @@ INSERT INTO wa_agents.case_handler_configurations (
   case_stale_hours,
   response_delay_seconds,
   max_response_delay_seconds,
-  burst_decay_seconds,
+  burst_decay_minutes,
   silence_timeout_minutes
 )
 VALUES (
@@ -285,7 +280,7 @@ VALUES (
   48,
   4,
   60,
-  3600,
+  60,
   NULL
 )
 ON CONFLICT (handler_key)
@@ -294,7 +289,7 @@ SET
   case_stale_hours           = EXCLUDED.case_stale_hours,
   response_delay_seconds     = EXCLUDED.response_delay_seconds,
   max_response_delay_seconds = EXCLUDED.max_response_delay_seconds,
-  burst_decay_seconds        = EXCLUDED.burst_decay_seconds,
+  burst_decay_minutes        = EXCLUDED.burst_decay_minutes,
   silence_timeout_minutes    = EXCLUDED.silence_timeout_minutes,
   updated_at                 = now();
 
@@ -319,8 +314,8 @@ SET
   updated_at     = now();
 ```
 
-`case_stale_hours` replaces the handler class `TIME_LIMIT_STALE` value for queued WhatsApp work.
-`response_delay_seconds`, `max_response_delay_seconds`, and `burst_decay_seconds` are that handler's burst-score base, cap, and decay.
+`case_stale_hours` replaces the handler class `DEFAULT_CASE_STALE_HOURS` value for queued WhatsApp work.
+`response_delay_seconds`, `max_response_delay_seconds`, and `burst_decay_minutes` are that handler's burst-score base, cap, and decay.
 `silence_timeout_minutes` is optional and applies to coexistence numbers; `NULL` disables echo silence.
 
 Message echoes put the selected handler into silence mode when that timeout is set.
@@ -709,7 +704,7 @@ resp = await agent.get_response(
 
 - business/contact lookup when constructed with database row IDs,
 - per-user data lookup from the resolved contact (`UserData`),
-- stale-case rollover (`case_stale_hours` from the handler configuration, or `TIME_LIMIT_STALE`, default 48h),
+- stale-case rollover (`case_stale_hours` from the handler configuration, or `DEFAULT_CASE_STALE_HOURS`, default 48h),
 - case manifests reconstructed from stored message rows,
 - context replay into your optional handler state machine,
 - S3 access and stored-media hydration,

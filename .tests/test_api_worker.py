@@ -50,7 +50,7 @@ def _queue_item(
         "case_stale_hours"           : 48,
         "response_delay_seconds"     : 1,
         "max_response_delay_seconds" : 60,
-        "burst_decay_seconds"        : 3600,
+        "burst_decay_minutes"        : 60,
         "silence_timeout_minutes"    : None,
         "owner_token"             : uuid4(),
     }
@@ -305,7 +305,7 @@ def test_api_worker_uses_configuration_timing(monkeypatch) -> None :
     queue = _AsyncQueueStub()
     queue.item["response_delay_seconds"]     = 3
     queue.item["max_response_delay_seconds"] = 30
-    queue.item["burst_decay_seconds"]        = 1800
+    queue.item["burst_decay_minutes"]        = 30
     queue.item["silence_timeout_minutes"]    = 45
     queue.item["case_stale_hours"]           = 2
     worker = WhatsAppAPIWorker(
@@ -325,7 +325,63 @@ def test_api_worker_uses_configuration_timing(monkeypatch) -> None :
     assert timed.job.case_stale_hours == 2
     assert timed.job.response_delay == 3.0
     assert timed.job.max_response_delay == 30.0
-    assert timed.job.burst_decay_period == timedelta( seconds = 1800)
+    assert timed.job.burst_decay_period == timedelta( minutes = 30)
+
+
+def test_poll_intervals_use_configuration_before_class_defaults(
+    monkeypatch,
+) -> None :
+    monkeypatch.setenv( "QUEUE_POLL_INTERVAL_BUSY", "9")
+    monkeypatch.setenv( "QUEUE_POLL_INTERVAL_IDLE", "8")
+    
+    def lookup( _self, server_name) :
+        if server_name == "sofia" :
+            return {
+                "poll_interval_busy" : 0.25,
+                "poll_interval_idle" : 4,
+            }
+        return None
+    
+    monkeypatch.setattr(
+        api_worker.SyncSupabaseStorage,
+        "get_api_worker_configuration",
+        lookup,
+    )
+    queue = _AsyncQueueStub()
+    queue.storage.database_url = "postgresql://unused"
+    
+    plain = WhatsAppAPIWorker(
+        handler_cls = _ImmediateReplyHandler,
+        queue       = queue,
+    )
+    assert plain.poll_interval_busy == WhatsAppAPIWorker.DEFAULT_POLL_INTERVAL_BUSY
+    assert plain.poll_interval_idle == WhatsAppAPIWorker.DEFAULT_POLL_INTERVAL_IDLE
+    
+    missing = WhatsAppAPIWorker(
+        handler_cls = _ImmediateReplyHandler,
+        queue       = queue,
+        server_name = "missing",
+    )
+    assert missing.poll_interval_busy == 1.0
+    assert missing.poll_interval_idle == 1.0
+    
+    configured = WhatsAppAPIWorker(
+        handler_cls = _ImmediateReplyHandler,
+        queue       = queue,
+        server_name = "sofia",
+    )
+    assert configured.poll_interval_busy == 0.25
+    assert configured.poll_interval_idle == 4.0
+    
+    overridden = WhatsAppAPIWorker(
+        handler_cls        = _ImmediateReplyHandler,
+        queue              = queue,
+        server_name        = "sofia",
+        poll_interval_busy = 0.1,
+        poll_interval_idle = 2.0,
+    )
+    assert overridden.poll_interval_busy == 0.1
+    assert overridden.poll_interval_idle == 2.0
 
 
 def test_api_worker_uses_configured_silence_timeout() -> None :

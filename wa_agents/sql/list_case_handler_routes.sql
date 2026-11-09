@@ -7,7 +7,7 @@ SELECT
   cfg.case_stale_hours           AS case_stale_hours,
   cfg.response_delay_seconds     AS response_delay_seconds,
   cfg.max_response_delay_seconds AS max_response_delay_seconds,
-  cfg.burst_decay_seconds        AS burst_decay_seconds,
+  cfg.burst_decay_minutes        AS burst_decay_minutes,
   cfg.silence_timeout_minutes    AS silence_timeout_minutes,
   rou.created_at                 AS created_at,
   rou.updated_at                 AS updated_at
