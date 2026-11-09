@@ -217,6 +217,7 @@ class WhatsAppAPIWorker (FastAPI) :
     def __init__(
         self,
         *,
+        configuration       : str | None = None,
         debug               : bool = False,
         flow_endpoint_path  : str = "/flows/{waba_id}",
         handler_cls         : WhatsAppCaseHandlerClass | None = None,
@@ -224,7 +225,6 @@ class WhatsAppAPIWorker (FastAPI) :
         poll_interval_busy  : float | None = None,
         poll_interval_idle  : float | None = None,
         queue               : AsyncWhatsAppDatabaseQueue | None = None,
-        server_name         : str | None = None,
         **kwargs            : Any,
     ) -> None :
         """
@@ -241,6 +241,7 @@ class WhatsAppAPIWorker (FastAPI) :
             kwargs              : Forwarded to FastAPI
         """
         self._init_worker(
+            configuration       = configuration,
             debug               = debug,
             flow_endpoint_path  = flow_endpoint_path,
             handler_cls         = handler_cls,
@@ -248,7 +249,6 @@ class WhatsAppAPIWorker (FastAPI) :
             poll_interval_busy  = poll_interval_busy,
             poll_interval_idle  = poll_interval_idle,
             queue               = queue or AsyncWhatsAppDatabaseQueue(),
-            server_name         = server_name,
         )
         kwargs.setdefault( "debug", debug)
         kwargs.setdefault( "lifespan", self.worker_lifespan)
@@ -314,6 +314,7 @@ class WhatsAppAPIWorker (FastAPI) :
     def _init_worker(
         self,
         *,
+        configuration       : str | None,
         debug               : bool,
         queue               : AsyncWhatsAppDatabaseQueue,
         handler_cls         : WhatsAppCaseHandlerClass | None,
@@ -321,7 +322,6 @@ class WhatsAppAPIWorker (FastAPI) :
         flow_endpoint_path  : str,
         poll_interval_busy  : float | None,
         poll_interval_idle  : float | None,
-        server_name         : str | None,
     ) -> None :
         """
         Initialize worker state without initializing FastAPI.
@@ -331,8 +331,8 @@ class WhatsAppAPIWorker (FastAPI) :
         configured = (
             SyncSupabaseStorage(
                 self.queue.storage.database_url
-            ).get_api_worker_configuration(server_name)
-            if server_name is not None else
+            ).get_api_worker_configuration(configuration)
+            if configuration is not None else
             None
         )
         configured_busy = (

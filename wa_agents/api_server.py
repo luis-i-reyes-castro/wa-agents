@@ -46,8 +46,8 @@ class WhatsAppAPIServer (
         poll_interval_busy : float | None = None,
         poll_interval_idle : float | None = None,
         queue              : AsyncWhatsAppDatabaseQueue | None = None,
-        server_name        : str | None = None,
         verify_signatures  : bool             = True,
+        worker_config      : str | None = None,
         **kwargs           : Any,
     ) -> None :
         """
@@ -75,6 +75,7 @@ class WhatsAppAPIServer (
         )
         
         self._init_worker(
+            configuration       = worker_config,
             debug               = debug,
             flow_endpoint_path  = flow_endpoint_path,
             handler_cls         = handler_cls,
@@ -82,7 +83,6 @@ class WhatsAppAPIServer (
             poll_interval_busy  = poll_interval_busy,
             poll_interval_idle  = poll_interval_idle,
             queue               = queue,
-            server_name         = server_name,
         )
         
         kwargs.setdefault( "debug", debug)
