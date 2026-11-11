@@ -773,6 +773,61 @@ def test_documented_account_update_requires_event_details() -> None :
         })
 
 
+def test_template_button_reply_parses() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "1078065061686317",
+                "changes" : [
+                    {
+                        "field" : "messages",
+                        "value" : {
+                            "messaging_product" : "whatsapp",
+                            "metadata"          : {
+                                "display_phone_number" : "593964232819",
+                                "phone_number_id"      : "1314315991775170",
+                            },
+                            "contacts" : [
+                                {
+                                    "profile" : { "name" : "Jr" },
+                                    "wa_id"   : "593961525000",
+                                    "user_id" : "EC.28165288946447185",
+                                },
+                            ],
+                            "messages" : [
+                                {
+                                    "context" : {
+                                        "from" : "593964232819",
+                                        "id"   : "wamid.template",
+                                    },
+                                    "from"         : "593961525000",
+                                    "from_user_id" : "EC.28165288946447185",
+                                    "id"           : "wamid.button",
+                                    "timestamp"    : "1794422075",
+                                    "type"         : "button",
+                                    "button"       : {
+                                        "payload" : "Aprobada",
+                                        "text"    : "Aprobada",
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    message = payload.entry[0].changes[0].value.messages[0]
+    assert message.type == "button"
+    assert message.button
+    assert message.button.payload == "Aprobada"
+    assert message.button.text == "Aprobada"
+    assert message.context
+    assert message.context.id == "wamid.template"
+
+
 def test_revoke_message_parses_original_message_id() -> None :
     message = WhatsApp_IB_Message.model_validate({
         "from"      : "593995341161",

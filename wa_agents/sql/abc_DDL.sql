@@ -16,6 +16,7 @@ CREATE DOMAIN T_NO_WS_STR AS VARCHAR CHECK (
 CREATE TYPE T_WHATSAPP_MESSAGE AS ENUM (
   'text',
   'interactive',
+  'button',
   'template',
   'image',
   'video',

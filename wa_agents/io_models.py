@@ -159,6 +159,7 @@ type WhatsAppMediaSHA256 = Annotated[
 type WhatsAppMessageType = Literal[
     "text",
     "interactive",
+    "button",
     "template",
     "image",
     "video",
@@ -701,6 +702,19 @@ class WhatsApp_IB_Revoke (BaseModel) :
     
     original_message_id : WhatsAppIdentity
 
+class WhatsApp_IB_Button (BaseModel) :
+    """
+    Quick-reply button selected on a template message
+        `payload` : developer-defined button payload
+        `text`    : button label shown to the customer
+    Reference:
+        https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/button
+    """
+    model_config = ConfigDict( frozen = True)
+    
+    payload : NE_str
+    text    : NE_str
+
 class WhatsApp_IB_Message (BaseModel) :
     """
     WhatsApp message payload
@@ -710,6 +724,7 @@ class WhatsApp_IB_Message (BaseModel) :
         `timestamp`    : "<unix timestamp>"
         `type`         : "<message type>"
         
+        `button`      : `WhatsApp_IB_Button`                    | null
         `contacts`    : `tuple[ WhatsAppContactCard, ...]`      | null
         `errors`      : `tuple[ WhatsApp_IB_MessageError, ...]` | null
         `interactive` : `WhatsApp_IB_InteractiveReply`          | null
@@ -743,6 +758,7 @@ class WhatsApp_IB_Message (BaseModel) :
     # In a WhatsApp message only one of the fields below will be present
     # (more precisely, the field that matches the message `type`).
     
+    button      : WhatsApp_IB_Button                    | None = None
     contacts    : tuple[ WhatsAppContactCard, ...]      | None = None
     errors      : tuple[ WhatsApp_IB_MessageError, ...] | None = None
     interactive : WhatsApp_IB_InteractiveReply          | None = None

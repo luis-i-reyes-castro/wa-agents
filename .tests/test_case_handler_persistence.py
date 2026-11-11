@@ -975,6 +975,31 @@ def test_whatsapp_methods_live_on_transport_adapters() -> None :
     assert hasattr( AsyncWhatsAppCaseHandler, "send_text")
 
 
+def test_template_button_reply_is_ingested_as_text() -> None :
+    handler               = object.__new__(_InboundMediaHandler)
+    handler.storage       = _InboundMediaStorage()
+    handler.debug         = False
+    handler.operator_num  = "593964232819"
+    handler.user_id       = "593961525000"
+
+    stored = handler.dedup_and_ingest_message(
+        WhatsApp_IB_Message.model_validate({
+            "from"      : "593961525000",
+            "id"        : "wamid.button",
+            "timestamp" : "1794422075",
+            "type"      : "button",
+            "button"    : {
+                "payload" : "Aprobada",
+                "text"    : "Aprobada",
+            },
+        }),
+        api_inbound_msg_id = 81,
+    )
+
+    assert stored
+    assert stored.text == "Aprobada"
+
+
 def test_whatsapp_media_write_uses_contact_and_message_ordinals() -> None :
     handler               = object.__new__(_InboundMediaHandler)
     handler.storage       = _InboundMediaStorage()

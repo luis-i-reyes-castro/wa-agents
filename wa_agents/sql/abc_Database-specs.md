@@ -35,7 +35,7 @@ The two text-encryption helper functions are explicitly created in `public`.
 | TYPE | ALLOWED VALUES OR RULE |
 | ---- | ---------------------- |
 | `T_NO_WS_STR` | Non-empty `VARCHAR` containing no whitespace (`^\S+$`). |
-| `T_WHATSAPP_MESSAGE` | `text`, `interactive`, `template`, `image`, `video`, `audio`, `document`, `sticker`, `reaction`, `contacts`, `location`, `media_placeholder`, `revoke`, `errors`, `unsupported` |
+| `T_WHATSAPP_MESSAGE` | `text`, `interactive`, `button`, `template`, `image`, `video`, `audio`, `document`, `sticker`, `reaction`, `contacts`, `location`, `media_placeholder`, `revoke`, `errors`, `unsupported` |
 | `T_WHATSAPP_STATUS` | `delivered`, `failed`, `played`, `read`, `sent` |
 | `T_WHATSAPP_CONNECTION_STATUS` | `pending`, `connected`, `attention_needed`, `disconnected` |
 | `T_WHATSAPP_SIGNUP_SESSION_STATUS` | `pending`, `completed`, `failed`, `cancelled`, `expired` |

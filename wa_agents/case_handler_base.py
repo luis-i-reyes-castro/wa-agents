@@ -1025,6 +1025,13 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                 media  = media,
             )
 
+        elif message.button :
+            msg = ContentMsgBM(
+                origin = here(),
+                ts     = message.timestamp,
+                text   = message.button.text,
+            )
+
         elif message.interactive :
             
             flow_reply = message.interactive.nfm_reply
@@ -2036,6 +2043,13 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                 ts     = message.timestamp,
                 text   = text,
                 media  = media,
+            )
+
+        elif message.button :
+            msg = ContentMsgBM(
+                origin = here(),
+                ts     = message.timestamp,
+                text   = message.button.text,
             )
 
         elif message.interactive :
