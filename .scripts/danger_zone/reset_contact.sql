@@ -19,8 +19,8 @@
 -- Deleted:
 --   - contact profiles
 --   - inbound/outbound message rows, statuses, media metadata, and queue rows
---   - case manifests, messages, state histories, contexts, leases, and
---     OpenRouter usage
+--   - case manifests, messages, state histories, contexts, leases,
+--     OpenRouter usage, and case-handler notifications
 --   - contact burst scores and their histories
 --   - Flow sessions and their session-bound data exchanges
 --
@@ -74,6 +74,11 @@ BEGIN
       'Expected to find one contact, found %',
       v_matching_contacts;
   END IF;
+  
+  DELETE FROM wa_agents.case_handler_notifications
+  WHERE
+    ( subject_contact   = ANY( v_contacts) ) OR
+    ( recipient_contact = ANY( v_contacts) );
   
   DELETE FROM wa_agents.api_flow_sessions
   WHERE ( contact = ANY( v_contacts) );

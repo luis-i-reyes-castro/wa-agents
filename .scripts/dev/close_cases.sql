@@ -5,8 +5,10 @@
 -- the Supabase SQL editor. The contact identifier matches wa_id or user_id.
 --
 -- Only open case manifests are changed: is_open becomes FALSE and updated_at
--- is refreshed. Case history, messages, contexts, profiles, routes, leases, and
--- Flow sessions are preserved. Already closed cases are left unchanged.
+-- is refreshed. Open case-handler notifications for those cases are marked
+-- resolved, with no inbound reply attached. Case history, messages, contexts,
+-- profiles, routes, leases, and Flow sessions are preserved. Already closed
+-- cases and their resolved notifications are left unchanged.
 -- Run while case-handler processing for the contact is idle so an in-flight
 -- handler cannot overwrite the manual closure.
 
@@ -17,6 +19,7 @@ DECLARE
   v_contacts                      BIGINT[];
   v_matching_contacts             BIGINT;
   v_closed_cases                  BIGINT;
+  v_resolved_notifications        BIGINT;
 BEGIN
   IF
     ( v_business_display_phone_number = '<BUSINESS_DISPLAY_PHONE_NUMBER>' ) OR
@@ -62,6 +65,22 @@ BEGIN
       v_matching_contacts;
   END IF;
 
+  UPDATE wa_agents.case_handler_notifications AS ntf
+  SET
+    resolved_at = now()
+  WHERE
+    ( ntf.resolved_at IS NULL ) AND
+    EXISTS (
+      SELECT 1
+      FROM wa_agents.case_handler_case_manifests AS manifest
+      WHERE
+        ( manifest.id      = ntf.case_manifest ) AND
+        ( manifest.contact = ANY(v_contacts)   ) AND
+        manifest.is_open
+    );
+
+  GET DIAGNOSTICS v_resolved_notifications = ROW_COUNT;
+
   UPDATE wa_agents.case_handler_case_manifests
   SET
     is_open    = FALSE,
@@ -70,8 +89,9 @@ BEGIN
     ( contact = ANY(v_contacts) ) AND is_open;
 
   GET DIAGNOSTICS v_closed_cases = ROW_COUNT;
-  RAISE NOTICE 'Closed % open case(s) for % matching contact(s)',
-    v_closed_cases, v_matching_contacts;
+  RAISE NOTICE
+    'Closed % open case(s) and resolved % notification(s) for % matching contact(s)',
+    v_closed_cases, v_resolved_notifications, v_matching_contacts;
 
 END;
 $$;

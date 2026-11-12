@@ -11,6 +11,7 @@ TRUNCATE TABLE
   wa_agents.case_handler_agent_contexts,
   wa_agents.case_handler_state_histories,
   wa_agents.case_handler_to_api_bridge,
+  wa_agents.case_handler_notifications,
   wa_agents.case_handler_contact_burst_score_histories,
   wa_agents.case_handler_contact_burst_scores,
   wa_agents.api_to_case_handler_queue,
