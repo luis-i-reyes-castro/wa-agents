@@ -48,7 +48,9 @@ from sofia_utils.stamps import (
 )
 
 from .io_models import (
+    WhatsAppContactCard,
     WhatsAppIdentity,
+    WhatsAppLocation,
     WhatsAppInteractiveBody,
     WhatsAppInteractiveButtonLabel,
     WhatsAppInteractiveHeaderFooter,
@@ -541,6 +543,23 @@ class ServerDocumentMsg (ServerMediaMsg) :
     @property
     def type(self) -> str :
         return "document"
+
+class ServerLocationMsg (ServerMsg) :
+    """
+    Server Location Message
+    """
+    user_eyes : Literal[True] = True
+    latitude  : float
+    longitude : float
+    name      : str | None = None
+    address   : str | None = None
+
+class ServerContactCardMsg (ServerMsg) :
+    """
+    Server Contact-card Message
+    """
+    user_eyes : Literal[True] = True
+    card      : WhatsAppContactCard
 
 # -----------------------------------------------------------------------------------------
 # ASSISTANT MESSAGES

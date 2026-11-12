@@ -786,29 +786,21 @@ class SyncSupabaseStorage :
     
     def upsert_case_handler_notification(
         self,
-        business         : int,
-        recipient_wa_id  : str,
         notification_key : str,
         case_manifest    : int,
         subject_contact  : int,
         msg_id           : str,
-        msg_type         : str,
-        msg_data         : dict[str, Any],
         case_message     : int | None = None,
     ) -> dict[str, Any] | None :
         
         return self._fetch_one(
             SQL_UPSERT_CASE_HANDLER_NOTIFICATION,
             {
-                "business"         : business,
-                "recipient_wa_id"  : recipient_wa_id,
                 "notification_key" : notification_key,
                 "case_manifest"    : case_manifest,
                 "case_message"     : case_message,
                 "subject_contact"  : subject_contact,
                 "msg_id"           : msg_id,
-                "msg_type"         : msg_type,
-                "msg_data"         : Jsonb(msg_data),
             },
         )
     
@@ -1892,29 +1884,21 @@ class AsyncSupabaseStorage :
     
     async def upsert_case_handler_notification(
         self,
-        business         : int,
-        recipient_wa_id  : str,
         notification_key : str,
         case_manifest    : int,
         subject_contact  : int,
         msg_id           : str,
-        msg_type         : str,
-        msg_data         : dict[str, Any],
         case_message     : int | None = None,
     ) -> dict[str, Any] | None :
         
         return await self._fetch_one(
             SQL_UPSERT_CASE_HANDLER_NOTIFICATION,
             {
-                "business"         : business,
-                "recipient_wa_id"  : recipient_wa_id,
                 "notification_key" : notification_key,
                 "case_manifest"    : case_manifest,
                 "case_message"     : case_message,
                 "subject_contact"  : subject_contact,
                 "msg_id"           : msg_id,
-                "msg_type"         : msg_type,
-                "msg_data"         : Jsonb(msg_data),
             },
         )
     

@@ -15,7 +15,10 @@ from wa_agents.case_handler_base import (
     AsyncWhatsAppCaseHandler,
     WhatsAppCaseHandler,
 )
-from wa_agents.case_handler_models import ServerTemplateMsg
+from wa_agents.case_handler_models import (
+    ServerDocumentMsg,
+    ServerTemplateMsg,
+)
 from wa_agents import io_functions
 from wa_agents.io_functions import write_payload
 from wa_agents.io_models import (
@@ -222,9 +225,11 @@ def test_case_handler_send_template_dispatches_helper(
         parameters = [ "Luis" ],
     )
     
-    assert handler.send_template(message) is True
+    assert handler.send_template(message) == []
     assert sent == [ ( "op-1", "user-1", message, False ) ]
-    handler._persist_outbound_messages.assert_called_once_with( 1, [])
+    handler._persist_outbound_messages.assert_called_once_with(
+        1, [], third_party_contact = None,
+    )
 
 
 @pytest.mark.parametrize( "header_type,header", HEADERS)
@@ -265,9 +270,132 @@ def test_async_case_handler_send_template_dispatches_helper(
         parameters = [ "Luis" ],
     )
     
-    assert asyncio.run( handler.send_template(message) ) is True
+    assert asyncio.run( handler.send_template(message) ) == []
     assert sent == [ ( "op-1", "user-1", message, True ) ]
-    handler._persist_outbound_messages.assert_awaited_once_with( 1, [])
+    handler._persist_outbound_messages.assert_awaited_once_with(
+        1, [], third_party_contact = None,
+    )
+
+
+def test_send_template_uploads_a_document_header_once( monkeypatch ) -> None :
+    
+    uploads = []
+    
+    def _upload( operator_id, media, debug, *, database_url ) -> str :
+        uploads.append(media)
+        return "555"
+    
+    monkeypatch.setattr(
+        "wa_agents.case_handler_base.upload_whatsapp_media",
+        _upload,
+    )
+    monkeypatch.setattr(
+        "wa_agents.case_handler_base.send_whatsapp_template",
+        lambda *args, **kwargs : [ {
+            "msg_id" : "wamid.1", "msg_type" : "template", "msg_data" : {},
+        } ],
+    )
+    
+    def persist( message, **kwargs) :
+        message.id = 9
+        return message
+    
+    handler             = object.__new__(_TemplateHandler)
+    handler.operator_id = "op-1"
+    handler.user_id     = "user-1"
+    handler.debug       = False
+    handler.storage     = SimpleNamespace( database_url = "test-db")
+    handler.apply_and_persist_message   = Mock( side_effect = persist)
+    handler._persist_outbound_messages  = Mock()
+    message  = ServerTemplateMsg( name = "hello_world", language = "en_US")
+    document = ServerDocumentMsg( filepath = "quote.pdf", content = b"%PDF")
+    
+    assert handler.send_template( message, document = document)
+    assert handler.send_template( message, document = document)
+    assert uploads == [ document ]
+    assert message.document.id == "555"
+    assert message.document.filename == "quote.pdf"
+    assert message.id == 9
+    handler.apply_and_persist_message.assert_called_once()
+
+
+def test_send_template_to_third_party_uses_that_contact( monkeypatch ) -> None :
+    
+    sent = []
+    
+    def _send( operator_id, to_number, message, debug, database_url ) -> list :
+        sent.append(to_number)
+        return [ { "msg_id" : "wamid.1", "msg_type" : "template", "msg_data" : {} } ]
+    
+    monkeypatch.setattr( "wa_agents.case_handler_base.send_whatsapp_template", _send )
+    
+    handler             = object.__new__(_TemplateHandler)
+    handler.operator_id = "op-1"
+    handler.user_id     = "user-1"
+    handler.business_id = 17
+    handler.debug       = False
+    handler.storage     = SimpleNamespace(
+        database_url   = "test-db",
+        upsert_contact = Mock( return_value = { "id" : 48 } ),
+    )
+    handler._persist_outbound_messages = Mock()
+    message = ServerTemplateMsg(
+        id = 1, name = "hello_world", language = "en_US",
+        document = { "id" : "123", "filename" : "invoice.pdf" },
+    )
+    
+    assert handler.send_template( message, third_party_contact = "593995341161" )
+    assert sent == [ "593995341161" ]
+    handler.storage.upsert_contact.assert_called_once_with(
+        17, "593995341161", None,
+    )
+    handler._persist_outbound_messages.assert_called_once_with(
+        1,
+        [ { "msg_id" : "wamid.1", "msg_type" : "template", "msg_data" : {} } ],
+        third_party_contact = 48,
+    )
+
+
+def test_async_send_template_to_third_party_uses_that_contact( monkeypatch ) -> None :
+    
+    sent = []
+    
+    async def _send( operator_id, to_number, message, debug, database_url ) -> list :
+        sent.append(to_number)
+        return [ { "msg_id" : "wamid.1", "msg_type" : "template", "msg_data" : {} } ]
+    
+    monkeypatch.setattr(
+        "wa_agents.case_handler_base.async_send_whatsapp_template",
+        _send,
+    )
+    
+    handler             = object.__new__(_AsyncTemplateHandler)
+    handler.operator_id = "op-1"
+    handler.user_id     = "user-1"
+    handler.business_id = 17
+    handler.debug       = False
+    handler.storage     = SimpleNamespace(
+        database_url   = "test-db",
+        upsert_contact = AsyncMock( return_value = { "id" : 48 } ),
+    )
+    handler._persist_outbound_messages = AsyncMock()
+    message = ServerTemplateMsg(
+        id = 1, name = "hello_world", language = "en_US",
+        document = { "id" : "123", "filename" : "invoice.pdf" },
+    )
+    
+    assert asyncio.run( handler.send_template(
+        message, third_party_contact = "593995341161",
+    ) )
+    assert sent == [ "593995341161" ]
+    handler.storage.upsert_contact.assert_awaited_once_with(
+        17, "593995341161", None,
+    )
+    handler._persist_outbound_messages.assert_awaited_once_with(
+        1,
+        [ { "msg_id" : "wamid.1", "msg_type" : "template", "msg_data" : {} } ],
+        third_party_contact = 48,
+    )
 
 
 @pytest.mark.parametrize( "header_type,header", HEADERS)

@@ -40,8 +40,12 @@ from .case_handler_models import (
     LanguageRegionData,
     MediaObject,
     Message,
+    ServerContactCardMsg,
+    ServerDocumentMsg,
     ServerFlowMsg,
+    ServerMediaMsg,
     ServerInteractiveOptsMsg,
+    ServerLocationMsg,
     ServerTemplateMsg,
     ServerTextMsg,
     ToolResultsMsg,
@@ -50,14 +54,20 @@ from .case_handler_models import (
 )
 from .io_functions import (
     WhatsAppSendResult,
+    async_send_whatsapp_content,
     async_send_whatsapp_flow,
     async_send_whatsapp_interactive,
+    async_send_whatsapp_media,
     async_send_whatsapp_template,
     async_send_whatsapp_text,
+    async_upload_whatsapp_media,
+    send_whatsapp_content,
     send_whatsapp_interactive,
     send_whatsapp_flow,
+    send_whatsapp_media,
     send_whatsapp_template,
     send_whatsapp_text,
+    upload_whatsapp_media,
 )
 from .flows import (
     WhatsApp_Local_FlowContext,
@@ -65,6 +75,10 @@ from .flows import (
 )
 from .io_models import (
     WhatsAppContactCard,
+    WhatsAppLocation,
+    WhatsApp_OB_TemplateDocument,
+    WhatsApp_OB_TemplateImage,
+    WhatsApp_OB_TemplateVideo,
     WhatsApp_IB_Decrypted_FlowRequest,
     WhatsApp_IB_Message,
     WhatsApp_IB_MessageEcho,
@@ -1143,17 +1157,82 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
     # =====================================================================================
     # MESSAGE SENDING
     
+    def _attach_template_media(
+        self,
+        message  : ServerTemplateMsg,
+        document : ServerDocumentMsg | None,
+        image    : ServerMediaMsg    | None,
+        video    : ServerMediaMsg    | None,
+    ) -> None :
+        
+        supplied = [
+            ( "document", document ),
+            ( "image",    image    ),
+            ( "video",    video    ),
+        ]
+        supplied = [
+            ( kind, media) for kind, media in supplied if media is not None
+        ]
+        if len(supplied) > 1 :
+            raise ValueError(
+                f"In {here()}: Template supports at most one header"
+            )
+        if not supplied :
+            return
+        
+        kind, media = supplied[0]
+        current     = getattr( message, kind)
+        if current is not None and ( current.id or current.link ) :
+            return
+        if any(
+            header is not None
+            for header in (
+                message.document, message.image, message.video, message.location,
+            )
+        ) :
+            raise ValueError(
+                f"In {here()}: Template supports at most one header"
+            )
+        
+        upload_id = self._uploaded_media_id(media)
+        if kind == "document" :
+            message.document = WhatsApp_OB_TemplateDocument(
+                id       = upload_id,
+                filename = getattr( media, "filename", None) or media.name,
+            )
+        elif kind == "image" :
+            message.image = WhatsApp_OB_TemplateImage( id = upload_id)
+        else :
+            message.video = WhatsApp_OB_TemplateVideo( id = upload_id)
+        
+        return
+    
+    def _delivery_target(
+        self,
+        third_party_contact : str | None,
+    ) -> tuple[ str, int | None] :
+        
+        return (
+            third_party_contact or self.user_id,
+            self._third_party_contact(third_party_contact),
+        )
+    
     def _persist_outbound_messages(
         self,
         case_handler_msg_id : int,
         results             : list[WhatsAppSendResult],
+        *,
+        third_party_contact : int | None = None,
     ) -> list[int] :
         
+        contact_id   = (
+            self.contact_id if third_party_contact is None else third_party_contact
+        )
         outbound_ids : list[int] = []
         
         for result in results :
             row = self.storage.insert_outbound_message(
-                contact  = self.contact_id,
+                contact  = contact_id,
                 msg_id   = result["msg_id"],
                 msg_type = result["msg_type"],
                 msg_data = result["msg_data"],
@@ -1177,7 +1256,115 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         
         return outbound_ids
     
-    def send_flow( self, message : ServerFlowMsg, session_id : int) -> bool :
+    def _third_party_contact(
+        self,
+        wa_id : str | None,
+    ) -> int | None :
+        
+        if not wa_id :
+            return None
+        
+        row = self.storage.upsert_contact( self.business_id, wa_id, None)
+        if not row :
+            raise RuntimeError(
+                f"In {here()}: Unable to store the third-party contact"
+            )
+        
+        return row["id"]
+    
+    def _uploaded_media_id( self, media : ServerMediaMsg) -> str :
+        
+        if not media.upload_id :
+            media.upload_id = upload_whatsapp_media(
+                operator_id  = self.operator_id,
+                media        = media,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
+            )
+        
+        return media.upload_id
+    
+    def send_contact_card(
+        self,
+        message : ServerContactCardMsg,
+        *,
+        third_party_contact : str | None = None,
+    ) -> bool :
+        """
+        Send one persisted contact card and store its outbound row.
+        """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
+        try :
+            to_number, contact_id = self._delivery_target(third_party_contact)
+            results = send_whatsapp_content(
+                operator_id  = self.operator_id,
+                to_number    = to_number,
+                content      = message.card,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
+            )
+            self._persist_outbound_messages(
+                case_handler_msg_id,
+                results,
+                third_party_contact = contact_id,
+            )
+            return True
+        
+        except Exception as ex :
+            print(f"In {here()}: {str(ex)}")
+        
+        return False
+    
+    def send_document(
+        self,
+        message : ServerDocumentMsg,
+        *,
+        third_party_contact : str | None = None,
+    ) -> bool :
+        """
+        Send one persisted document and store its outbound row.
+        """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
+        try :
+            to_number, contact_id = self._delivery_target(third_party_contact)
+            results = send_whatsapp_media(
+                operator_id  = self.operator_id,
+                to_number    = to_number,
+                media        = message,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
+            )
+            if not results :
+                return False
+            self._persist_outbound_messages(
+                case_handler_msg_id,
+                results,
+                third_party_contact = contact_id,
+            )
+            return True
+        
+        except Exception as ex :
+            print(f"In {here()}: {str(ex)}")
+        
+        return False
+    
+    def send_flow(
+        self,
+        message    : ServerFlowMsg,
+        session_id : int,
+        *,
+        third_party_contact : str | None = None,
+    ) -> bool :
         """
         Send one persisted Flow launch and link its session.
         """
@@ -1187,14 +1374,19 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             )
         
         try :
+            to_number, contact_id = self._delivery_target(third_party_contact)
             results = send_whatsapp_flow(
                 operator_id  = self.operator_id,
-                to_number    = self.user_id,
+                to_number    = to_number,
                 message      = message,
                 debug        = self.debug,
                 database_url = self.storage.database_url,
             )
-            outbound_ids = self._persist_outbound_messages( message.id, results)
+            outbound_ids = self._persist_outbound_messages(
+                message.id,
+                results,
+                third_party_contact = contact_id,
+            )
             
             if len(outbound_ids) != 1 :
                 raise RuntimeError("A Flow launch must create one outbound message")
@@ -1212,9 +1404,14 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
         
         return False
     
-    def send_template( self, message : ServerTemplateMsg) -> bool :
+    def send_interactive(
+        self,
+        message : ServerInteractiveOptsMsg,
+        *,
+        third_party_contact : str | None = None,
+    ) -> bool :
         """
-        Send one persisted WhatsApp template message.
+        Send one persisted WhatsApp interactive message or its debugging variant.
         """
         case_handler_msg_id = message.id
         if case_handler_msg_id is None :
@@ -1223,22 +1420,129 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             )
         
         try :
-            results = send_whatsapp_template(
+            to_number, contact_id = self._delivery_target(third_party_contact)
+            results = send_whatsapp_interactive(
                 operator_id  = self.operator_id,
-                to_number    = self.user_id,
+                to_number    = to_number,
                 message      = message,
                 debug        = self.debug,
                 database_url = self.storage.database_url,
             )
-            self._persist_outbound_messages( case_handler_msg_id, results)
+            self._persist_outbound_messages(
+                case_handler_msg_id,
+                results,
+                third_party_contact = contact_id,
+            )
             return True
+        
         except Exception as ex :
             print(f"In {here()}: {str(ex)}")
+        
         return False
+    
+    def send_location(
+        self,
+        message : ServerLocationMsg,
+        *,
+        third_party_contact : str | None = None,
+    ) -> bool :
+        """
+        Send one persisted location and store its outbound row.
+        """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
+        try :
+            to_number, contact_id = self._delivery_target(third_party_contact)
+            results = send_whatsapp_content(
+                operator_id  = self.operator_id,
+                to_number    = to_number,
+                content      = WhatsAppLocation(
+                    latitude  = message.latitude,
+                    longitude = message.longitude,
+                    name      = message.name,
+                    address   = message.address,
+                ),
+                debug        = self.debug,
+                database_url = self.storage.database_url,
+            )
+            self._persist_outbound_messages(
+                case_handler_msg_id,
+                results,
+                third_party_contact = contact_id,
+            )
+            return True
+        
+        except Exception as ex :
+            print(f"In {here()}: {str(ex)}")
+        
+        return False
+    
+    def send_template(
+        self,
+        message : ServerTemplateMsg,
+        *,
+        document            : ServerDocumentMsg | None = None,
+        image               : ServerMediaMsg    | None = None,
+        video               : ServerMediaMsg    | None = None,
+        third_party_contact : str               | None = None,
+    ) -> list[WhatsAppSendResult] | None :
+        """
+        Send one WhatsApp template and store its outbound row.
 
+        Args:
+            message  : Template to send. Stored on the case when it has no id yet.
+            document : PDF header file. At most one of document, image, and video. Uploaded once; later sends of this message reuse the media id.
+            image    : Image header file. Uploaded once; later sends of this message reuse the media id.
+            video    : Video header file. Uploaded once; later sends of this message reuse the media id.
+            third_party_contact : Recipient WhatsApp id when that person is not the case contact. The outbound row is stored on that contact.
+        Returns:
+            The accepted send results, or None when the upload or send fails.
+        """
+        try :
+            self._attach_template_media( message, document, image, video)
+            
+            if message.id is None :
+                stored = self.apply_and_persist_message(
+                    message,
+                    apply_to_state_machine = False,
+                )
+                if stored.id is None :
+                    raise RuntimeError(
+                        f"In {here()}: Unable to persist the template message"
+                    )
+                message.id            = stored.id
+                message.message_index = stored.message_index
+            
+            to_number, contact_id = self._delivery_target(third_party_contact)
+            
+            results = send_whatsapp_template(
+                operator_id  = self.operator_id,
+                to_number    = to_number,
+                message      = message,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
+            )
+            self._persist_outbound_messages(
+                message.id,
+                results,
+                third_party_contact = contact_id,
+            )
+            return results
+        
+        except Exception as ex :
+            print(f"In {here()}: {str(ex)}")
+        
+        return None
+    
     def send_text(
         self,
         message : ServerTextMsg | AssistantMsg | ToolResultsMsg,
+        *,
+        third_party_contact : str | None = None,
     ) -> bool :
         """
         Send persisted normal text message through WhatsApp.
@@ -1250,6 +1554,7 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
             )
         
         try :
+            to_number, contact_id = self._delivery_target(third_party_contact)
             results : list[WhatsAppSendResult] = []
             if (
                 isinstance( message, ( ServerTextMsg, AssistantMsg)) and
@@ -1258,46 +1563,27 @@ class WhatsAppCaseHandler (CaseHandlerBase) :
                 results.extend(
                     send_whatsapp_text(
                         operator_id  = self.operator_id,
-                        to_number    = self.user_id,
+                        to_number    = to_number,
                         text         = message.text,
                         debug        = self.debug,
                         database_url = self.storage.database_url,
                     )
                 )
-            self._persist_outbound_messages( case_handler_msg_id, results)
-            return True
-
-        except Exception as ex :
-            print(f"In {here()}: {str(ex)}")
-
-        return False
-
-    def send_interactive( self, message : ServerInteractiveOptsMsg) -> bool :
-        """
-        Send one persisted WhatsApp interactive message or its debugging variant.
-        """
-        case_handler_msg_id = message.id
-        if case_handler_msg_id is None :
-            raise ValueError(
-                f"In {here()}: Message must be persisted before it is sent"
+            self._persist_outbound_messages(
+                case_handler_msg_id,
+                results,
+                third_party_contact = contact_id,
             )
+            return True
         
-        try :
-            results = send_whatsapp_interactive(
-                operator_id  = self.operator_id,
-                to_number    = self.user_id,
-                message      = message,
-                debug        = self.debug,
-                database_url = self.storage.database_url,
-            )
-            self._persist_outbound_messages( case_handler_msg_id, results)
-            return True
-
         except Exception as ex :
             print(f"In {here()}: {str(ex)}")
-
+        
         return False
-
+    
+    # =====================================================================================
+    # Override function to scope argument `message` type hints
+    
     @abstractmethod
     def process_message(
         self,
@@ -2163,17 +2449,82 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
     # =====================================================================================
     # MESSAGE SENDING
     
+    async def _attach_template_media(
+        self,
+        message  : ServerTemplateMsg,
+        document : ServerDocumentMsg | None,
+        image    : ServerMediaMsg    | None,
+        video    : ServerMediaMsg    | None,
+    ) -> None :
+        
+        supplied = [
+            ( "document", document ),
+            ( "image",    image    ),
+            ( "video",    video    ),
+        ]
+        supplied = [
+            ( kind, media) for kind, media in supplied if media is not None
+        ]
+        if len(supplied) > 1 :
+            raise ValueError(
+                f"In {here()}: Template supports at most one header"
+            )
+        if not supplied :
+            return
+        
+        kind, media = supplied[0]
+        current     = getattr( message, kind)
+        if current is not None and ( current.id or current.link ) :
+            return
+        if any(
+            header is not None
+            for header in (
+                message.document, message.image, message.video, message.location,
+            )
+        ) :
+            raise ValueError(
+                f"In {here()}: Template supports at most one header"
+            )
+        
+        upload_id = await self._uploaded_media_id(media)
+        if kind == "document" :
+            message.document = WhatsApp_OB_TemplateDocument(
+                id       = upload_id,
+                filename = getattr( media, "filename", None) or media.name,
+            )
+        elif kind == "image" :
+            message.image = WhatsApp_OB_TemplateImage( id = upload_id)
+        else :
+            message.video = WhatsApp_OB_TemplateVideo( id = upload_id)
+        
+        return
+    
+    async def _delivery_target(
+        self,
+        third_party_contact : str | None,
+    ) -> tuple[ str, int | None] :
+        
+        return (
+            third_party_contact or self.user_id,
+            await self._third_party_contact(third_party_contact),
+        )
+    
     async def _persist_outbound_messages(
         self,
         case_handler_msg_id : int,
         results             : list[WhatsAppSendResult],
+        *,
+        third_party_contact : int | None = None,
     ) -> list[int] :
         
+        contact_id   = (
+            self.contact_id if third_party_contact is None else third_party_contact
+        )
         outbound_ids : list[int] = []
         
         for result in results :
             row = await self.storage.insert_outbound_message(
-                contact  = self.contact_id,
+                contact  = contact_id,
                 msg_id   = result["msg_id"],
                 msg_type = result["msg_type"],
                 msg_data = result["msg_data"],
@@ -2197,7 +2548,119 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         
         return outbound_ids
     
-    async def send_flow( self, message : ServerFlowMsg, session_id : int) -> bool :
+    async def _third_party_contact(
+        self,
+        wa_id : str | None,
+    ) -> int | None :
+        
+        if not wa_id :
+            return None
+        
+        row = await self.storage.upsert_contact( self.business_id, wa_id, None)
+        if not row :
+            raise RuntimeError(
+                f"In {here()}: Unable to store the third-party contact"
+            )
+        
+        return row["id"]
+    
+    async def _uploaded_media_id( self, media : ServerMediaMsg) -> str :
+        
+        if not media.upload_id :
+            media.upload_id = await async_upload_whatsapp_media(
+                operator_id  = self.operator_id,
+                media        = media,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
+            )
+        
+        return media.upload_id
+    
+    async def send_contact_card(
+        self,
+        message : ServerContactCardMsg,
+        *,
+        third_party_contact : str | None = None,
+    ) -> bool :
+        """
+        Send one persisted contact card and store its outbound row.
+        """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
+        try :
+            to_number, contact_id = await self._delivery_target(
+                third_party_contact,
+            )
+            results = await async_send_whatsapp_content(
+                operator_id  = self.operator_id,
+                to_number    = to_number,
+                content      = message.card,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
+            )
+            await self._persist_outbound_messages(
+                case_handler_msg_id,
+                results,
+                third_party_contact = contact_id,
+            )
+            return True
+        
+        except Exception as ex :
+            print(f"In {here()}: {str(ex)}")
+        
+        return False
+    
+    async def send_document(
+        self,
+        message : ServerDocumentMsg,
+        *,
+        third_party_contact : str | None = None,
+    ) -> bool :
+        """
+        Send one persisted document and store its outbound row.
+        """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
+        try :
+            to_number, contact_id = await self._delivery_target(
+                third_party_contact,
+            )
+            results = await async_send_whatsapp_media(
+                operator_id  = self.operator_id,
+                to_number    = to_number,
+                media        = message,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
+            )
+            if not results :
+                return False
+            await self._persist_outbound_messages(
+                case_handler_msg_id,
+                results,
+                third_party_contact = contact_id,
+            )
+            return True
+        
+        except Exception as ex :
+            print(f"In {here()}: {str(ex)}")
+        
+        return False
+    
+    async def send_flow(
+        self,
+        message    : ServerFlowMsg,
+        session_id : int,
+        *,
+        third_party_contact : str | None = None,
+    ) -> bool :
         """
         Send one persisted Flow launch and link its session asynchronously.
         """
@@ -2207,9 +2670,10 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             )
         
         try :
+            to_number, contact_id = await self._delivery_target(third_party_contact)
             results = await async_send_whatsapp_flow(
                 operator_id  = self.operator_id,
-                to_number    = self.user_id,
+                to_number    = to_number,
                 message      = message,
                 debug        = self.debug,
                 database_url = self.storage.database_url,
@@ -2217,6 +2681,7 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             outbound_ids = await self._persist_outbound_messages(
                 message.id,
                 results,
+                third_party_contact = contact_id,
             )
             
             if len(outbound_ids) != 1 :
@@ -2235,9 +2700,14 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
         
         return False
     
-    async def send_template( self, message : ServerTemplateMsg) -> bool :
+    async def send_interactive(
+        self,
+        message : ServerInteractiveOptsMsg,
+        *,
+        third_party_contact : str | None = None,
+    ) -> bool :
         """
-        Send one persisted WhatsApp template message asynchronously.
+        Send one persisted WhatsApp interactive message asynchronously.
         """
         case_handler_msg_id = message.id
         if case_handler_msg_id is None :
@@ -2246,22 +2716,133 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             )
         
         try :
-            results = await async_send_whatsapp_template(
+            to_number, contact_id = await self._delivery_target(
+                third_party_contact,
+            )
+            results = await async_send_whatsapp_interactive(
                 operator_id  = self.operator_id,
-                to_number    = self.user_id,
+                to_number    = to_number,
                 message      = message,
                 debug        = self.debug,
                 database_url = self.storage.database_url,
             )
-            await self._persist_outbound_messages( case_handler_msg_id, results)
+            await self._persist_outbound_messages(
+                case_handler_msg_id,
+                results,
+                third_party_contact = contact_id,
+            )
             return True
+        
         except Exception as ex :
             print(f"In {here()}: {str(ex)}")
+        
         return False
+    
+    async def send_location(
+        self,
+        message : ServerLocationMsg,
+        *,
+        third_party_contact : str | None = None,
+    ) -> bool :
+        """
+        Send one persisted location and store its outbound row.
+        """
+        case_handler_msg_id = message.id
+        if case_handler_msg_id is None :
+            raise ValueError(
+                f"In {here()}: Message must be persisted before it is sent"
+            )
+        
+        try :
+            to_number, contact_id = await self._delivery_target(
+                third_party_contact,
+            )
+            results = await async_send_whatsapp_content(
+                operator_id  = self.operator_id,
+                to_number    = to_number,
+                content      = WhatsAppLocation(
+                    latitude  = message.latitude,
+                    longitude = message.longitude,
+                    name      = message.name,
+                    address   = message.address,
+                ),
+                debug        = self.debug,
+                database_url = self.storage.database_url,
+            )
+            await self._persist_outbound_messages(
+                case_handler_msg_id,
+                results,
+                third_party_contact = contact_id,
+            )
+            return True
+        
+        except Exception as ex :
+            print(f"In {here()}: {str(ex)}")
+        
+        return False
+    
+    async def send_template(
+        self,
+        message : ServerTemplateMsg,
+        *,
+        document            : ServerDocumentMsg | None = None,
+        image               : ServerMediaMsg    | None = None,
+        video               : ServerMediaMsg    | None = None,
+        third_party_contact : str               | None = None,
+    ) -> list[WhatsAppSendResult] | None :
+        """
+        Send one WhatsApp template asynchronously and store its outbound row.
 
+        Args:
+            message  : Template to send. Stored on the case when it has no id yet.
+            document : PDF header file. At most one of document, image, and video. Uploaded once; later sends of this message reuse the media id.
+            image    : Image header file. Uploaded once; later sends of this message reuse the media id.
+            video    : Video header file. Uploaded once; later sends of this message reuse the media id.
+            third_party_contact : Recipient WhatsApp id when that person is not the case contact. The outbound row is stored on that contact.
+        Returns:
+            The accepted send results, or None when the upload or send fails.
+        """
+        try :
+            await self._attach_template_media( message, document, image, video)
+            
+            if message.id is None :
+                stored = await self.apply_and_persist_message(
+                    message,
+                    apply_to_state_machine = False,
+                )
+                if stored.id is None :
+                    raise RuntimeError(
+                        f"In {here()}: Unable to persist the template message"
+                    )
+                message.id            = stored.id
+                message.message_index = stored.message_index
+            
+            to_number, contact_id = await self._delivery_target(third_party_contact)
+            
+            results = await async_send_whatsapp_template(
+                operator_id  = self.operator_id,
+                to_number    = to_number,
+                message      = message,
+                debug        = self.debug,
+                database_url = self.storage.database_url,
+            )
+            await self._persist_outbound_messages(
+                message.id,
+                results,
+                third_party_contact = contact_id,
+            )
+            return results
+        
+        except Exception as ex :
+            print(f"In {here()}: {str(ex)}")
+        
+        return None
+    
     async def send_text(
         self,
         message : ServerTextMsg | AssistantMsg | ToolResultsMsg,
+        *,
+        third_party_contact : str | None = None,
     ) -> bool :
         """
         Send persisted normal text message asynchronously.
@@ -2273,6 +2854,9 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
             )
         
         try :
+            to_number, contact_id = await self._delivery_target(
+                third_party_contact,
+            )
             results : list[WhatsAppSendResult] = []
             if (
                 isinstance( message, ( ServerTextMsg, AssistantMsg)) and
@@ -2281,49 +2865,27 @@ class AsyncWhatsAppCaseHandler (AsyncCaseHandlerBase) :
                 results.extend(
                     await async_send_whatsapp_text(
                         operator_id  = self.operator_id,
-                        to_number    = self.user_id,
+                        to_number    = to_number,
                         text         = message.text,
                         debug        = self.debug,
                         database_url = self.storage.database_url,
                     )
                 )
-            await self._persist_outbound_messages( case_handler_msg_id, results)
-            return True
-
-        except Exception as ex :
-            print(f"In {here()}: {str(ex)}")
-
-        return False
-
-    async def send_interactive( self, message : ServerInteractiveOptsMsg) -> bool :
-        """
-        Send one persisted WhatsApp interactive message asynchronously.
-        """
-        case_handler_msg_id = message.id
-        if case_handler_msg_id is None :
-            raise ValueError(
-                f"In {here()}: Message must be persisted before it is sent"
+            await self._persist_outbound_messages(
+                case_handler_msg_id,
+                results,
+                third_party_contact = contact_id,
             )
+            return True
         
-        try :
-            results = await async_send_whatsapp_interactive(
-                operator_id  = self.operator_id,
-                to_number    = self.user_id,
-                message      = message,
-                debug        = self.debug,
-                database_url = self.storage.database_url,
-            )
-            await self._persist_outbound_messages( case_handler_msg_id, results)
-            return True
-
         except Exception as ex :
             print(f"In {here()}: {str(ex)}")
-
+        
         return False
-
+    
     # =====================================================================================
-    # CHILD HANDLER INTERFACE
-
+    # Override function scope argument `message` type hints
+    
     @abstractmethod
     async def process_message(
         self,

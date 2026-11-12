@@ -1091,7 +1091,7 @@ def send_whatsapp_media(
     debug       : bool = False,
     *,
     database_url : str | None = None,
-) -> bool :
+) -> list[WhatsAppSendResult] | bool :
     """
     Upload media and send it to the given WhatsApp number \\
     Args:
@@ -1101,7 +1101,7 @@ def send_whatsapp_media(
         debug       : Whether to emit response diagnostics
         database_url : Optional PostgreSQL URL for per-number credential selection.
     Returns:
-        True if upload/send succeeded; else False.
+        The accepted send results, or False when upload or send fails.
     """
     stage = "upload"
     try :
@@ -1123,9 +1123,7 @@ def send_whatsapp_media(
             json    = payload,
             timeout = WHATSAPP_MEDIA_TIMEOUT,
         )
-        collect_send_results( payload, response, debug)
-        
-        return True
+        return collect_send_results( payload, response, debug)
     
     except Exception as ex :
         print(
@@ -1142,7 +1140,7 @@ async def async_send_whatsapp_media(
     debug       : bool = False,
     *,
     database_url : str | None = None,
-) -> bool :
+) -> list[WhatsAppSendResult] | bool :
     """
     Upload media and send it to the given WhatsApp number \\
     Args:
@@ -1152,7 +1150,7 @@ async def async_send_whatsapp_media(
         debug       : Whether to emit response diagnostics
         database_url : Optional PostgreSQL URL for per-number credential selection.
     Returns:
-        True if upload/send succeeded; else False.
+        The accepted send results, or False when upload or send fails.
     """
     stage = "upload"
     try :
@@ -1174,9 +1172,7 @@ async def async_send_whatsapp_media(
                 headers = write_headers( business_token = business_token),
                 json    = payload,
             )
-        collect_send_results( payload, response, debug)
-        
-        return True
+        return collect_send_results( payload, response, debug)
     
     except Exception as ex :
         print(

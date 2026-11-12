@@ -615,11 +615,12 @@ def test_async_send_media_uses_extended_timeout(monkeypatch) -> None :
         caption  = "Line one\nLine two",
     )
 
-    assert asyncio.run(async_send_whatsapp_media(
+    results = asyncio.run(async_send_whatsapp_media(
         operator_id = "123456789",
         to_number   = TO_NUMBER,
         media       = media,
-    )) is True
+    ))
+    assert results[0]["msg_id"] == "wamid.sent"
     assert media.upload_id == "987654321"
 
 
