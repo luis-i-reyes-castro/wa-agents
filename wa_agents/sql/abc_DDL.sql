@@ -1307,6 +1307,88 @@ CREATE INDEX IF NOT EXISTS case_handler_to_api_bridge_case_handler_msg_id_idx
 ALTER TABLE wa_agents.case_handler_to_api_bridge
   ENABLE ROW LEVEL SECURITY;
 
+-- NOTIFICATIONS
+
+CREATE TABLE IF NOT EXISTS wa_agents.case_handler_notifications (
+
+  id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at  TIMESTAMPTZ DEFAULT NULL,
+
+  /*
+  Handler-defined kind, for example 'vipresa.quote_approval'.
+  */
+  notification_key  T_NO_WS_STR NOT NULL,
+
+  case_manifest     BIGINT NOT NULL,
+  case_message      BIGINT DEFAULT NULL,
+
+  subject_contact   BIGINT NOT NULL,
+  recipient_contact BIGINT NOT NULL,
+
+  outbound_msg_id   BIGINT NOT NULL,
+  inbound_msg_id    BIGINT DEFAULT NULL,
+
+  CONSTRAINT case_handler_notifications_case_manifest_fkey
+    FOREIGN KEY (case_manifest)
+    REFERENCES wa_agents.case_handler_case_manifests(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT case_handler_notifications_case_message_fkey
+    FOREIGN KEY ( case_manifest, case_message)
+    REFERENCES wa_agents.case_handler_messages( case_id, id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT case_handler_notifications_subject_contact_fkey
+    FOREIGN KEY (subject_contact)
+    REFERENCES wa_agents.api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT case_handler_notifications_recipient_contact_fkey
+    FOREIGN KEY (recipient_contact)
+    REFERENCES wa_agents.api_contacts(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT case_handler_notifications_outbound_msg_id_fkey
+    FOREIGN KEY (outbound_msg_id)
+    REFERENCES wa_agents.api_outbound_messages(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+
+  CONSTRAINT case_handler_notifications_inbound_msg_id_fkey
+    FOREIGN KEY (inbound_msg_id)
+    REFERENCES wa_agents.api_inbound_messages(id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL,
+
+  CONSTRAINT case_handler_notifications_outbound_msg_id_unique
+    UNIQUE (outbound_msg_id),
+
+  CONSTRAINT case_handler_notifications_inbound_msg_id_unique
+    UNIQUE (inbound_msg_id)
+
+);
+
+CREATE INDEX IF NOT EXISTS case_handler_notifications_open_recipient_idx
+  ON wa_agents.case_handler_notifications (
+    recipient_contact,
+    notification_key
+  )
+  WHERE ( resolved_at IS NULL );
+
+CREATE INDEX IF NOT EXISTS case_handler_notifications_case_timeline_idx
+  ON wa_agents.case_handler_notifications (
+    case_manifest,
+    id
+  );
+
+ALTER TABLE wa_agents.case_handler_notifications
+  ENABLE ROW LEVEL SECURITY;
+
 -- AGENT CONTEXTS
 
 CREATE TABLE IF NOT EXISTS wa_agents.case_handler_agent_contexts (

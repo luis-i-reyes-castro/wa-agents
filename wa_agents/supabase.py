@@ -168,6 +168,9 @@ SQL_GET_INBOUND_PAYLOAD             = _load_sql("get_inbound_payload.sql")
 SQL_GET_INBOUND_PAYLOAD_BY_HASH     = _load_sql(
     "get_inbound_payload_by_hash.sql"
 )
+SQL_GET_OPEN_CASE_HANDLER_NOTIFICATION = _load_sql(
+    "get_open_case_handler_notification.sql"
+)
 SQL_GET_OPEN_CASE_MANIFEST          = _load_sql("get_open_case_manifest.sql")
 SQL_INSERT_CASE_HANDLER_MESSAGE     = _load_sql("insert_case_handler_message.sql")
 SQL_INSERT_CASE_MANIFEST            = _load_sql("insert_case_manifest.sql")
@@ -191,6 +194,9 @@ SQL_MARK_INBOUND_PAYLOAD_INVALID    = _load_sql("mark_inbound_payload_invalid.sq
 SQL_MARK_INBOUND_PAYLOAD_VALID      = _load_sql("mark_inbound_payload_valid.sql")
 SQL_RELEASE_CONTACT_LEASE           = _load_sql("release_contact_lease.sql")
 SQL_RENEW_CONTACT_LEASE             = _load_sql("renew_contact_lease.sql")
+SQL_RESOLVE_CASE_HANDLER_NOTIFICATION = _load_sql(
+    "resolve_case_handler_notification.sql"
+)
 SQL_UPDATE_CASE_MANIFEST            = _load_sql("update_case_manifest.sql")
 SQL_UPDATE_CONTACT_BURST_SCORE      = _load_sql("update_contact_burst_score.sql")
 SQL_UPDATE_FLOW_SESSION             = _load_sql("update_flow_session.sql")
@@ -198,6 +204,9 @@ SQL_UPDATE_INBOUND_PAYLOAD_METADATA = _load_sql(
     "update_inbound_payload_metadata.sql"
 )
 SQL_UPSERT_BUSINESS                 = _load_sql("upsert_business.sql")
+SQL_UPSERT_CASE_HANDLER_NOTIFICATION = _load_sql(
+    "upsert_case_handler_notification.sql"
+)
 SQL_UPSERT_CONTACT                  = _load_sql("upsert_contact.sql")
 SQL_UPSERT_CONTACT_PROFILE          = _load_sql("upsert_contact_profile.sql")
 SQL_UPSERT_SMB_APP_CONTACT          = _load_sql("upsert_smb_app_contact.sql")
@@ -772,6 +781,64 @@ class SyncSupabaseStorage :
                 "msg_id"   : msg_id,
                 "msg_type" : msg_type,
                 "msg_data" : Jsonb(msg_data),
+            },
+        )
+    
+    def upsert_case_handler_notification(
+        self,
+        business         : int,
+        recipient_wa_id  : str,
+        notification_key : str,
+        case_manifest    : int,
+        subject_contact  : int,
+        msg_id           : str,
+        msg_type         : str,
+        msg_data         : dict[str, Any],
+        case_message     : int | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_UPSERT_CASE_HANDLER_NOTIFICATION,
+            {
+                "business"         : business,
+                "recipient_wa_id"  : recipient_wa_id,
+                "notification_key" : notification_key,
+                "case_manifest"    : case_manifest,
+                "case_message"     : case_message,
+                "subject_contact"  : subject_contact,
+                "msg_id"           : msg_id,
+                "msg_type"         : msg_type,
+                "msg_data"         : Jsonb(msg_data),
+            },
+        )
+    
+    def get_open_case_handler_notification(
+        self,
+        msg_id            : str,
+        recipient_contact : int,
+        notification_key  : str,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_GET_OPEN_CASE_HANDLER_NOTIFICATION,
+            {
+                "msg_id"            : msg_id,
+                "recipient_contact" : recipient_contact,
+                "notification_key"  : notification_key,
+            },
+        )
+    
+    def resolve_case_handler_notification(
+        self,
+        notification_id : int,
+        inbound_msg_id  : int,
+    ) -> dict[str, Any] | None :
+        
+        return self._fetch_one(
+            SQL_RESOLVE_CASE_HANDLER_NOTIFICATION,
+            {
+                "id"             : notification_id,
+                "inbound_msg_id" : inbound_msg_id,
             },
         )
     
@@ -1820,6 +1887,64 @@ class AsyncSupabaseStorage :
                 "msg_id"   : msg_id,
                 "msg_type" : msg_type,
                 "msg_data" : Jsonb(msg_data),
+            },
+        )
+    
+    async def upsert_case_handler_notification(
+        self,
+        business         : int,
+        recipient_wa_id  : str,
+        notification_key : str,
+        case_manifest    : int,
+        subject_contact  : int,
+        msg_id           : str,
+        msg_type         : str,
+        msg_data         : dict[str, Any],
+        case_message     : int | None = None,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_UPSERT_CASE_HANDLER_NOTIFICATION,
+            {
+                "business"         : business,
+                "recipient_wa_id"  : recipient_wa_id,
+                "notification_key" : notification_key,
+                "case_manifest"    : case_manifest,
+                "case_message"     : case_message,
+                "subject_contact"  : subject_contact,
+                "msg_id"           : msg_id,
+                "msg_type"         : msg_type,
+                "msg_data"         : Jsonb(msg_data),
+            },
+        )
+    
+    async def get_open_case_handler_notification(
+        self,
+        msg_id            : str,
+        recipient_contact : int,
+        notification_key  : str,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_GET_OPEN_CASE_HANDLER_NOTIFICATION,
+            {
+                "msg_id"            : msg_id,
+                "recipient_contact" : recipient_contact,
+                "notification_key"  : notification_key,
+            },
+        )
+    
+    async def resolve_case_handler_notification(
+        self,
+        notification_id : int,
+        inbound_msg_id  : int,
+    ) -> dict[str, Any] | None :
+        
+        return await self._fetch_one(
+            SQL_RESOLVE_CASE_HANDLER_NOTIFICATION,
+            {
+                "id"             : notification_id,
+                "inbound_msg_id" : inbound_msg_id,
             },
         )
     

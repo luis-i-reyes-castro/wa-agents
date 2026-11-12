@@ -78,6 +78,7 @@ this schema and stay between two and four characters when practical.
 | `wa_agents.case_handler_openrouter_usage` | `chou` |
 | `wa_agents.case_handler_state_histories` | `csh` |
 | `wa_agents.case_handler_to_api_bridge` | `cab` |
+| `wa_agents.case_handler_notifications` | `chn` |
 | `wa_agents.case_handler_agent_contexts` | `cac` |
 | `wa_agents.api_flow_encryption_keys` | `wafk` |
 | `wa_agents.api_flows` | `waf` |
@@ -113,6 +114,7 @@ this schema and stay between two and four characters when practical.
 | `case_handler_openrouter_usage` | Token counts and cost for one persisted OpenRouter assistant response. |
 | `case_handler_state_histories` | Append-only FSM snapshots for case creation and persisted messages. |
 | `case_handler_to_api_bridge` | Mapping between case-handler messages and inbound/outbound API messages. |
+| `case_handler_notifications` | Outbound handoff from a case to another contact, and the reply that closes it. |
 | `case_handler_agent_contexts` | Ordered membership of case messages in named agent contexts. |
 | `api_flow_encryption_keys` | One public/encrypted-private RSA key pair per WABA. |
 | `api_flows` | Registered WhatsApp Flow definitions and handler routing. |
@@ -138,7 +140,7 @@ every row.
 | **3** | `api_contact_profiles` <br> `api_inbound_payloads` <br> `api_outbound_messages` <br> `api_smb_app_contacts` <br> `case_handler_contact_leases` <br> `case_handler_routes` |
 | **4** | `api_flow_events` <br> `api_history_chunks` <br> `api_statuses` <br> `case_handler_case_manifests` |
 | **5** | `api_inbound_messages` <br> `case_handler_messages` |
-| **6** | `api_flow_sessions` <br> `api_media` <br> `api_to_case_handler_queue` <br> `case_handler_agent_contexts` <br> `case_handler_openrouter_usage` <br> `case_handler_state_histories` <br> `case_handler_to_api_bridge` |
+| **6** | `api_flow_sessions` <br> `api_media` <br> `api_to_case_handler_queue` <br> `case_handler_agent_contexts` <br> `case_handler_notifications` <br> `case_handler_openrouter_usage` <br> `case_handler_state_histories` <br> `case_handler_to_api_bridge` |
 | **7** | `api_flow_data_exchanges` |
 
 # References and Foreign Keys
@@ -269,6 +271,8 @@ Only trusted provisioning activates a registration; webhook ingestion never does
 | `api_contacts.(phone_number, id)` | `case_handler_routes.(phone_number, contact)` |
 | `api_contacts.id` | `case_handler_contact_leases.contact` |
 | `api_contacts.id` | `case_handler_case_manifests.contact` |
+| `api_contacts.id` | `case_handler_notifications.subject_contact` |
+| `api_contacts.id` | `case_handler_notifications.recipient_contact` |
 | `api_contacts.(phone_number, id)` | `api_flow_sessions.(phone_number, contact)` |
 
 ### Table `api_embedded_signup_syncs`
@@ -342,6 +346,7 @@ Only trusted provisioning activates a registration; webhook ingestion never does
 | ------ | --------- |
 | `api_outbound_messages.id` | `api_media.outbound_msg_id` |
 | `api_outbound_messages.id` | `case_handler_to_api_bridge.api_outbound_msg_id` |
+| `api_outbound_messages.id` | `case_handler_notifications.outbound_msg_id` |
 | `api_outbound_messages.id` | `api_flow_sessions.outbound_message` |
 
 ### Table `api_smb_app_contacts`
@@ -442,6 +447,7 @@ payload that would provide the matching inbound row.
 | `case_handler_case_manifests.id` | `case_handler_messages.case_id` |
 | `case_handler_case_manifests.id` | `case_handler_state_histories.case_manifest` |
 | `case_handler_case_manifests.id` | `case_handler_agent_contexts.case_manifest` |
+| `case_handler_case_manifests.id` | `case_handler_notifications.case_manifest` |
 
 ## Level 5
 
@@ -462,6 +468,7 @@ payload that would provide the matching inbound row.
 | `api_inbound_messages.id` | `api_media.inbound_msg_id` |
 | `api_inbound_messages.msg_id` | `api_to_case_handler_queue.msg_id` |
 | `api_inbound_messages.id` | `case_handler_to_api_bridge.api_inbound_msg_id` |
+| `api_inbound_messages.id` | `case_handler_notifications.inbound_msg_id` (`ON DELETE SET NULL`) |
 | `api_inbound_messages.id` | `api_flow_sessions.completion_message` |
 
 ### Table `case_handler_messages`
@@ -480,6 +487,7 @@ payload that would provide the matching inbound row.
 | `case_handler_messages.id` | `case_handler_to_api_bridge.case_handler_msg_id` |
 | `case_handler_messages.id` | `case_handler_openrouter_usage.case_message` |
 | `case_handler_messages.(case_id, id)` | `case_handler_agent_contexts.(case_manifest, case_message)` |
+| `case_handler_messages.(case_id, id)` | `case_handler_notifications.(case_manifest, case_message)` |
 | `case_handler_messages.id` | `api_flow_sessions.case_handler_message` |
 
 ## Level 6
@@ -576,6 +584,24 @@ Exactly one of the two message references must be non-null.
 Exactly one API message reference must be non-null. An inbound API message maps to at
 most one case-handler message. One case-handler message may map to multiple outbound
 API messages when a long response is split into WhatsApp-sized chunks.
+
+**INCOMING REFERENCES:** None.
+
+### Table `case_handler_notifications`
+
+**OUTGOING REFERENCES:**
+
+| COLUMN | REFERENCE |
+| ------ | --------- |
+| `case_handler_notifications.case_manifest` | `case_handler_case_manifests.id` |
+| `case_handler_notifications.(case_manifest, case_message)` | `case_handler_messages.(case_id, id)` |
+| `case_handler_notifications.subject_contact` | `api_contacts.id` |
+| `case_handler_notifications.recipient_contact` | `api_contacts.id` |
+| `case_handler_notifications.outbound_msg_id` | `api_outbound_messages.id` |
+| `case_handler_notifications.inbound_msg_id` | `api_inbound_messages.id` (`ON DELETE SET NULL`) |
+
+`outbound_msg_id` is unique, so one sent WhatsApp message closes at most one
+notification. `inbound_msg_id` is unique and stays null until a reply resolves the row.
 
 **INCOMING REFERENCES:** None.
 
