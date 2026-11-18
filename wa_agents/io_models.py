@@ -243,6 +243,9 @@ class WhatsAppContactCard_Name (BaseModel) :
         `last_name`      : str | null
         `prefix`         : str | null
         `suffix`         : str | null
+    NOTE:
+        Inbound cards often contain only `formatted_name`.
+        E.g., organization contacts, such as a company shared from an address book, have no person-name components.
     """
     model_config = ConfigDict( frozen = True)
     
@@ -252,31 +255,21 @@ class WhatsAppContactCard_Name (BaseModel) :
     last_name      : str | None = None
     prefix         : str | None = None
     suffix         : str | None = None
-    
-    @model_validator( mode = "after")
-    def ensure_at_least_one_name(self) -> Self :
-        """
-        Satisfy META's requirement that the payload have at least:
-        * Formatted name
-        * At least one of: first name, middle name, last name.
-        """
-        
-        if not ( self.first_name or self.middle_name or self.last_name ) :
-            raise ValueError("Must have at least one name")
-        
-        return self
 
 class WhatsAppContactCard_Phone (BaseModel) :
     """
     WhatsApp contact-card phone
-        `phone` : "<phone number starting with plus sign>"
-        `type`  : "CELL" | "Mobile" | "Landline" | str
-        `wa_id` : "<WhatsApp phone number ID>" | null
+        `phone` : "<phone number>"
+        `type`  : "CELL" | "Mobile" | "Landline" | str | null
+        `wa_id` : "<WhatsApp phone number>" | null
+    NOTE:
+        Inbound cards omit `type` when the address book has no phone label.
+        `wa_id` is absent when the number is not a WhatsApp user.
     """
     model_config = ConfigDict( frozen = True)
     
     phone : str
-    type  : str
+    type  : str | None = None
     wa_id : str | None = None
 
 class WhatsAppContactCard_Email (BaseModel) :

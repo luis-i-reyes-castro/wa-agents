@@ -828,6 +828,89 @@ def test_template_button_reply_parses() -> None :
     assert message.context.id == "wamid.template"
 
 
+def test_contact_card_accepts_organization_without_phone_label() -> None :
+    payload = WhatsApp_IB_Payload.model_validate({
+        "object" : "whatsapp_business_account",
+        "entry"  : [
+            {
+                "id"      : "1094161479662493",
+                "changes" : [
+                    {
+                        "field" : "messages",
+                        "value" : {
+                            "messaging_product" : "whatsapp",
+                            "metadata"          : {
+                                "display_phone_number" : "593962939146",
+                                "phone_number_id"      : "1401971886331018",
+                            },
+                            "contacts" : [
+                                {
+                                    "profile" : { "name" : "Luis Reyes" },
+                                    "wa_id"   : "593995341161",
+                                    "user_id" : "EC.1068627879474667",
+                                },
+                            ],
+                            "messages" : [
+                                {
+                                    "from"         : "593995341161",
+                                    "from_user_id" : "EC.1068627879474667",
+                                    "id"           : "wamid.contact",
+                                    "timestamp"    : "1795035436",
+                                    "type"         : "contacts",
+                                    "contacts"     : [
+                                        {
+                                            "name" : {
+                                                "formatted_name" : "CNEL EP",
+                                            },
+                                            "org"    : { "company" : "CNEL EP" },
+                                            "phones" : [
+                                                {
+                                                    "phone" : "+593 1800 263 537",
+                                                    "wa_id" : "5931800263537",
+                                                },
+                                            ],
+                                            "vcard"  : "QkVHSU46VkNBUkQ=",
+                                            "origin" : "other",
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+    })
+
+    card = payload.entry[0].changes[0].value.messages[0].contacts[0]
+    assert card.name.formatted_name == "CNEL EP"
+    assert card.name.first_name is None
+    assert card.org
+    assert card.org.company == "CNEL EP"
+    assert card.phones[0].phone == "+593 1800 263 537"
+    assert card.phones[0].type is None
+    assert card.phones[0].wa_id == "5931800263537"
+
+
+def test_contact_card_phone_omits_wa_id_when_absent() -> None :
+    message = WhatsApp_IB_Message.model_validate({
+        "from"      : "593995341161",
+        "id"        : "wamid.contact-without-wa-id",
+        "timestamp" : "1795035436",
+        "type"      : "contacts",
+        "contacts"  : [
+            {
+                "name"   : { "formatted_name" : "Former user" },
+                "phones" : [ { "phone" : "+593999000111" } ],
+            },
+        ],
+    })
+
+    assert message.contacts
+    assert message.contacts[0].phones[0].wa_id is None
+    assert message.contacts[0].phones[0].type is None
+
+
 def test_revoke_message_parses_original_message_id() -> None :
     message = WhatsApp_IB_Message.model_validate({
         "from"      : "593995341161",
