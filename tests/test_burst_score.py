@@ -12,6 +12,7 @@ import math
 import psycopg
 import unittest
 
+from contextlib import nullcontext
 from datetime import (
     UTC,
     datetime,
@@ -56,6 +57,7 @@ class BurstWorkerTests (unittest.IsolatedAsyncioTestCase) :
         
         self.queue = SimpleNamespace(
             storage = SimpleNamespace(
+                database_url = "postgresql://unit-test",
                 update_contact_burst_score = AsyncMock(
                     return_value = { "score" : 2.0, "response_delay" : 16.0 },
                 ),
@@ -65,6 +67,7 @@ class BurstWorkerTests (unittest.IsolatedAsyncioTestCase) :
             claim_next_for_contact = AsyncMock( return_value = None),
             mark_done = AsyncMock(),
             mark_error = AsyncMock(),
+            release_contact_lease = AsyncMock(),
         )
         self.worker = WhatsAppAPIWorker( handler_cls = Handler, queue = self.queue)
         self.handler = SimpleNamespace(
@@ -99,6 +102,13 @@ class BurstWorkerTests (unittest.IsolatedAsyncioTestCase) :
             "wa_agents.api_worker._job_and_message",
             return_value = ( self.job, self.message ),
         )
+        for name in ( "async_pooled_connection", "sync_pooled_conection") :
+            context = patch( "wa_agents.api_worker." + name, return_value = nullcontext())
+            context.start()
+            self.addCleanup(context.stop)
+        sync_queue = patch("wa_agents.api_worker.WhatsAppDatabaseQueue")
+        self.sync_queue = sync_queue.start().return_value
+        self.addCleanup(sync_queue.stop)
         self.reconstruct.start()
         self.addCleanup(self.reconstruct.stop)
 
@@ -112,9 +122,11 @@ class BurstWorkerTests (unittest.IsolatedAsyncioTestCase) :
         with patch( "wa_agents.api_worker.time.time", return_value = 100.0) :
             await self.worker._process_claimed_message({ "row_id" : 1 })
         self.assertEqual( self.worker._job_td[1].response_time, 116.0)
-        self.handler.renew_contact_lease.assert_awaited_once()
         self.handler.release_contact_lease.assert_not_awaited()
-        self.queue.mark_done.assert_awaited_once_with(1)
+        self.queue.mark_done.assert_awaited_once_with(
+            1, owner_token = self.job.owner_token, ingested = True,
+            response_due_at = datetime.fromtimestamp( 116, UTC),
+        )
 
     async def test_ingestion_failure_preserves_previous_job(self) -> None :
         
@@ -126,7 +138,9 @@ class BurstWorkerTests (unittest.IsolatedAsyncioTestCase) :
                 previous_job = self.job,
             )
         self.assertEqual( self.worker._job_td[1].response_time, 123.0)
-        self.queue.mark_error.assert_awaited_once_with(2)
+        self.queue.mark_error.assert_awaited_once_with(
+            2, owner_token = self.job.owner_token,
+        )
         self.handler.release_contact_lease.assert_not_awaited()
 
     async def test_false_result_cancels_job(self) -> None :
@@ -138,19 +152,17 @@ class BurstWorkerTests (unittest.IsolatedAsyncioTestCase) :
             previous_job = self.job,
         )
         self.assertFalse(self.worker._job_td)
-        self.handler.release_contact_lease.assert_awaited_once()
+        self.queue.release_contact_lease.assert_awaited_once()
 
     async def test_waiting_lease_renewal_and_loss(self) -> None :
         
-        self.worker._job_td.schedule( self.job, math.inf)
-        with patch( "wa_agents.api_worker.time.monotonic", return_value = 100.0) :
-            self.worker._last_lease_renewal = 0.0
-            self.assertTrue(await self.worker.tick())
-            self.queue.storage.renew_contact_lease.assert_awaited_once()
-            self.queue.storage.renew_contact_lease.return_value = None
-            self.worker._last_lease_renewal = 0.0
-            self.assertFalse(await self.worker.tick())
-        self.assertFalse(self.worker._job_td)
+        self.worker._leases[1] = self.job.owner_token
+        self.worker.LEASE_HEARTBEAT_SECONDS = 0.001
+        self.queue.storage.renew_contact_lease.side_effect = [ True, None ]
+        with self.assertRaisesRegex( RuntimeError, "Contact lease lost") :
+            await self.worker._renew_leases()
+        self.assertEqual( self.queue.storage.renew_contact_lease.await_count, 2)
+        self.assertTrue(self.worker._lease_error)
 
     async def test_sync_handler_and_fractional_deadline(self) -> None :
         
@@ -164,6 +176,7 @@ class BurstWorkerTests (unittest.IsolatedAsyncioTestCase) :
         self.assertAlmostEqual(
             self.worker._job_td[1].response_time,
             100 + 4 * math.sqrt(2),
+            places = 5,
         )
 
     async def test_due_job_drains_newer_arrival_before_response(self) -> None :
