@@ -73,7 +73,7 @@ The DDL's `enable_rls` boolean defaults to `FALSE`; set it to `TRUE` for a Supab
 False preserves existing RLS settings, and true requires appropriate runtime policies or bypass/ownership in addition to SQL grants.
 The canonical DDL can be reapplied at the same schema version; use the intentionally Git-ignored `wa_agents/sql/.migrations/` scripts to upgrade existing schemas.
 Apply the schema-names and durable-queue migrations before deploying the ECS recovery changes, with affected services stopped.
-The former keeps the shared public domain and encryption functions available to Sofia.
+The former preserves the shared public domain and encryption functions for other schemas that use them.
 
 ### S3-compatible media storage
 
@@ -134,7 +134,7 @@ A different Meta ID creates a separate row, even when the display number is unch
 Contacts, routes, cases, and history stay attached to their registration.
 
 New registrations start as `pending`; webhooks can persist their data but cannot activate them or enqueue bot replies.
-Verified Embedded Signup activation in Sofia activates the new row and retires the previous active row for that display number in one transaction.
+After verifying Embedded Signup, the application calls `activate_phone_number()` to activate the new row and retire the previous active row for that display number in one transaction.
 Retired registrations cannot send, run queued handlers, or complete Flow sessions, and delayed webhooks cannot reactivate them.
 
 For portfolio-owned numbers provisioned outside Embedded Signup, verify ownership, then call `SyncSupabaseStorage.activate_phone_number(phone_number_id)` or await the same method on `AsyncSupabaseStorage`.
@@ -233,7 +233,7 @@ In this example the callback is `/my-bot` and the Flow endpoint is `/flows/{waba
 Both listener and combined server verify signatures by default.
 Each POST uses a dictionary lookup and checks only the addressed app's secret; another configured app's signature receives `401` before enqueueing.
 The library accepts explicit `apps` and does not load app credentials from environment variables.
-SOFIA owns file loading in its `meta_config.py`; `WA_VERIFY_TOKEN` remains the shared verification token.
+The application loads app credentials and supplies them through `apps`; `WA_VERIFY_TOKEN` remains the shared verification token.
 The old `webhook_path` constructor argument is replaced by `apps`, and the combined server accepts `flow_endpoint_path` separately.
 The verification flag is `verify_signatures`; the signature helper is `verify_payload_signature` with keyword-only `app_secret`, `payload`, and `signature` arguments.
 `AsyncWhatsAppDatabaseQueue` performs payload auditing, validation, normalization, and enqueueing in the request path; the queue worker starts and stops with the FastAPI lifespan.
@@ -812,7 +812,7 @@ These are useful when mapping incoming WhatsApp JSON to your bot routing logic.
 ## WhatsApp Flows
 
 The worker exposes an encrypted data endpoint at its explicit `flow_endpoint_path`.
-SOFIA keeps `/flows/{waba_id}` independently of the per-app webhook paths.
+The default `/flows/{waba_id}` endpoint is independent of the per-app webhook paths.
 Flow requests are routed to the class registered under the Flow definition's `handler_key`; the class implements method `handle_flow_request()` with a `WhatsApp_Local_FlowContext` and `WhatsApp_IB_Decrypted_FlowRequest`, and returns a `WhatsApp_Local_FlowHandlerResult`.
 
 Apply `wa_agents/sql/abc_DDL.sql` before provisioning.
@@ -889,9 +889,13 @@ The exception is intentionally sanitized and never contains the signed CDN URL o
 Applications remain responsible for validating content types, scanning untrusted files, and storing accepted bytes.
 Meta enforces the picker file-count and size limits; these helpers verify transport and content integrity but do not add local limits.
 
-## Caller-owned signup transactions
+## Embedded Signup persistence
 
 `wa_agents.supabase` provides connection-taking `async_*` functions for Embedded Signup sessions, WABA credentials, phone metadata, app-data sync requests, operator reads, and handler-route assignment.
 They execute packaged SQL using the supplied `Async_DB_Connection` and leave commit/rollback to the caller, allowing applications to combine WhatsApp writes with their own schema writes atomically.
 `async_upsert_waba()` and `async_get_waba_token()` require an explicit `secret_key`; applications retain responsibility for loading that secret.
-Signup `id_biz` and `id_user` values are opaque application metadata stored in `application_data`; these queries do not depend on Sofia tables or DTOs.
+Signup `id_biz` and `id_user` values are application identifiers stored in `application_data`; these queries access only the `wa_agents` schema.
+
+These administration functions serve different purposes from the storage adapters used during webhook processing.
+`async_get_waba_token()` looks up credentials by application business ID and WABA ID, while the adapters' `get_business_token()` resolves a sending phone registration and enforces its active, connected status.
+`async_upsert_waba()` and `async_upsert_phone_number()` maintain signup credentials and phone metadata, while the adapters' `upsert_business()` records webhook identities without replacing that metadata.

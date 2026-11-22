@@ -20,7 +20,7 @@ The package accesses these tables through PostgreSQL rather than PostgREST; with
 
 Custom domains, enums, and encryption helper functions are explicitly qualified under `wa_agents`.
 The installed `pgcrypto` extension can remain in its existing schema.
-An incremental migration preserves Sofia’s shared public domain and public encryption functions.
+An incremental migration preserves the shared public domain and public encryption functions for other schemas that use them.
 
 # Schema Objects
 

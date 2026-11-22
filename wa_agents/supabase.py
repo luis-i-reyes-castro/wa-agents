@@ -203,6 +203,20 @@ def _load_sql( filename : str) -> str :
     return load_sql_script( SQL_DIR / filename)
 
 
+SQL_ACCEPT_APP_DATA_SYNC           = _load_sql("accept_app_data_sync.sql")
+SQL_ASSIGN_CASE_HANDLER_CONFIG     = _load_sql("assign_case_handler_config.sql")
+SQL_CREATE_SIGNUP_SESSION          = _load_sql("create_signup_session.sql")
+SQL_FAIL_APP_DATA_SYNC             = _load_sql("fail_app_data_sync.sql")
+SQL_GET_SIGNUP_SESSION             = _load_sql("get_signup_session.sql")
+SQL_GET_WA_OPERATOR                = _load_sql("get_wa_operator.sql")
+SQL_GET_WABA_TOKEN                 = _load_sql("get_waba_token.sql")
+SQL_LIST_WA_OPERATORS              = _load_sql("list_wa_operators.sql")
+SQL_LIST_WABAS                     = _load_sql("list_wabas.sql")
+SQL_RESERVE_APP_DATA_SYNC          = _load_sql("reserve_app_data_sync.sql")
+SQL_UPDATE_SIGNUP_SESSION_FAILURE  = _load_sql("update_signup_session_failure.sql")
+SQL_UPDATE_SIGNUP_SESSION_SUCCESS  = _load_sql("update_signup_session_success.sql")
+SQL_UPSERT_PHONE_NUMBER            = _load_sql("upsert_phone_number.sql")
+SQL_UPSERT_WABA                    = _load_sql("upsert_waba.sql")
 SQL_ACTIVATE_PHONE_NUMBER           = _load_sql("activate_phone_number.sql")
 SQL_LOCK_PHONE_REGISTRATIONS        = _load_sql("lock_phone_registrations.sql")
 SQL_LOCK_BURST_SCORE_CONTACT        = _load_sql("lock_burst_score_contact.sql")
@@ -395,6 +409,271 @@ def _manifest_from_row(
         silenced_until        = row.get("silenced_until"),
         message_ids           = message_ids or [],
     )
+
+
+# =========================================================================================
+# EMBEDDED SIGNUP
+# Sessions, WABA credentials, phone metadata, and app-data sync requests.
+# The application supplies the connection and commits or rolls back the transaction.
+# id_biz/id_user are application identifiers stored in signup application_data.
+
+async def async_create_signup_session(
+    conn          : Async_DB_Connection,
+    id_biz        : int,
+    id_user       : str,
+    session_state : str,
+    expires_at    : datetime,
+) -> dict[ str, Any] :
+    
+    sql    = SQL_CREATE_SIGNUP_SESSION
+    params = {
+        "id_biz"        : id_biz,
+        "id_user"       : id_user,
+        "session_state" : session_state,
+        "expires_at"    : expires_at,
+    }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+        return await cur.fetchone()
+
+
+async def async_get_signup_session(
+    conn          : Async_DB_Connection,
+    id_biz        : int,
+    session_state : str,
+) -> dict[ str, Any] | None :
+    
+    sql    = SQL_GET_SIGNUP_SESSION
+    params = {
+        "id_biz"        : id_biz,
+        "session_state" : session_state,
+    }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+        return await cur.fetchone()
+
+
+async def async_update_signup_session_success(
+    conn            : Async_DB_Connection,
+    session_id      : int,
+    waba_id         : str,
+    phone_number_id : str | None,
+    payload         : Jsonb,
+    event           : dict[ str, Any] | None = None,
+) -> None :
+    
+    sql    = SQL_UPDATE_SIGNUP_SESSION_SUCCESS
+    params = {
+        "id"              : session_id,
+        "event_type"      : event.get("type") if event else None,
+        "event_name"      : event.get("event") if event else None,
+        "event_version"   : event.get("version") if event else None,
+        "event_data"      : Jsonb(event) if event else None,
+        "waba_id"         : waba_id,
+        "phone_number_id" : phone_number_id,
+        "setup_payload"   : payload,
+    }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+
+
+async def async_update_signup_session_failure(
+    conn          : Async_DB_Connection,
+    session_id    : int,
+    payload       : Jsonb,
+    error_message : str,
+    waba_id       : str | None = None,
+    event         : dict[ str, Any] | None = None,
+) -> None :
+    
+    sql    = SQL_UPDATE_SIGNUP_SESSION_FAILURE
+    params = {
+        "id"            : session_id,
+        "event_type"    : event.get("type") if event else None,
+        "event_name"    : event.get("event") if event else None,
+        "event_version" : event.get("version") if event else None,
+        "event_data"    : Jsonb(event) if event else None,
+        "waba_id"       : waba_id,
+        "setup_payload" : payload,
+        "error_message" : error_message,
+    }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+
+
+async def async_upsert_waba(
+    conn               : Async_DB_Connection,
+    waba_id            : str,
+    status_            : str,
+    webhook_subscribed : bool,
+    business_token     : str,
+    last_error         : str | None,
+    *,
+    secret_key         : str,
+) -> dict[ str, Any] :
+    
+    sql    = SQL_UPSERT_WABA
+    params = {
+        "waba_id"            : waba_id,
+        "status"             : status_,
+        "webhook_subscribed" : webhook_subscribed,
+        "business_token"     : business_token,
+        "secret_key"         : secret_key,
+        "last_error"         : last_error,
+    }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+        return await cur.fetchone()
+
+
+async def async_list_wabas(
+    conn   : Async_DB_Connection,
+    id_biz : int,
+) -> list[dict[ str, Any]] :
+    
+    sql    = SQL_LIST_WABAS
+    params = { "id_biz" : id_biz }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+        return await cur.fetchall()
+
+
+async def async_get_waba_token(
+    conn       : Async_DB_Connection,
+    id_biz     : int,
+    waba_id    : str,
+    *,
+    secret_key : str,
+) -> dict[ str, Any] | None :
+    
+    sql    = SQL_GET_WABA_TOKEN
+    params = {
+        "id_biz"     : id_biz,
+        "waba_id"    : waba_id,
+        "secret_key" : secret_key,
+    }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+        return await cur.fetchone()
+
+
+async def async_upsert_phone_number(
+    conn                     : Async_DB_Connection,
+    id_waba                  : int,
+    phone_number_id          : str,
+    display_phone_number     : str | None,
+    verified_name            : str | None,
+    platform_type            : str | None,
+    metadata                 : Jsonb | None,
+) -> dict[ str, Any] | None :
+    
+    """
+    Return None when an existing registration belongs to another WABA or number.
+    """
+    sql    = SQL_UPSERT_PHONE_NUMBER
+    params = {
+        "id_waba"                  : id_waba,
+        "phone_number_id"          : phone_number_id,
+        "display_phone_number"     : display_phone_number,
+        "verified_name"            : verified_name,
+        "platform_type"            : platform_type,
+        "metadata"                 : metadata,
+    }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+        return await cur.fetchone()
+
+
+async def async_reserve_app_data_sync(
+    conn         : Async_DB_Connection,
+    phone_number : int,
+    sync_type    : str,
+) -> dict[ str, Any] | None :
+    
+    sql    = SQL_RESERVE_APP_DATA_SYNC
+    params = {
+        "phone_number" : phone_number,
+        "sync_type"    : sync_type,
+    }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+        return await cur.fetchone()
+
+
+async def async_accept_app_data_sync(
+    conn       : Async_DB_Connection,
+    sync_id    : int,
+    request_id : str,
+) -> None :
+    
+    sql    = SQL_ACCEPT_APP_DATA_SYNC
+    params = { "id" : sync_id, "request_id" : request_id }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+
+
+async def async_fail_app_data_sync(
+    conn       : Async_DB_Connection,
+    sync_id    : int,
+    last_error : Jsonb,
+) -> None :
+    
+    sql    = SQL_FAIL_APP_DATA_SYNC
+    params = { "id" : sync_id, "last_error" : last_error }
+    
+    async with conn.cursor() as cur :
+        await cur.execute( sql, wrap_params(params))
+
+
+# =========================================================================================
+# PHONE ROUTING AND OPERATOR LOOKUP
+# The application supplies the connection and commits or rolls back the transaction.
+
+async def async_assign_case_handler_config(
+    conn                : Async_DB_Connection,
+    phone_number_id     : str,
+    case_handler_config : str,
+) -> dict[ str, Any] | None :
+    
+    params = {
+        "phone_number_id"     : phone_number_id,
+        "case_handler_config" : case_handler_config,
+    }
+    async with conn.cursor() as cur :
+        await cur.execute( SQL_ASSIGN_CASE_HANDLER_CONFIG, wrap_params(params))
+        return await cur.fetchone()
+
+
+async def async_get_wa_operator(
+    conn        : Async_DB_Connection,
+    operator_id : str,
+) -> dict[ str, Any] | None :
+    
+    async with conn.cursor() as cur :
+        await cur.execute(
+            SQL_GET_WA_OPERATOR,
+            wrap_params({ "operator_id" : operator_id }),
+        )
+        return await cur.fetchone()
+
+
+async def async_list_wa_operators(
+    conn : Async_DB_Connection,
+) -> list[dict[ str, Any]] :
+    
+    async with conn.cursor() as cur :
+        await cur.execute(SQL_LIST_WA_OPERATORS)
+        return await cur.fetchall()
 
 
 # =========================================================================================
