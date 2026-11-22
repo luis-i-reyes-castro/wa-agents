@@ -592,8 +592,10 @@ class Agent (AgentBase) :
             self.debug_print( "input", resp_req_parms, client_call)
         
         self.client : OpenAI = OpenAI(
-            api_key  = self.api_key,
-            base_url = self.BASE_URL,
+            api_key     = self.api_key,
+            base_url    = self.BASE_URL,
+            timeout     = 60.0,
+            max_retries = 2,
         )
         
         if not parse_mode :
@@ -660,8 +662,10 @@ class AsyncAgent (AgentBase) :
             self.debug_print( "input", resp_req_parms, client_call)
         
         self.client : AsyncOpenAI = AsyncOpenAI(
-            api_key  = self.api_key,
-            base_url = self.BASE_URL,
+            api_key     = self.api_key,
+            base_url    = self.BASE_URL,
+            timeout     = 60.0,
+            max_retries = 2,
         )
         
         if not parse_mode :

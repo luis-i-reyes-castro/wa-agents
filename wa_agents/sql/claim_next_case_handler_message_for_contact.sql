@@ -4,6 +4,7 @@
   -- after_row_id         : api_to_case_handler_queue.id
   -- handler_keys         : list[str]
   -- fallback_handler_key : str | None
+  -- max_retries          : int >= 0, retries after the initial attempt
 
 WITH CTE_active_lease AS MATERIALIZED (
   SELECT
@@ -21,8 +22,8 @@ CTE_candidate AS MATERIALIZED (
   SELECT
     msg.contact                       AS contact,
     que.id                            AS id,
-    que.route_by_phone_number         AS route_by_phone_number,
-    que.route_by_contact              AS route_by_contact,
+    phn.id                            AS route_by_phone_number,
+    ctc.id                            AS route_by_contact,
     que.msg_id                        AS msg_id,
     COALESCE(
       cfg.handler_key,
@@ -60,28 +61,58 @@ CTE_candidate AS MATERIALIZED (
     wa_agents.api_to_case_handler_queue AS que ON msg.msg_id = que.msg_id
   LEFT JOIN
     wa_agents.case_handler_routes_by_contact
-                                        AS ctc ON que.route_by_contact      = ctc.id
+    AS ctc ON
+      ( que.route_by_contact = ctc.id ) OR
+      (
+        ( que.route_by_contact IS NULL ) AND
+        ( que.ingested_at      IS NULL ) AND
+        ( ctc.contact          = con.id )
+      )
   LEFT JOIN
     wa_agents.case_handler_routes_by_phone_number
-                                        AS phn ON que.route_by_phone_number = phn.id
+    AS phn ON
+      ( que.route_by_phone_number = phn.id ) OR
+      (
+        ( que.route_by_phone_number IS NULL ) AND
+        ( que.ingested_at           IS NULL ) AND
+        ( phn.phone_number          = num.id )
+      )
   LEFT JOIN
     wa_agents.case_handler_configurations
-                                        AS cfg ON cfg.id = COALESCE(
-                                                              ctc.handler_config,
-                                                              phn.handler_config
-                                                            )
+    AS cfg ON
+      cfg.id = COALESCE(
+        ctc.handler_config,
+        phn.handler_config
+      )
   LEFT JOIN
     wa_agents.case_handler_configurations
-                                        AS fbk
-    ON
+    AS fbk ON
       ( ctc.id          IS NULL                       ) AND
       ( phn.id          IS NULL                       ) AND
       ( fbk.handler_key = @fallback_handler_key::text )
   WHERE
-    ( msg.contact             = @contact      ) AND
-    ( que.id                  > @after_row_id ) AND
-    ( que.msg_status          = 'pending'     ) AND
-    ( num.registration_status = 'active'      ) AND
+    ( msg.contact       =  @contact                             ) AND
+    ( que.id            >  @after_row_id                        ) AND
+    ( que.ingested_at   IS NULL                                 ) AND
+    ( que.attempts      <= @max_retries                         ) AND
+    ( que.available_at  <= now()                                ) AND
+    ( que.msg_status    IN ( 'pending', 'processing', 'error' ) ) AND
+    NOT EXISTS (
+      SELECT
+        1
+      FROM
+        wa_agents.api_inbound_messages      AS old_msg
+      JOIN
+        wa_agents.api_to_case_handler_queue AS older ON old_msg.msg_id = older.msg_id
+      WHERE
+        ( old_msg.contact   =  msg.contact                          ) AND
+        ( older.id          >  @after_row_id                        ) AND
+        ( older.id          <  que.id                               ) AND
+        ( older.ingested_at IS NULL                                 ) AND
+        ( older.attempts    <= @max_retries                         ) AND
+        ( older.msg_status  IN ( 'pending', 'processing', 'error' ) )
+    ) AND
+    ( num.registration_status = 'active' ) AND
     (
       COALESCE( cfg.handler_key, fbk.handler_key) IS NOT NULL
     )
@@ -110,8 +141,11 @@ CTE_renewed AS (
 UPDATE
   wa_agents.api_to_case_handler_queue AS que
 SET
-  msg_status = 'processing',
-  updated_at = now()
+  msg_status            = 'processing',
+  updated_at            = now(),
+  attempts              = que.attempts + 1,
+  route_by_phone_number = can.route_by_phone_number,
+  route_by_contact      = can.route_by_contact
 FROM
   CTE_candidate AS can
 JOIN
@@ -131,4 +165,6 @@ RETURNING
   can.burst_decay_minutes         AS burst_decay_minutes,
   can.silence_timeout_minutes     AS silence_timeout_minutes,
   que.msg_id                      AS msg_id,
-  que.msg_status                  AS msg_status;
+  que.msg_status                  AS msg_status,
+  que.ingested_at                 AS ingested_at,
+  que.response_due_at             AS response_due_at;

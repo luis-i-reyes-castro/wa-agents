@@ -2,7 +2,7 @@
 
 |     |     |
 | --- | --- |
-| **Provider** | Supabase |
+| **Provider** | PostgreSQL 15+ (including Supabase) |
 | **SQL Flavor** | PostgreSQL |
 | **Application Schema** | `wa_agents` |
 | **Canonical DDL** | [`abc_DDL.sql`](abc_DDL.sql) |
@@ -14,11 +14,13 @@ The schema stores WhatsApp Business identities, contacts, webhook data, messages
 Signup state, case-handler routing and persistence, and WhatsApp Flow state.
 
 All package-owned tables live in the `wa_agents` schema.
-The DDL enables row-level security on every table but does not create RLS policies; the package accesses these tables through its PostgreSQL connection rather than exposing them through PostgREST.
+The DDL enables row-level security only when its `enable_rls` boolean is true; it does not create RLS policies.
+False preserves existing RLS settings.
+The package accesses these tables through PostgreSQL rather than PostgREST; with RLS enabled, runtime access needs policies or appropriate bypass/ownership.
 
-The custom domain and enum names are unqualified in the DDL and are therefore created
-in the active schema from the connection's `search_path` (normally `public`).
-The two text-encryption helper functions are explicitly created in `public`.
+Custom domains, enums, and encryption helper functions are explicitly qualified under `wa_agents`.
+The installed `pgcrypto` extension can remain in its existing schema.
+An incremental migration preserves Sofia’s shared public domain and public encryption functions.
 
 # Schema Objects
 
@@ -27,8 +29,8 @@ The two text-encryption helper functions are explicitly created in `public`.
 | OBJECT | PURPOSE |
 | ------ | ------- |
 | `pgcrypto` | Supplies the PGP symmetric-encryption primitives used by the helper functions. |
-| `public.encrypt_text(data, key)` | Encrypts text with AES-256 and returns `BYTEA`. |
-| `public.decrypt_text(data, key)` | Decrypts the corresponding `BYTEA` and returns text. |
+| `wa_agents.encrypt_text(data, key)` | Encrypts text with AES-256 and returns `BYTEA`. |
+| `wa_agents.decrypt_text(data, key)` | Decrypts the corresponding `BYTEA` and returns text. |
 
 ## Domain and Enum Types
 
@@ -104,7 +106,7 @@ this schema and stay between two and four characters when practical.
 | `api_outbound_messages` | Messages sent by the chatbot through the WhatsApp API. |
 | `api_media` | Object-storage metadata for one inbound or outbound message. |
 | `api_statuses` | Delivery/read/failure status events for WhatsApp message IDs. |
-| `api_worker_configurations` | Poll intervals for one API worker, keyed by server name. |
+| `api_worker_configurations` | Poll intervals and retry budget for one API worker, keyed by server name. |
 | `case_handler_configurations` | Handler profile: key, stale-case hours, burst timing, and optional silence timeout. |
 | `case_handler_routes` | Business-phone defaults and contact-specific routes to a handler configuration. |
 | `api_to_case_handler_queue` | Durable queue of inbound messages awaiting case-handler processing. |
@@ -172,8 +174,12 @@ referenced business is deleted.
 
 **INCOMING REFERENCES:** None.
 
-`server_name` is unique. A worker looks up its poll intervals by that name and
-uses its class defaults when the row is absent.
+**NOTES:**
+* Key `server_name` is unique.
+* A worker looks up its poll intervals and `max_retries` by that name at startup.
+* Value `max_retries` is a nonnegative integer counting retries after the initial attempt, separately for ingestion and response.
+  * Its default is 4; 0 disables retries.
+  * When the row is absent, the worker uses its default poll intervals and the queue defaults to 4 retries.
 
 ### Table `case_handler_configurations`
 
@@ -540,11 +546,19 @@ Exactly one of the two message references must be non-null.
 
 ### Table `api_to_case_handler_queue`
 
+**NOTES:**
+* Column `ingested_at` records successful handler ingestion; `response_due_at` retains an unsent delayed reply across worker replacement.
+* Successful ingestion commits both together with case/context changes and supersedes the previous contact deadline.
+* Column `attempts` counts claims/attempts, limited per phase to `api_worker_configurations.max_retries + 1` (five by default); `available_at` schedules retry eligibility.
+* The existing `msg_status` values distinguish pending, processing, done ingestion, and errors; a done row with a non-null response deadline still has response work outstanding.
+* Unrouted active-registration messages remain pending for worker-side routing.
+
 **OUTGOING REFERENCES:**
 
 | COLUMN | REFERENCE |
 | ------ | --------- |
-| `api_to_case_handler_queue.handler_id` | `case_handler_routes.id` (`ON DELETE SET NULL`) |
+| `api_to_case_handler_queue.route_by_phone_number` | `case_handler_routes_by_phone_number.id` (`ON DELETE SET NULL`) |
+| `api_to_case_handler_queue.route_by_contact` | `case_handler_routes_by_contact.id` (`ON DELETE SET NULL`) |
 | `api_to_case_handler_queue.msg_id` | `api_inbound_messages.msg_id` |
 
 **INCOMING REFERENCES:** None.

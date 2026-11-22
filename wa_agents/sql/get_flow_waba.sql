@@ -3,12 +3,12 @@
   -- secret_key : ENCRYPTION_KEY
 
 SELECT
-  fw.id                                                AS id,
-  fw.business                                          AS business,
-  bus.waba_id                                          AS waba_id,
-  fw.public_key                                        AS public_key,
-  fw.public_key_fingerprint                            AS public_key_fingerprint,
-  decrypt_text( fw.private_key_encrypted, @secret_key) AS private_key
+  fw.id                       AS id,
+  fw.business                 AS business,
+  bus.waba_id                 AS waba_id,
+  fw.public_key               AS public_key,
+  fw.public_key_fingerprint   AS public_key_fingerprint,
+  wa_agents.decrypt_text( fw.private_key_encrypted, @secret_key) AS private_key
 FROM
   wa_agents.api_businesses           AS bus
 JOIN

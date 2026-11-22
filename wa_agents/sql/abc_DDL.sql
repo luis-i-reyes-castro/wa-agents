@@ -1,19 +1,34 @@
 /*
-  =========================================================================================
-  WHATSAPP API
-  =========================================================================================
+Canonical schema for new databases; safe to reapply to the same schema version.
+Set enable_rls to TRUE for Supabase initialization. FALSE leaves existing RLS unchanged.
+Existing installations still need the corresponding incremental migrations.
 */
+DO $ddl$
+DECLARE
+  enable_rls    BOOLEAN := FALSE;
+  crypto_schema TEXT;
+BEGIN
 
+
+/*
+SCHEMA
+*/
 CREATE SCHEMA IF NOT EXISTS wa_agents;
 
--- TYPES
-
--- Non-empty string containing no whitespace
--- NOTE: The regex next to each column indicates the usual/expected format
-CREATE DOMAIN T_NO_WS_STR AS VARCHAR CHECK (
+/*
+DOMAIN for non-empty string containing no whitespace
+*/
+IF to_regtype('wa_agents.t_no_ws_str') IS NULL THEN
+  CREATE DOMAIN wa_agents.T_NO_WS_STR AS VARCHAR CHECK (
   VALUE ~ '^\S+$'
 );
-CREATE TYPE T_WHATSAPP_MESSAGE AS ENUM (
+END IF;
+
+/*
+ENUMERATED TYPES
+*/
+IF to_regtype('wa_agents.t_whatsapp_message') IS NULL THEN
+  CREATE TYPE wa_agents.T_WHATSAPP_MESSAGE AS ENUM (
   'text',
   'interactive',
   'button',
@@ -31,31 +46,41 @@ CREATE TYPE T_WHATSAPP_MESSAGE AS ENUM (
   'errors',
   'unsupported'
 );
-CREATE TYPE T_WHATSAPP_STATUS AS ENUM (
+END IF;
+IF to_regtype('wa_agents.t_whatsapp_status') IS NULL THEN
+  CREATE TYPE wa_agents.T_WHATSAPP_STATUS AS ENUM (
   'delivered',
   'failed',
   'played',
   'read',
   'sent'
 );
-CREATE TYPE T_WHATSAPP_CONNECTION_STATUS AS ENUM (
+END IF;
+IF to_regtype('wa_agents.t_whatsapp_connection_status') IS NULL THEN
+  CREATE TYPE wa_agents.T_WHATSAPP_CONNECTION_STATUS AS ENUM (
   'pending',
   'connected',
   'attention_needed',
   'disconnected'
 );
-CREATE TYPE T_WHATSAPP_SIGNUP_SESSION_STATUS AS ENUM (
+END IF;
+IF to_regtype('wa_agents.t_whatsapp_signup_session_status') IS NULL THEN
+  CREATE TYPE wa_agents.T_WHATSAPP_SIGNUP_SESSION_STATUS AS ENUM (
   'pending',
   'completed',
   'failed',
   'cancelled',
   'expired'
 );
-CREATE TYPE T_WHATSAPP_APP_DATA_SYNC_TYPE AS ENUM (
+END IF;
+IF to_regtype('wa_agents.t_whatsapp_app_data_sync_type') IS NULL THEN
+  CREATE TYPE wa_agents.T_WHATSAPP_APP_DATA_SYNC_TYPE AS ENUM (
   'smb_app_state_sync',
   'history'
 );
-CREATE TYPE T_WHATSAPP_APP_DATA_SYNC_STATUS AS ENUM (
+END IF;
+IF to_regtype('wa_agents.t_whatsapp_app_data_sync_status') IS NULL THEN
+  CREATE TYPE wa_agents.T_WHATSAPP_APP_DATA_SYNC_STATUS AS ENUM (
   'eligible',
   'requesting',
   'accepted',
@@ -64,14 +89,18 @@ CREATE TYPE T_WHATSAPP_APP_DATA_SYNC_STATUS AS ENUM (
   'declined',
   'failed'
 );
-CREATE TYPE T_WHATSAPP_FLOW_STATUS AS ENUM (
+END IF;
+IF to_regtype('wa_agents.t_whatsapp_flow_status') IS NULL THEN
+  CREATE TYPE wa_agents.T_WHATSAPP_FLOW_STATUS AS ENUM (
   'DRAFT',
   'PUBLISHED',
   'DEPRECATED',
   'BLOCKED',
   'THROTTLED'
 );
-CREATE TYPE T_WHATSAPP_FLOW_SESSION_STATUS AS ENUM (
+END IF;
+IF to_regtype('wa_agents.t_whatsapp_flow_session_status') IS NULL THEN
+  CREATE TYPE wa_agents.T_WHATSAPP_FLOW_SESSION_STATUS AS ENUM (
   'created',
   'sent',
   'active',
@@ -80,41 +109,59 @@ CREATE TYPE T_WHATSAPP_FLOW_SESSION_STATUS AS ENUM (
   'expired',
   'superseded'
 );
-CREATE TYPE T_WHATSAPP_FLOW_EXCHANGE_STATUS AS ENUM (
+END IF;
+IF to_regtype('wa_agents.t_whatsapp_flow_exchange_status') IS NULL THEN
+  CREATE TYPE wa_agents.T_WHATSAPP_FLOW_EXCHANGE_STATUS AS ENUM (
   'processing',
   'succeeded',
   'failed'
 );
-CREATE TYPE T_WHATSAPP_REGISTRATION_STATUS AS ENUM (
+END IF;
+IF to_regtype('wa_agents.t_whatsapp_registration_status') IS NULL THEN
+  CREATE TYPE wa_agents.T_WHATSAPP_REGISTRATION_STATUS AS ENUM (
   'pending',
   'active',
   'retired'
 );
+END IF;
 
--- FUNCTIONS
+/*
+CRYTOGRAPHY
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+NOTE: `pgcrypto` may already live in public or extensions on an existing database.
+*/
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA wa_agents;
 
-CREATE OR REPLACE FUNCTION public.encrypt_text( data TEXT, key TEXT)
-RETURNS BYTEA
-LANGUAGE SQL
-AS $$
-  SELECT pgp_sym_encrypt(
-    data,
-    key,
-    'cipher-algo=aes256,compress-algo=0'::TEXT
-  );
-$$;
+SELECT n.nspname INTO crypto_schema
+FROM pg_extension AS e
+JOIN pg_namespace AS n ON n.oid = e.extnamespace
+WHERE e.extname = 'pgcrypto';
 
-CREATE OR REPLACE FUNCTION public.decrypt_text( data BYTEA, key TEXT)
-RETURNS TEXT
-LANGUAGE SQL
-AS $$
-  SELECT pgp_sym_decrypt( data, key);
-$$;
+EXECUTE format( $function$
+  CREATE OR REPLACE FUNCTION wa_agents.encrypt_text( data TEXT, key TEXT)
+  RETURNS BYTEA
+  LANGUAGE SQL
+  SET search_path = pg_catalog
+  AS 'SELECT %I.pgp_sym_encrypt( $1, $2, ''cipher-algo=aes256,compress-algo=0'');'
+$function$, crypto_schema);
+
+EXECUTE format( $function$
+  CREATE OR REPLACE FUNCTION wa_agents.decrypt_text( data BYTEA, key TEXT)
+  RETURNS TEXT
+  LANGUAGE SQL
+  SET search_path = pg_catalog
+  AS 'SELECT %I.pgp_sym_decrypt( $1, $2);'
+$function$, crypto_schema);
 
 
--- ========================================================================================
+/*
+  =========================================================================================
+  WHATSAPP API
+  
+  NOTE: The regex next to each column indicates the usual/expected format
+  =========================================================================================
+*/
+
 -- BUSINESSES
 
 CREATE TABLE IF NOT EXISTS wa_agents.api_businesses (
@@ -123,16 +170,18 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_businesses (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  waba_id       T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
-  waba_name     TEXT        DEFAULT NULL,
+  waba_id       wa_agents.T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  waba_name     TEXT                  DEFAULT NULL,
   
   CONSTRAINT api_businesses_waba_id_unique
     UNIQUE (waba_id)
 
 );
 
-ALTER TABLE wa_agents.api_businesses
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_businesses
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 CREATE TABLE IF NOT EXISTS wa_agents.api_phone_numbers (
   
@@ -140,14 +189,15 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_phone_numbers (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  business              BIGINT      NOT NULL,
-  display_phone_number  T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
-  registration_status   T_WHATSAPP_REGISTRATION_STATUS NOT NULL DEFAULT 'pending',
-  phone_number_id       T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
-  verified_name         TEXT        DEFAULT NULL,
-  platform_type         T_NO_WS_STR DEFAULT NULL,
-  is_on_biz_app         BOOLEAN     DEFAULT NULL,
-  metadata              JSONB       DEFAULT NULL,
+  business              BIGINT                NOT NULL,
+  display_phone_number  wa_agents.T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  registration_status   wa_agents.T_WHATSAPP_REGISTRATION_STATUS
+                                              NOT NULL DEFAULT 'pending',
+  phone_number_id       wa_agents.T_NO_WS_STR NOT NULL, -- '^[0-9]+$'
+  verified_name         TEXT                  DEFAULT NULL,
+  platform_type         wa_agents.T_NO_WS_STR DEFAULT NULL,
+  is_on_biz_app         BOOLEAN               DEFAULT NULL,
+  metadata              JSONB                 DEFAULT NULL,
   
   CONSTRAINT api_phone_numbers_business_fkey
     FOREIGN KEY (business)
@@ -170,8 +220,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS api_phone_numbers_active_display_unique
   ON wa_agents.api_phone_numbers (display_phone_number)
   WHERE ( registration_status = 'active' );
 
-ALTER TABLE wa_agents.api_phone_numbers
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_phone_numbers
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- CONTACTS
 
@@ -181,9 +233,9 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_contacts (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  phone_number  BIGINT      NOT NULL,
-  wa_id         T_NO_WS_STR DEFAULT NULL, -- '^[0-9]+$'
-  user_id       T_NO_WS_STR DEFAULT NULL, -- '^[A-Z]{2}\.[A-Za-z0-9]{1,128}$'
+  phone_number  BIGINT                NOT NULL,
+  wa_id         wa_agents.T_NO_WS_STR DEFAULT NULL, -- '^[0-9]+$'
+  user_id       wa_agents.T_NO_WS_STR DEFAULT NULL, -- '^[A-Z]{2}\.[A-Za-z0-9]{1,128}$'
   
   CONSTRAINT api_contacts_phone_number_fkey
     FOREIGN KEY (phone_number)
@@ -207,8 +259,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_contacts (
 
 );
 
-ALTER TABLE wa_agents.api_contacts
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_contacts
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- CONTACT PROFILES
 
@@ -217,9 +271,9 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_contact_profiles (
   id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   last_seen_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  contact           BIGINT      NOT NULL,
-  profile_name      TEXT        NOT NULL,
-  profile_username  T_NO_WS_STR DEFAULT NULL, -- '^[A-Za-z0-9\.\_]{3,35}$'
+  contact           BIGINT                NOT NULL,
+  profile_name      TEXT                  NOT NULL,
+  profile_username  wa_agents.T_NO_WS_STR DEFAULT NULL, -- '^[A-Za-z0-9\.\_]{3,35}$'
   
   CONSTRAINT api_contact_profiles_contact_fkey
     FOREIGN KEY (contact)
@@ -243,8 +297,10 @@ CREATE INDEX IF NOT EXISTS api_contact_profiles_contact_time_idx
     id
   );
 
-ALTER TABLE wa_agents.api_contact_profiles
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_contact_profiles
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- ========================================================================================
 -- EMBEDDED SIGNUP
@@ -255,13 +311,14 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_embedded_signup_data (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  business_token       BYTEA                        NOT NULL,
-  connection_status    T_WHATSAPP_CONNECTION_STATUS NOT NULL DEFAULT 'pending',
-  token_last_refreshed TIMESTAMPTZ                  NOT NULL DEFAULT now(),
-  app_subscribed       BOOLEAN                      NOT NULL DEFAULT FALSE,
-  subscribed_at        TIMESTAMPTZ                  DEFAULT NULL,
-  disconnected_at      TIMESTAMPTZ                  DEFAULT NULL,
-  last_error           TEXT                         DEFAULT NULL,
+  business_token       BYTEA        NOT NULL,
+  connection_status    wa_agents.T_WHATSAPP_CONNECTION_STATUS
+                                    NOT NULL DEFAULT 'pending',
+  token_last_refreshed TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  app_subscribed       BOOLEAN      NOT NULL DEFAULT FALSE,
+  subscribed_at        TIMESTAMPTZ  DEFAULT NULL,
+  disconnected_at      TIMESTAMPTZ  DEFAULT NULL,
+  last_error           TEXT         DEFAULT NULL,
   
   CONSTRAINT api_embedded_signup_data_business_fkey
     FOREIGN KEY (business)
@@ -274,8 +331,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_embedded_signup_data (
 
 );
 
-ALTER TABLE wa_agents.api_embedded_signup_data
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_embedded_signup_data
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 CREATE TABLE IF NOT EXISTS wa_agents.api_embedded_signup_sessions (
   
@@ -283,18 +342,19 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_embedded_signup_sessions (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  business          BIGINT                           DEFAULT NULL,
-  session_state     T_NO_WS_STR                      NOT NULL,
-  session_status    T_WHATSAPP_SIGNUP_SESSION_STATUS NOT NULL DEFAULT 'pending',
-  expires_at        TIMESTAMPTZ                      NOT NULL,
-  finished_at       TIMESTAMPTZ                      DEFAULT NULL,
-  code_received_at  TIMESTAMPTZ                      DEFAULT NULL,
-  event_type        T_NO_WS_STR                      DEFAULT NULL,
-  event_name        T_NO_WS_STR                      DEFAULT NULL,
-  event_version     SMALLINT                         DEFAULT NULL,
-  event_data        JSONB                            DEFAULT NULL,
-  application_data  JSONB                            NOT NULL DEFAULT '{}'::JSONB,
-  last_error        TEXT                             DEFAULT NULL,
+  business          BIGINT                DEFAULT NULL,
+  session_state     wa_agents.T_NO_WS_STR NOT NULL,
+  session_status    wa_agents.T_WHATSAPP_SIGNUP_SESSION_STATUS
+                                          NOT NULL DEFAULT 'pending',
+  expires_at        TIMESTAMPTZ           NOT NULL,
+  finished_at       TIMESTAMPTZ           DEFAULT NULL,
+  code_received_at  TIMESTAMPTZ           DEFAULT NULL,
+  event_type        wa_agents.T_NO_WS_STR DEFAULT NULL,
+  event_name        wa_agents.T_NO_WS_STR DEFAULT NULL,
+  event_version     SMALLINT              DEFAULT NULL,
+  event_data        JSONB                 DEFAULT NULL,
+  application_data  JSONB                 NOT NULL DEFAULT '{}'::JSONB,
+  last_error        TEXT                  DEFAULT NULL,
   
   CONSTRAINT api_embedded_signup_sessions_business_fkey
     FOREIGN KEY (business)
@@ -345,8 +405,10 @@ CREATE INDEX IF NOT EXISTS api_embedded_signup_sessions_business_time_idx
   )
   WHERE ( business IS NOT NULL );
 
-ALTER TABLE wa_agents.api_embedded_signup_sessions
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_embedded_signup_sessions
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 CREATE TABLE IF NOT EXISTS wa_agents.api_embedded_signup_syncs (
   
@@ -354,14 +416,14 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_embedded_signup_syncs (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  phone_number  BIGINT                              NOT NULL,
-  sync_type     T_WHATSAPP_APP_DATA_SYNC_TYPE       NOT NULL,
-  sync_status   T_WHATSAPP_APP_DATA_SYNC_STATUS     NOT NULL DEFAULT 'eligible',
-  request_id    T_NO_WS_STR                         DEFAULT NULL,
-  requested_at  TIMESTAMPTZ                         DEFAULT NULL,
-  started_at    TIMESTAMPTZ                         DEFAULT NULL,
-  completed_at  TIMESTAMPTZ                         DEFAULT NULL,
-  last_error    JSONB                               DEFAULT NULL,
+  phone_number  BIGINT                                    NOT NULL,
+  sync_type     wa_agents.T_WHATSAPP_APP_DATA_SYNC_TYPE   NOT NULL,
+  sync_status   wa_agents.T_WHATSAPP_APP_DATA_SYNC_STATUS NOT NULL DEFAULT 'eligible',
+  request_id    wa_agents.T_NO_WS_STR                     DEFAULT NULL,
+  requested_at  TIMESTAMPTZ                               DEFAULT NULL,
+  started_at    TIMESTAMPTZ                               DEFAULT NULL,
+  completed_at  TIMESTAMPTZ                               DEFAULT NULL,
+  last_error    JSONB                                     DEFAULT NULL,
   
   CONSTRAINT api_embedded_signup_syncs_phone_number_fkey
     FOREIGN KEY (phone_number)
@@ -389,8 +451,10 @@ CREATE INDEX IF NOT EXISTS api_embedded_signup_syncs_status_time_idx
     updated_at
   );
 
-ALTER TABLE wa_agents.api_embedded_signup_syncs
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_embedded_signup_syncs
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- WHATSAPP BUSINESS APP CONTACTS
 
@@ -413,8 +477,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_smb_app_contacts (
 
 );
 
-ALTER TABLE wa_agents.api_smb_app_contacts
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_smb_app_contacts
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- ========================================================================================
 -- PAYLOADS
@@ -429,10 +495,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_inbound_payloads (
   change_index  SMALLINT    NOT NULL DEFAULT 0,
   contact       BIGINT      DEFAULT NULL,
   
-  data_raw      JSONB       NOT NULL,
-  data_hash     T_NO_WS_STR NOT NULL, -- '^[A-Fa-f0-9]{64}$'
-  validated     BOOLEAN     NOT NULL DEFAULT FALSE,
-  errors        JSONB       DEFAULT NULL,
+  data_raw      JSONB                 NOT NULL,
+  data_hash     wa_agents.T_NO_WS_STR NOT NULL, -- '^[A-Fa-f0-9]{64}$'
+  validated     BOOLEAN               NOT NULL DEFAULT FALSE,
+  errors        JSONB                 DEFAULT NULL,
   
   CONSTRAINT api_inbound_payloads_contact_fkey
     FOREIGN KEY (contact)
@@ -458,8 +524,10 @@ CREATE INDEX IF NOT EXISTS api_inbound_payloads_validation_errors_idx
   ON wa_agents.api_inbound_payloads (received_at)
   WHERE ( ( NOT validated ) AND ( errors IS NOT NULL ) );
 
-ALTER TABLE wa_agents.api_inbound_payloads
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_inbound_payloads
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- MESSAGE HISTORY CHUNKS
 
@@ -528,8 +596,10 @@ CREATE INDEX IF NOT EXISTS api_history_chunks_sync_progress_idx
     chunk_order
   );
 
-ALTER TABLE wa_agents.api_history_chunks
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_history_chunks
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 
 -- ========================================================================================
@@ -538,17 +608,17 @@ ALTER TABLE wa_agents.api_history_chunks
 CREATE TABLE IF NOT EXISTS wa_agents.api_inbound_messages (
   
   id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  contact           BIGINT              NOT NULL,
-  payload           BIGINT              NOT NULL,
+  contact           BIGINT                        NOT NULL,
+  payload           BIGINT                        NOT NULL,
   
-  is_echo           BOOLEAN             NOT NULL DEFAULT FALSE,
-  msg_id            T_NO_WS_STR         NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
-  msg_ts            TIMESTAMPTZ         NOT NULL,
-  msg_type          T_WHATSAPP_MESSAGE  NOT NULL,
-  msg_data          JSONB               NOT NULL,
+  is_echo           BOOLEAN                       NOT NULL DEFAULT FALSE,
+  msg_id            wa_agents.T_NO_WS_STR         NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
+  msg_ts            TIMESTAMPTZ                   NOT NULL,
+  msg_type          wa_agents.T_WHATSAPP_MESSAGE  NOT NULL,
+  msg_data          JSONB                         NOT NULL,
   
-  history_chunk     BIGINT              DEFAULT NULL,
-  history_context   JSONB               DEFAULT NULL,
+  history_chunk     BIGINT                        DEFAULT NULL,
+  history_context   JSONB                         DEFAULT NULL,
   
   CONSTRAINT api_inbound_messages_payload_fkey
     FOREIGN KEY (payload)
@@ -596,20 +666,22 @@ CREATE INDEX IF NOT EXISTS api_inbound_messages_history_chunk_idx
   ON wa_agents.api_inbound_messages (history_chunk)
   WHERE ( history_chunk IS NOT NULL );
 
-ALTER TABLE wa_agents.api_inbound_messages
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_inbound_messages
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- MESSAGES: OUTBOUND
 
 CREATE TABLE IF NOT EXISTS wa_agents.api_outbound_messages (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  sent_at       TIMESTAMPTZ         NOT NULL DEFAULT now(),
+  sent_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  contact       BIGINT              NOT NULL,
-  msg_id        T_NO_WS_STR         NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
-  msg_type      T_WHATSAPP_MESSAGE  NOT NULL,
-  msg_data      JSONB               NOT NULL,
+  contact       BIGINT                        NOT NULL,
+  msg_id        wa_agents.T_NO_WS_STR         NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
+  msg_type      wa_agents.T_WHATSAPP_MESSAGE  NOT NULL,
+  msg_data      JSONB                         NOT NULL,
   
   CONSTRAINT api_outbound_messages_contact_fkey
     FOREIGN KEY (contact)
@@ -628,22 +700,27 @@ CREATE INDEX IF NOT EXISTS api_outbound_messages_contact_idx
 CREATE INDEX IF NOT EXISTS api_outbound_messages_contact_sent_idx
   ON wa_agents.api_outbound_messages ( contact, sent_at);
 
-ALTER TABLE wa_agents.api_outbound_messages
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_outbound_messages
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- MESSAGES: MEDIA
 
 CREATE TABLE IF NOT EXISTS wa_agents.api_media (
   
   id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  inbound_msg_id    BIGINT      DEFAULT NULL,
-  outbound_msg_id   BIGINT      DEFAULT NULL,
+  inbound_msg_id    BIGINT                DEFAULT NULL,
+  outbound_msg_id   BIGINT                DEFAULT NULL,
   
-  mime_type         T_NO_WS_STR NOT NULL, -- MIME type without codec
-  size              BIGINT      NOT NULL,
-  object_key        T_NO_WS_STR NOT NULL, -- '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$'
-  caption           TEXT        DEFAULT NULL,
-  filename          TEXT        DEFAULT NULL,
+  mime_type         wa_agents.T_NO_WS_STR NOT NULL, -- MIME type without codec
+  size              BIGINT                NOT NULL,
+  
+  object_key        wa_agents.T_NO_WS_STR NOT NULL,
+  -- '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$'
+  
+  caption           TEXT                  DEFAULT NULL,
+  filename          TEXT                  DEFAULT NULL,
   
   CONSTRAINT api_media_inbound_msg_id_fkey
     FOREIGN KEY (inbound_msg_id)
@@ -673,8 +750,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_media (
 
 );
 
-ALTER TABLE wa_agents.api_media
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_media
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 
 -- ========================================================================================
@@ -683,11 +762,11 @@ ALTER TABLE wa_agents.api_media
 CREATE TABLE IF NOT EXISTS wa_agents.api_statuses (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  payload       BIGINT            NOT NULL,
+  payload       BIGINT NOT NULL,
   
-  msg_id        T_NO_WS_STR       NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
-  msg_status    T_WHATSAPP_STATUS NOT NULL,
-  status_ts     TIMESTAMPTZ       NOT NULL,
+  msg_id        wa_agents.T_NO_WS_STR       NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
+  msg_status    wa_agents.T_WHATSAPP_STATUS NOT NULL,
+  status_ts     TIMESTAMPTZ                 NOT NULL,
   
   /*
   DESIGN NOTES:
@@ -720,8 +799,10 @@ CREATE INDEX IF NOT EXISTS api_statuses_payload_idx
 CREATE INDEX IF NOT EXISTS api_statuses_msg_id_idx
   ON wa_agents.api_statuses (msg_id);
 
-ALTER TABLE wa_agents.api_statuses
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_statuses
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 
 /*
@@ -736,9 +817,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_worker_configurations (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  server_name         T_NO_WS_STR      NOT NULL,
-  poll_interval_busy  DOUBLE PRECISION NOT NULL, -- Seconds
-  poll_interval_idle  DOUBLE PRECISION NOT NULL, -- Seconds
+  server_name         wa_agents.T_NO_WS_STR NOT NULL,
+  poll_interval_busy  DOUBLE PRECISION      NOT NULL, -- Seconds
+  poll_interval_idle  DOUBLE PRECISION      NOT NULL, -- Seconds
+  max_retries         INT                   NOT NULL DEFAULT 4, -- After initial attempt
   
   CONSTRAINT api_worker_configurations_server_name_unique
     UNIQUE ( server_name ),
@@ -747,12 +829,17 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_worker_configurations (
     CHECK ( poll_interval_busy > 0 ),
   
   CONSTRAINT api_worker_configurations_poll_interval_idle_positive
-    CHECK ( poll_interval_idle > 0 )
+    CHECK ( poll_interval_idle > 0 ),
+  
+  CONSTRAINT api_worker_configurations_max_retries_nonnegative
+    CHECK ( max_retries >= 0 )
 
 );
 
-ALTER TABLE wa_agents.api_worker_configurations
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_worker_configurations
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 
 /*
@@ -767,8 +854,8 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_configurations (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  handler_key                 T_NO_WS_STR NOT NULL,
-  handler_url                 T_NO_WS_STR DEFAULT NULL, -- For remote handler URL
+  handler_key   wa_agents.T_NO_WS_STR NOT NULL,
+  handler_url   wa_agents.T_NO_WS_STR DEFAULT NULL, -- For remote handler URL
   
   /*
   Case staleness limit in hours (formerly `time_limit_stale`)
@@ -811,8 +898,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_configurations (
 
 );
 
-ALTER TABLE wa_agents.case_handler_configurations
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_configurations
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes_by_phone_number (
   
@@ -843,8 +932,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes_by_phone_number (
 CREATE INDEX IF NOT EXISTS case_handler_routes_by_phone_number_config_idx
   ON wa_agents.case_handler_routes_by_phone_number (handler_config);
 
-ALTER TABLE wa_agents.case_handler_routes_by_phone_number
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_routes_by_phone_number
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes_by_contact (
   
@@ -875,8 +966,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_routes_by_contact (
 CREATE INDEX IF NOT EXISTS case_handler_routes_by_contact_config_idx
   ON wa_agents.case_handler_routes_by_contact (handler_config);
 
-ALTER TABLE wa_agents.case_handler_routes_by_contact
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_routes_by_contact
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 /*
   =========================================================================================
@@ -884,13 +977,15 @@ ALTER TABLE wa_agents.case_handler_routes_by_contact
   =========================================================================================
 */
 
-CREATE TYPE T_ENQUEUED_MESSAGE_STATUS AS ENUM (
+IF to_regtype('wa_agents.t_enqueued_message_status') IS NULL THEN
+  CREATE TYPE wa_agents.T_ENQUEUED_MESSAGE_STATUS AS ENUM (
   'done',
   'error',
   'ignored',
   'pending',
   'processing'
 );
+END IF;
 
 CREATE TABLE IF NOT EXISTS wa_agents.api_to_case_handler_queue (
   
@@ -905,15 +1000,21 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_to_case_handler_queue (
     A contact route trumps the phone-number route only while its row exists.
     When neither route remains:
     - a configured fallback handler key claims the row;
-    - otherwise the row is stored as `ignored` and not claimed.
+    - otherwise it remains pending until routing is configured.
   - Both foreign keys use `ON DELETE SET NULL` so removing a route keeps the
     queued message.
   */
   
-  route_by_phone_number  BIGINT                    DEFAULT NULL,
-  route_by_contact       BIGINT                    DEFAULT NULL,
-  msg_id                 T_NO_WS_STR               NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
-  msg_status             T_ENQUEUED_MESSAGE_STATUS NOT NULL DEFAULT 'pending',
+  route_by_phone_number  BIGINT       DEFAULT NULL,
+  route_by_contact       BIGINT       DEFAULT NULL,
+  msg_id                 wa_agents.T_NO_WS_STR
+                                      NOT NULL, -- '^wamid\.[A-Za-z0-9+/=]+$'
+  msg_status             wa_agents.T_ENQUEUED_MESSAGE_STATUS
+                                      NOT NULL DEFAULT 'pending',
+  ingested_at            TIMESTAMPTZ  DEFAULT NULL,
+  response_due_at        TIMESTAMPTZ  DEFAULT NULL,
+  attempts               INT          NOT NULL DEFAULT 0,
+  available_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),
   
   CONSTRAINT api_to_case_handler_queue_route_by_phone_number_fkey
     FOREIGN KEY (route_by_phone_number)
@@ -934,7 +1035,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_to_case_handler_queue (
     ON DELETE CASCADE,
   
   CONSTRAINT api_to_case_handler_queue_msg_id_unique
-    UNIQUE (msg_id)
+    UNIQUE (msg_id),
+  
+  CONSTRAINT api_to_case_handler_queue_attempts_nonnegative
+    CHECK ( attempts >= 0 )
 
 );
 
@@ -945,13 +1049,21 @@ CREATE INDEX IF NOT EXISTS api_to_case_handler_queue_status_idx
     id
   );
 
-ALTER TABLE wa_agents.api_to_case_handler_queue
+CREATE INDEX IF NOT EXISTS api_to_case_handler_queue_response_idx
+  ON wa_agents.api_to_case_handler_queue ( created_at, id)
+  WHERE response_due_at IS NOT NULL;
+
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_to_case_handler_queue
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 
 /*
   =========================================================================================
   CASE HANDLER
+  
+  NOTE: The regex next to each column indicates the usual/expected format
   =========================================================================================
 */
 
@@ -982,8 +1094,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_contact_leases (
 CREATE INDEX IF NOT EXISTS case_handler_contact_leases_expiry_idx
   ON wa_agents.case_handler_contact_leases (expires_at);
 
-ALTER TABLE wa_agents.case_handler_contact_leases
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_contact_leases
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- BURST SCORES
 
@@ -1012,8 +1126,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_contact_burst_scores (
 
 );
 
-ALTER TABLE wa_agents.case_handler_contact_burst_scores
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_contact_burst_scores
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 CREATE TABLE IF NOT EXISTS wa_agents.case_handler_contact_burst_score_histories (
 
@@ -1055,8 +1171,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_contact_burst_score_histories 
 CREATE INDEX IF NOT EXISTS case_handler_contact_burst_score_histories_time_idx
   ON wa_agents.case_handler_contact_burst_score_histories ( contact, received_at, id);
 
-ALTER TABLE wa_agents.case_handler_contact_burst_score_histories
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_contact_burst_score_histories
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- CASE MANIFESTS
 
@@ -1072,14 +1190,14 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_case_manifests (
     A contact route trumps the phone-number route only while its row exists.
   */
   
-  route_by_phone_number  BIGINT       DEFAULT NULL,
-  route_by_contact       BIGINT       DEFAULT NULL,
-  contact                BIGINT       NOT NULL,
-  case_index         INT          NOT NULL,
-  next_message_index INT          NOT NULL DEFAULT 1,
-  is_open            BOOLEAN      NOT NULL DEFAULT TRUE,
-  machine_state      T_NO_WS_STR  DEFAULT NULL,
-  silenced_until     TIMESTAMPTZ  DEFAULT NULL,
+  route_by_phone_number BIGINT                DEFAULT NULL,
+  route_by_contact      BIGINT                DEFAULT NULL,
+  contact               BIGINT                NOT NULL,
+  case_index            INT                   NOT NULL,
+  next_message_index    INT                   NOT NULL DEFAULT 1,
+  is_open               BOOLEAN               NOT NULL DEFAULT TRUE,
+  machine_state         wa_agents.T_NO_WS_STR DEFAULT NULL,
+  silenced_until        TIMESTAMPTZ           DEFAULT NULL,
   
   CONSTRAINT case_handler_case_manifests_route_by_phone_number_fkey
     FOREIGN KEY (route_by_phone_number)
@@ -1117,20 +1235,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS case_handler_case_manifests_contact_open_idx
   ON wa_agents.case_handler_case_manifests (contact)
   WHERE is_open;
 
-ALTER TABLE wa_agents.case_handler_case_manifests
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_case_manifests
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- MESSAGES
 
 CREATE TABLE IF NOT EXISTS wa_agents.case_handler_messages (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  ts            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  case_id       BIGINT      NOT NULL,
-  message_index INT         NOT NULL,
-  basemodel     T_NO_WS_STR NOT NULL,
-  origin        T_NO_WS_STR DEFAULT NULL,
-  data          JSONB       NOT NULL,
+  ts            TIMESTAMPTZ           NOT NULL DEFAULT now(),
+  case_id       BIGINT                NOT NULL,
+  message_index INT                   NOT NULL,
+  basemodel     wa_agents.T_NO_WS_STR NOT NULL,
+  origin        wa_agents.T_NO_WS_STR DEFAULT NULL,
+  data          JSONB                 NOT NULL,
   
   CONSTRAINT case_handler_messages_case_id_fkey
     FOREIGN KEY (case_id)
@@ -1155,8 +1275,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS case_handler_messages_case_id_id_idx
     id
   );
 
-ALTER TABLE wa_agents.case_handler_messages
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_messages
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- OPENROUTER USAGE
 
@@ -1165,13 +1287,13 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_openrouter_usage (
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  case_message       BIGINT           NOT NULL,
-  model              T_NO_WS_STR      DEFAULT NULL,
-  prompt_tokens      INTEGER          NOT NULL,
-  completion_tokens  INTEGER          NOT NULL,
-  total_tokens       INTEGER          NOT NULL,
-  cost               NUMERIC          DEFAULT NULL,
-  usage              JSONB            NOT NULL,
+  case_message       BIGINT                 NOT NULL,
+  model              wa_agents.T_NO_WS_STR  DEFAULT NULL,
+  prompt_tokens      INTEGER                NOT NULL,
+  completion_tokens  INTEGER                NOT NULL,
+  total_tokens       INTEGER                NOT NULL,
+  cost               NUMERIC                DEFAULT NULL,
+  usage              JSONB                  NOT NULL,
   
   CONSTRAINT case_handler_openrouter_usage_case_message_fkey
     FOREIGN KEY (case_message)
@@ -1202,8 +1324,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_openrouter_usage (
 
 );
 
-ALTER TABLE wa_agents.case_handler_openrouter_usage
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_openrouter_usage
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- STATE HISTORIES
 
@@ -1212,9 +1336,9 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_state_histories (
   id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-  case_manifest   BIGINT       NOT NULL,
-  case_message    BIGINT       DEFAULT NULL,
-  machine_state   T_NO_WS_STR  DEFAULT NULL,
+  case_manifest   BIGINT                NOT NULL,
+  case_message    BIGINT                DEFAULT NULL,
+  machine_state   wa_agents.T_NO_WS_STR DEFAULT NULL,
 
   CONSTRAINT case_handler_state_histories_case_manifest_fkey
     FOREIGN KEY (case_manifest)
@@ -1242,8 +1366,10 @@ CREATE INDEX IF NOT EXISTS case_handler_state_histories_case_timeline_idx
     id
   );
 
-ALTER TABLE wa_agents.case_handler_state_histories
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_state_histories
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- WHATSAPP MESSAGE IDS
 
@@ -1304,8 +1430,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS case_handler_to_api_bridge_inbound_uniqueness_
 CREATE INDEX IF NOT EXISTS case_handler_to_api_bridge_case_handler_msg_id_idx
   ON wa_agents.case_handler_to_api_bridge (case_handler_msg_id);
 
-ALTER TABLE wa_agents.case_handler_to_api_bridge
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_to_api_bridge
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- NOTIFICATIONS
 
@@ -1316,9 +1444,9 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_notifications (
   resolved_at  TIMESTAMPTZ DEFAULT NULL,
 
   /*
-  Handler-defined kind, for example 'vipresa.quote_approval'.
+  Handler-defined key, for example 'vipresa.quote_approval'.
   */
-  notification_key  T_NO_WS_STR NOT NULL,
+  notification_key  wa_agents.T_NO_WS_STR NOT NULL,
 
   case_manifest     BIGINT NOT NULL,
   case_message      BIGINT DEFAULT NULL,
@@ -1386,24 +1514,22 @@ CREATE INDEX IF NOT EXISTS case_handler_notifications_case_timeline_idx
     id
   );
 
-ALTER TABLE wa_agents.case_handler_notifications
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_notifications
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- AGENT CONTEXTS
 
 CREATE TABLE IF NOT EXISTS wa_agents.case_handler_agent_contexts (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  created_at    TIMESTAMPTZ NOT NULL   DEFAULT now(),
+  created_at    TIMESTAMPTZ           NOT NULL DEFAULT now(),
   
-  /*
-  TODO: Document semantics here
-  */
-  
-  agent_name    T_NO_WS_STR NOT NULL,
-  context_index INT         NOT NULL,
-  case_manifest BIGINT      NOT NULL,
-  case_message  BIGINT      DEFAULT NULL,
+  agent_name    wa_agents.T_NO_WS_STR NOT NULL,
+  context_index INT                   NOT NULL,
+  case_manifest BIGINT                NOT NULL,
+  case_message  BIGINT                DEFAULT NULL,
   
   CONSTRAINT case_handler_agent_contexts_context_index_nonnegative
     CHECK ( context_index >= 0 ),
@@ -1445,13 +1571,17 @@ CREATE INDEX IF NOT EXISTS case_handler_agent_contexts_message_idx
   )
   WHERE ( case_message IS NOT NULL );
 
-ALTER TABLE wa_agents.case_handler_agent_contexts
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_agent_contexts
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 
 /*
   =========================================================================================
   WHATSAPP FLOWS
+  
+  NOTE: The regex next to each column indicates the usual/expected format
   =========================================================================================
 */
 
@@ -1463,10 +1593,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_flow_encryption_keys (
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   
-  business                BIGINT      NOT NULL,
-  public_key              TEXT        NOT NULL,
-  public_key_fingerprint  T_NO_WS_STR NOT NULL, -- '^[A-Fa-f0-9]{64}$'
-  private_key_encrypted   BYTEA       NOT NULL,
+  business                BIGINT                NOT NULL,
+  public_key              TEXT                  NOT NULL,
+  public_key_fingerprint  wa_agents.T_NO_WS_STR NOT NULL, -- '^[A-Fa-f0-9]{64}$'
+  private_key_encrypted   BYTEA                 NOT NULL,
   
   CONSTRAINT api_flow_encryption_keys_business_fkey
     FOREIGN KEY (business)
@@ -1482,8 +1612,10 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_flow_encryption_keys (
 
 );
 
-ALTER TABLE wa_agents.api_flow_encryption_keys
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_flow_encryption_keys
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- FLOW DEFINITIONS
 
@@ -1493,16 +1625,16 @@ CREATE TABLE IF NOT EXISTS wa_agents.api_flows (
   created_at        TIMESTAMPTZ            NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ            NOT NULL DEFAULT now(),
   
-  flow_waba         BIGINT                 NOT NULL,
-  flow_key          T_NO_WS_STR            NOT NULL,
-  flow_id           T_NO_WS_STR            NOT NULL, -- '^[0-9]+$'
-  flow_name         T_NO_WS_STR            NOT NULL,
-  handler_key       T_NO_WS_STR            NOT NULL,
-  flow_status       T_WHATSAPP_FLOW_STATUS NOT NULL DEFAULT 'DRAFT',
-  flow_json_version T_NO_WS_STR            NOT NULL DEFAULT '7.1',
-  data_api_version  T_NO_WS_STR            NOT NULL DEFAULT '3.0',
-  endpoint_uri      TEXT                   DEFAULT NULL,
-  is_active         BOOLEAN                NOT NULL DEFAULT TRUE,
+  flow_waba         BIGINT                            NOT NULL,
+  flow_key          wa_agents.T_NO_WS_STR             NOT NULL,
+  flow_id           wa_agents.T_NO_WS_STR             NOT NULL, -- '^[0-9]+$'
+  flow_name         wa_agents.T_NO_WS_STR             NOT NULL,
+  handler_key       wa_agents.T_NO_WS_STR             NOT NULL,
+  flow_status       wa_agents.T_WHATSAPP_FLOW_STATUS  NOT NULL DEFAULT 'DRAFT',
+  flow_json_version wa_agents.T_NO_WS_STR             NOT NULL DEFAULT '7.1',
+  data_api_version  wa_agents.T_NO_WS_STR             NOT NULL DEFAULT '3.0',
+  endpoint_uri      TEXT                              DEFAULT NULL,
+  is_active         BOOLEAN                           NOT NULL DEFAULT TRUE,
   
   CONSTRAINT api_flows_flow_waba_fkey
     FOREIGN KEY (flow_waba)
@@ -1525,32 +1657,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS api_flows_waba_key_active_idx
 CREATE INDEX IF NOT EXISTS api_flows_handler_key_idx
   ON wa_agents.api_flows (handler_key);
 
-ALTER TABLE wa_agents.api_flows
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_flows
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- FLOW SESSIONS
 
 CREATE TABLE IF NOT EXISTS wa_agents.api_flow_sessions (
   
   id                    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  created_at            TIMESTAMPTZ                      NOT NULL DEFAULT now(),
-  updated_at            TIMESTAMPTZ                      NOT NULL DEFAULT now(),
-  expires_at            TIMESTAMPTZ                      NOT NULL,
-  activated_at          TIMESTAMPTZ                      DEFAULT NULL,
-  completed_at          TIMESTAMPTZ                      DEFAULT NULL,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at            TIMESTAMPTZ NOT NULL,
+  activated_at          TIMESTAMPTZ DEFAULT NULL,
+  completed_at          TIMESTAMPTZ DEFAULT NULL,
   
-  flow                  BIGINT                           NOT NULL,
-  phone_number          BIGINT                           NOT NULL,
-  contact               BIGINT                           NOT NULL,
-  case_handler_message  BIGINT                           DEFAULT NULL,
-  outbound_message      BIGINT                           DEFAULT NULL,
-  completion_message    BIGINT                           DEFAULT NULL,
-  flow_token_encrypted  BYTEA                            NOT NULL,
-  flow_token_hash       T_NO_WS_STR                      NOT NULL,
-  session_state         BYTEA                            DEFAULT NULL,
-  completion_data       BYTEA                            DEFAULT NULL,
-  session_status        T_WHATSAPP_FLOW_SESSION_STATUS   NOT NULL DEFAULT 'created',
-  last_error            JSONB                            DEFAULT NULL,
+  flow                  BIGINT      NOT NULL,
+  phone_number          BIGINT      NOT NULL,
+  contact               BIGINT      NOT NULL,
+  case_handler_message  BIGINT      DEFAULT NULL,
+  outbound_message      BIGINT      DEFAULT NULL,
+  completion_message    BIGINT      DEFAULT NULL,
+  flow_token_encrypted  BYTEA       NOT NULL,
+  flow_token_hash       wa_agents.T_NO_WS_STR
+                                    NOT NULL,
+  session_state         BYTEA       DEFAULT NULL,
+  completion_data       BYTEA       DEFAULT NULL,
+  session_status        wa_agents.T_WHATSAPP_FLOW_SESSION_STATUS
+                                    NOT NULL DEFAULT 'created',
+  last_error            JSONB       DEFAULT NULL,
   
   CONSTRAINT api_flow_sessions_flow_fkey
     FOREIGN KEY (flow)
@@ -1608,29 +1744,32 @@ CREATE INDEX IF NOT EXISTS api_flow_sessions_expiry_idx
   ON wa_agents.api_flow_sessions (expires_at)
   WHERE session_status IN ( 'created', 'sent', 'active');
 
-ALTER TABLE wa_agents.api_flow_sessions
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_flow_sessions
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- FLOW DATA EXCHANGES
 
 CREATE TABLE IF NOT EXISTS wa_agents.api_flow_data_exchanges (
   
   id                  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  created_at          TIMESTAMPTZ                       NOT NULL DEFAULT now(),
-  completed_at        TIMESTAMPTZ                       DEFAULT NULL,
+  created_at          TIMESTAMPTZ           NOT NULL DEFAULT now(),
+  completed_at        TIMESTAMPTZ           DEFAULT NULL,
   
-  flow_waba           BIGINT                            NOT NULL,
-  session             BIGINT                            DEFAULT NULL,
-  request_hash        T_NO_WS_STR                       NOT NULL,
-  request_action      T_NO_WS_STR                       NOT NULL,
-  request_screen      T_NO_WS_STR                       DEFAULT NULL,
-  request_data        BYTEA                             NOT NULL,
-  response_data       BYTEA                             DEFAULT NULL,
-  exchange_status     T_WHATSAPP_FLOW_EXCHANGE_STATUS   NOT NULL DEFAULT 'processing',
-  http_status         SMALLINT                          DEFAULT NULL,
-  latency_ms          INT                               DEFAULT NULL,
-  error_code          T_NO_WS_STR                       DEFAULT NULL,
-  error_message       TEXT                              DEFAULT NULL,
+  flow_waba           BIGINT                NOT NULL,
+  session             BIGINT                DEFAULT NULL,
+  request_hash        wa_agents.T_NO_WS_STR NOT NULL,
+  request_action      wa_agents.T_NO_WS_STR NOT NULL,
+  request_screen      wa_agents.T_NO_WS_STR DEFAULT NULL,
+  request_data        BYTEA                 NOT NULL,
+  response_data       BYTEA                 DEFAULT NULL,
+  exchange_status     wa_agents.T_WHATSAPP_FLOW_EXCHANGE_STATUS
+                                            NOT NULL DEFAULT 'processing',
+  http_status         SMALLINT              DEFAULT NULL,
+  latency_ms          INT                   DEFAULT NULL,
+  error_code          wa_agents.T_NO_WS_STR DEFAULT NULL,
+  error_message       TEXT                  DEFAULT NULL,
   
   CONSTRAINT api_flow_data_exchanges_flow_waba_fkey
     FOREIGN KEY (flow_waba)
@@ -1663,22 +1802,24 @@ CREATE INDEX IF NOT EXISTS api_flow_data_exchanges_waba_time_idx
     id
   );
 
-ALTER TABLE wa_agents.api_flow_data_exchanges
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_flow_data_exchanges
   ENABLE ROW LEVEL SECURITY;
+END IF;
 
 -- FLOW WEBHOOK EVENTS
 
 CREATE TABLE IF NOT EXISTS wa_agents.api_flow_events (
   
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  event_at      TIMESTAMPTZ DEFAULT NULL,
+  received_at   TIMESTAMPTZ           NOT NULL DEFAULT now(),
+  event_at      TIMESTAMPTZ           DEFAULT NULL,
   
-  payload       BIGINT      NOT NULL,
-  flow_waba     BIGINT      DEFAULT NULL,
-  flow_id       T_NO_WS_STR DEFAULT NULL, -- '^[0-9]+$'
-  event_type    T_NO_WS_STR NOT NULL,
-  event_data    JSONB       NOT NULL,
+  payload       BIGINT                NOT NULL,
+  flow_waba     BIGINT                DEFAULT NULL,
+  flow_id       wa_agents.T_NO_WS_STR DEFAULT NULL, -- '^[0-9]+$'
+  event_type    wa_agents.T_NO_WS_STR NOT NULL,
+  event_data    JSONB                 NOT NULL,
   
   CONSTRAINT api_flow_events_payload_fkey
     FOREIGN KEY (payload)
@@ -1701,5 +1842,10 @@ CREATE INDEX IF NOT EXISTS api_flow_events_flow_time_idx
     id
   );
 
-ALTER TABLE wa_agents.api_flow_events
+IF enable_rls THEN
+  ALTER TABLE wa_agents.api_flow_events
   ENABLE ROW LEVEL SECURITY;
+END IF;
+
+END;
+$ddl$;

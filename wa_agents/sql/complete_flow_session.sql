@@ -10,7 +10,7 @@ SET
   updated_at         = now(),
   completed_at       = now(),
   completion_message = @completion_message,
-  completion_data    = encrypt_text( @completion_data, @secret_key),
+  completion_data    = wa_agents.encrypt_text( @completion_data, @secret_key),
   session_status     = 'completed'
 WHERE
   ( session.flow_token_hash = @flow_token_hash      ) AND

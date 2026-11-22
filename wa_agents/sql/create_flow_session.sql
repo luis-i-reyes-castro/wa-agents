@@ -35,11 +35,11 @@ VALUES (
   @contact,
   @case_handler_message,
   now() + INTERVAL '24 hours',
-  encrypt_text( @flow_token, @secret_key),
+  wa_agents.encrypt_text( @flow_token, @secret_key),
   @flow_token_hash,
   CASE
     WHEN @session_state::TEXT IS NULL THEN NULL
-    ELSE encrypt_text( @session_state::TEXT, @secret_key)
+    ELSE wa_agents.encrypt_text( @session_state::TEXT, @secret_key)
   END
 )
 RETURNING *;

@@ -27,11 +27,9 @@ from uuid import (
 
 from sofia_utils.printing import get_qualname as here
 from sofia_utils.psycopg import (
-    async_pooled_connection,
     close_async_database_connection_pool,
     load_sql_script,
     open_async_database_connection_pool,
-    sync_pooled_conection,
 )
 from sofia_utils.pydantic import NO_WS_str
 
@@ -47,23 +45,25 @@ from .flows import flow_token_hash
 from .supabase import (
     AsyncSupabaseStorage,
     SyncSupabaseStorage,
+    async_pooled_connection,
     get_database_url,
+    sync_pooled_conection,
 )
 
 
+DEFAULT_MAX_RETRIES = 4
+
 SQL_DIR = Path(__file__).parent / "sql"
 
-SQL_CLAIM_NEXT = load_sql_script(
+SQL_CLAIM_NEXT             = load_sql_script(
     SQL_DIR / "claim_next_case_handler_message.sql"
 )
 SQL_CLAIM_NEXT_FOR_CONTACT = load_sql_script(
     SQL_DIR / "claim_next_case_handler_message_for_contact.sql"
 )
+SQL_LOCK_PAYLOAD     = load_sql_script( SQL_DIR / "lock_inbound_payload.sql")
 SQL_ENQUEUE          = load_sql_script( SQL_DIR / "enqueue_case_handler_message.sql")
 SQL_HAS_PENDING_ECHO = load_sql_script( SQL_DIR / "has_pending_message_echo.sql")
-SQL_IGNORE_UNROUTED  = load_sql_script(
-    SQL_DIR / "ignore_unrouted_case_handler_messages.sql"
-)
 SQL_MARK_DONE        = load_sql_script( SQL_DIR / "mark_case_handler_message_done.sql")
 SQL_MARK_ERROR       = load_sql_script( SQL_DIR / "mark_case_handler_message_error.sql")
 
@@ -72,7 +72,7 @@ def _validate_fallback_handler_key(
     fallback_handler_key : str | None,
 ) -> str | None :
     """
-    Accept a route key, or None when messages without a route are stored as ignored.
+    Accept a fallback route key, or None to claim only explicitly routed messages.
     """
     if fallback_handler_key is None :
         return None
@@ -178,13 +178,13 @@ def _validation_errors( ex : ValidationError) -> list[dict[str, Any]] :
 
 
 def _requires_normalization(
-    payload : WhatsApp_IB_Payload,
-    stored  : bool,
+    payload    : WhatsApp_IB_Payload,
+    incomplete : bool,
 ) -> bool :
     """
-    Normalize new payloads and replay idempotent Embedded Signup data syncs.
+    Resume incomplete normalization and replay idempotent Embedded Signup data syncs.
     """
-    return stored or any(
+    return incomplete or any(
         change.field in { "history", "smb_app_state_sync" }
         for item in payload.entry
         for change in item.changes
@@ -202,6 +202,7 @@ class WhatsAppDatabaseQueue :
         fallback_handler_key : str | None = "default",
     ) -> None :
         
+        self.max_retries  = DEFAULT_MAX_RETRIES
         self.database_url = database_url or get_database_url()
         self.storage      = SyncSupabaseStorage(self.database_url)
         self.fallback_handler_key = _validate_fallback_handler_key(
@@ -232,29 +233,12 @@ class WhatsAppDatabaseQueue :
         
         return
     
-    def _ignore_unrouted_messages(self) -> None :
-        """
-        Mark pending rows with no route as ignored when this queue has no fallback.
-        """
-        if self.fallback_handler_key is not None :
-            return
-        
-        self._execute(
-            SQL_IGNORE_UNROUTED,
-            { "fallback_handler_key" : None },
-        )
-        
-        return
-    
     def _enqueue_message( self, msg_id : str) -> bool :
         
         return bool(
             self._fetch_one(
                 SQL_ENQUEUE,
-                {
-                    "msg_id"               : msg_id,
-                    "fallback_handler_key" : self.fallback_handler_key,
-                },
+                { "msg_id" : msg_id },
             )
         )
 
@@ -540,7 +524,13 @@ class WhatsAppDatabaseQueue :
                         msg_type = message.type,
                         msg_data = _message_data(message),
                     )
-                    if message_row :
+                    if not message_row :
+                        message_row = self.storage.get_inbound_message(message.id)
+                    if (
+                        message_row                                  and
+                        ( message_row["contact"] == contact["id"]  ) and
+                        ( message_row.get("history_chunk") is None )
+                    ) :
                         flow_reply = (
                             message.interactive.nfm_reply
                             if message.interactive else None
@@ -599,6 +589,7 @@ class WhatsAppDatabaseQueue :
         
         try :
             payload = WhatsApp_IB_Payload.model_validate(data)
+        
         except ValidationError as ex :
             invalid = self.storage.mark_inbound_payload_invalid(
                 payload_id,
@@ -610,17 +601,26 @@ class WhatsAppDatabaseQueue :
                 ) from ex
             raise
         
-        normalize = _requires_normalization( payload, stored)
-        enqueued  = (
-            self._persist_valid_payload( payload_id, payload)
-            if normalize else False
-        )
-        if normalize :
-            valid = self.storage.mark_inbound_payload_valid(payload_id)
-            if not valid :
-                raise RuntimeError(
-                    f"In {here()}: Unable to mark inbound payload as valid"
-                )
+        with sync_pooled_conection(self.database_url) :
+            
+            locked = self._fetch_one(
+                SQL_LOCK_PAYLOAD,
+                { "payload_id" : payload_id },
+            )
+            if not locked :
+                raise RuntimeError(f"In {here()}: Inbound payload disappeared")
+            
+            normalize = _requires_normalization( payload, not locked["validated"])
+            enqueued  = (
+                self._persist_valid_payload( payload_id, payload)
+                if normalize else False
+            )
+            if normalize :
+                valid = self.storage.mark_inbound_payload_valid(payload_id)
+                if not valid :
+                    raise RuntimeError(
+                        f"In {here()}: Unable to mark inbound payload as valid"
+                    )
         
         return {
             "stored"   : stored,
@@ -634,8 +634,6 @@ class WhatsAppDatabaseQueue :
         """
         Atomically claim one message and its contact lease.
         """
-        self._ignore_unrouted_messages()
-        
         claimed_keys = _claimed_handler_keys(
             self.fallback_handler_key,
             handler_keys,
@@ -650,6 +648,7 @@ class WhatsAppDatabaseQueue :
                 "owner_token"          : owner_token,
                 "handler_keys"         : claimed_keys,
                 "fallback_handler_key" : self.fallback_handler_key,
+                "max_retries"          : self.max_retries,
             },
         )
         if not queue_row :
@@ -657,7 +656,7 @@ class WhatsAppDatabaseQueue :
         
         message_row = self.storage.get_inbound_message(queue_row["msg_id"])
         if not message_row :
-            self.mark_error(queue_row["row_id"])
+            self.mark_error( queue_row["row_id"], owner_token = owner_token)
             self.storage.release_contact_lease(
                 queue_row["contact"],
                 owner_token,
@@ -675,6 +674,8 @@ class WhatsAppDatabaseQueue :
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
+            "ingested_at"             : queue_row["ingested_at"],
+            "response_due_at"         : queue_row["response_due_at"],
             "case_stale_hours"           : queue_row["case_stale_hours"],
             "response_delay_seconds"     : queue_row["response_delay_seconds"],
             "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
@@ -703,15 +704,13 @@ class WhatsAppDatabaseQueue :
         """
         Claim the next message for a contact using its existing active lease.
         """
-        self._ignore_unrouted_messages()
-
         claimed_keys = _claimed_handler_keys(
             self.fallback_handler_key,
             handler_keys,
         )
         if not claimed_keys :
             return None
-
+        
         queue_row = self._fetch_one(
             SQL_CLAIM_NEXT_FOR_CONTACT,
             {
@@ -720,19 +719,20 @@ class WhatsAppDatabaseQueue :
                 "after_row_id"         : after_row_id,
                 "handler_keys"         : claimed_keys,
                 "fallback_handler_key" : self.fallback_handler_key,
+                "max_retries"          : self.max_retries,
             },
         )
         if not queue_row :
             return None
-
+        
         message_row = self.storage.get_inbound_message(queue_row["msg_id"])
         if not message_row :
-            self.mark_error(queue_row["row_id"])
+            self.mark_error( queue_row["row_id"], owner_token = owner_token)
             raise RuntimeError(
                 f"In {here()}: Queued WhatsApp message "
                 f"'{queue_row['msg_id']}' was not found"
             )
-
+        
         return {
             **message_row,
             "row_id"                  : queue_row["row_id"],
@@ -741,6 +741,8 @@ class WhatsAppDatabaseQueue :
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
+            "ingested_at"             : queue_row["ingested_at"],
+            "response_due_at"         : queue_row["response_due_at"],
             "case_stale_hours"           : queue_row["case_stale_hours"],
             "response_delay_seconds"     : queue_row["response_delay_seconds"],
             "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
@@ -748,18 +750,46 @@ class WhatsAppDatabaseQueue :
             "silence_timeout_minutes"    : queue_row.get("silence_timeout_minutes"),
         }
 
-    def mark_done( self, row_id : int) -> bool :
+    def mark_done(
+        self,
+        row_id : int,
+        *,
+        owner_token     : UUID | str,
+        ingested        : bool = False,
+        response_due_at : datetime | None = None,
+    ) -> bool :
         """
-        Mark a claimed queue row as successfully processed.
+        Commit ingestion/debounce state or finish a response under the contact lease.
         """
-        return bool( self._fetch_one( SQL_MARK_DONE, { "row_id" : row_id }) )
+        row = self._fetch_one(
+            SQL_MARK_DONE,
+            {
+                "row_id"          : row_id,
+                "owner_token"     : owner_token,
+                "ingested"        : ingested,
+                "response_due_at" : response_due_at,
+            },
+        )
+        if not row :
+            raise RuntimeError("Contact lease lost before queue completion")
+        
+        return True
     
-    def mark_error( self, row_id : int) -> bool :
+    def mark_error(
+        self,
+        row_id : int,
+        *,
+        owner_token : UUID | str,
+    ) -> bool :
         """
-        Mark a claimed queue row as failed.
+        Schedule a bounded retry without allowing a stale owner to change the row.
         """
-        return bool( self._fetch_one( SQL_MARK_ERROR, { "row_id" : row_id }) )
-    
+        row = self._fetch_one(
+            SQL_MARK_ERROR,
+            { "row_id" : row_id, "owner_token" : owner_token },
+        )
+        return bool(row)
+
     def release_contact_lease(
         self,
         contact     : int,
@@ -782,6 +812,7 @@ class AsyncWhatsAppDatabaseQueue :
         fallback_handler_key : str | None = None,
     ) -> None :
         
+        self.max_retries  = DEFAULT_MAX_RETRIES
         self.database_url = database_url or get_database_url()
         self.storage      = AsyncSupabaseStorage(self.database_url)
         self.fallback_handler_key = _validate_fallback_handler_key(
@@ -828,29 +859,12 @@ class AsyncWhatsAppDatabaseQueue :
         
         return
     
-    async def _ignore_unrouted_messages(self) -> None :
-        """
-        Mark pending rows with no route as ignored when this queue has no fallback.
-        """
-        if self.fallback_handler_key is not None :
-            return
-        
-        await self._execute(
-            SQL_IGNORE_UNROUTED,
-            { "fallback_handler_key" : None },
-        )
-        
-        return
-    
     async def _enqueue_message( self, msg_id : str) -> bool :
         
         return bool(
             await self._fetch_one(
                 SQL_ENQUEUE,
-                {
-                    "msg_id"               : msg_id,
-                    "fallback_handler_key" : self.fallback_handler_key,
-                },
+                { "msg_id" : msg_id },
             )
         )
 
@@ -1136,7 +1150,13 @@ class AsyncWhatsAppDatabaseQueue :
                         msg_type = message.type,
                         msg_data = _message_data(message),
                     )
-                    if message_row :
+                    if not message_row :
+                        message_row = await self.storage.get_inbound_message(message.id)
+                    if (
+                        message_row                                  and
+                        ( message_row["contact"] == contact["id"]  ) and
+                        ( message_row.get("history_chunk") is None )
+                    ) :
                         flow_reply = (
                             message.interactive.nfm_reply
                             if message.interactive else None
@@ -1206,17 +1226,26 @@ class AsyncWhatsAppDatabaseQueue :
                 ) from ex
             raise
         
-        normalize = _requires_normalization( payload, stored)
-        enqueued  = (
-            await self._persist_valid_payload( payload_id, payload)
-            if normalize else False
-        )
-        if normalize :
-            valid = await self.storage.mark_inbound_payload_valid(payload_id)
-            if not valid :
-                raise RuntimeError(
-                    f"In {here()}: Unable to mark inbound payload as valid"
-                )
+        async with async_pooled_connection(self.database_url) :
+            
+            locked = await self._fetch_one(
+                SQL_LOCK_PAYLOAD,
+                { "payload_id" : payload_id },
+            )
+            if not locked :
+                raise RuntimeError(f"In {here()}: Inbound payload disappeared")
+            
+            normalize = _requires_normalization( payload, not locked["validated"])
+            enqueued  = (
+                await self._persist_valid_payload( payload_id, payload)
+                if normalize else False
+            )
+            if normalize :
+                valid = await self.storage.mark_inbound_payload_valid(payload_id)
+                if not valid :
+                    raise RuntimeError(
+                        f"In {here()}: Unable to mark inbound payload as valid"
+                    )
         
         return {
             "stored"   : stored,
@@ -1230,8 +1259,6 @@ class AsyncWhatsAppDatabaseQueue :
         """
         Atomically claim one message and its contact lease.
         """
-        await self._ignore_unrouted_messages()
-        
         claimed_keys = _claimed_handler_keys(
             self.fallback_handler_key,
             handler_keys,
@@ -1246,6 +1273,7 @@ class AsyncWhatsAppDatabaseQueue :
                 "owner_token"          : owner_token,
                 "handler_keys"         : claimed_keys,
                 "fallback_handler_key" : self.fallback_handler_key,
+                "max_retries"          : self.max_retries,
             },
         )
         if not queue_row :
@@ -1253,7 +1281,7 @@ class AsyncWhatsAppDatabaseQueue :
         
         message_row = await self.storage.get_inbound_message(queue_row["msg_id"])
         if not message_row :
-            await self.mark_error(queue_row["row_id"])
+            await self.mark_error( queue_row["row_id"], owner_token = owner_token)
             await self.storage.release_contact_lease(
                 queue_row["contact"],
                 owner_token,
@@ -1271,6 +1299,8 @@ class AsyncWhatsAppDatabaseQueue :
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
+            "ingested_at"             : queue_row["ingested_at"],
+            "response_due_at"         : queue_row["response_due_at"],
             "case_stale_hours"           : queue_row["case_stale_hours"],
             "response_delay_seconds"     : queue_row["response_delay_seconds"],
             "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
@@ -1302,8 +1332,6 @@ class AsyncWhatsAppDatabaseQueue :
         """
         Claim the next message for a contact using its existing active lease.
         """
-        await self._ignore_unrouted_messages()
-        
         claimed_keys = _claimed_handler_keys(
             self.fallback_handler_key,
             handler_keys,
@@ -1319,6 +1347,7 @@ class AsyncWhatsAppDatabaseQueue :
                 "after_row_id"         : after_row_id,
                 "handler_keys"         : claimed_keys,
                 "fallback_handler_key" : self.fallback_handler_key,
+                "max_retries"          : self.max_retries,
             },
         )
         if not queue_row :
@@ -1326,7 +1355,7 @@ class AsyncWhatsAppDatabaseQueue :
 
         message_row = await self.storage.get_inbound_message(queue_row["msg_id"])
         if not message_row :
-            await self.mark_error(queue_row["row_id"])
+            await self.mark_error( queue_row["row_id"], owner_token = owner_token)
             raise RuntimeError(
                 f"In {here()}: Queued WhatsApp message "
                 f"'{queue_row['msg_id']}' was not found"
@@ -1340,6 +1369,8 @@ class AsyncWhatsAppDatabaseQueue :
             "handler_key"             : queue_row["handler_key"],
             "msg_status"              : queue_row["msg_status"],
             "owner_token"             : owner_token,
+            "ingested_at"             : queue_row["ingested_at"],
+            "response_due_at"         : queue_row["response_due_at"],
             "case_stale_hours"           : queue_row["case_stale_hours"],
             "response_delay_seconds"     : queue_row["response_delay_seconds"],
             "max_response_delay_seconds" : queue_row["max_response_delay_seconds"],
@@ -1347,20 +1378,44 @@ class AsyncWhatsAppDatabaseQueue :
             "silence_timeout_minutes"    : queue_row.get("silence_timeout_minutes"),
         }
 
-    async def mark_done( self, row_id : int) -> bool :
+    async def mark_done(
+        self,
+        row_id : int,
+        *,
+        owner_token     : UUID | str,
+        ingested        : bool = False,
+        response_due_at : datetime | None = None,
+    ) -> bool :
         """
-        Mark a claimed queue row as successfully processed.
+        Commit ingestion/debounce state or finish a response under the contact lease.
         """
-        row = await self._fetch_one( SQL_MARK_DONE, { "row_id" : row_id })
+        row = await self._fetch_one(
+            SQL_MARK_DONE,
+            {
+                "row_id"          : row_id,
+                "owner_token"     : owner_token,
+                "ingested"        : ingested,
+                "response_due_at" : response_due_at,
+            },
+        )
+        if not row :
+            raise RuntimeError("Contact lease lost before queue completion")
         
-        return bool(row)
+        return True
     
-    async def mark_error( self, row_id : int) -> bool :
+    async def mark_error(
+        self,
+        row_id : int,
+        *,
+        owner_token : UUID | str,
+    ) -> bool :
         """
-        Mark a claimed queue row as failed.
+        Schedule a bounded retry without allowing a stale owner to change the row.
         """
-        row = await self._fetch_one( SQL_MARK_ERROR, { "row_id" : row_id })
-        
+        row = await self._fetch_one(
+            SQL_MARK_ERROR,
+            { "row_id" : row_id, "owner_token" : owner_token },
+        )
         return bool(row)
 
     async def release_contact_lease(

@@ -25,13 +25,13 @@ SELECT
   flow.flow_key                AS flow_key,
   flow.handler_key             AS handler_key,
   flow.data_api_version        AS data_api_version,
-  decrypt_text(
+  wa_agents.decrypt_text(
     session.flow_token_encrypted,
     @secret_key
   )                            AS flow_token,
   CASE
     WHEN session.session_state IS NULL THEN NULL
-    ELSE decrypt_text( session.session_state, @secret_key)
+    ELSE wa_agents.decrypt_text( session.session_state, @secret_key)
   END                          AS session_state_data
 FROM
   wa_agents.api_phone_numbers AS num

@@ -108,7 +108,7 @@ class WhatsAppAPIServer (
         )
         self.add_api_route(
             path     = "/healthz",
-            endpoint = self.healthz,
+            endpoint = self.worker_healthz,
             methods  = ["GET"],
         )
         self.add_api_route(

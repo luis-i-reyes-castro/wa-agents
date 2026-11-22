@@ -4,6 +4,7 @@ FastAPI app that receives and enqueues WhatsApp webhooks.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -186,9 +187,22 @@ class WhatsAppAPIListener (FastAPI) :
         """
         Health endpoint.
         """
+        healthy = True
+        try :
+            await asyncio.wait_for(
+                self.queue._fetch_one( "SELECT 1 AS healthy", {}),
+                timeout = 3,
+            )
+        except Exception :
+            healthy = False
+        
         return JSONResponse(
-            content     = { "healthy" : True },
-            status_code = status.HTTP_200_OK,
+            content     = { "healthy" : healthy },
+            status_code = (
+                status.HTTP_200_OK
+                if healthy else
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
         )
     
     def _listener_debug_data(self) -> dict[str, Any] :

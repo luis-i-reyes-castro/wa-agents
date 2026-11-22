@@ -5,7 +5,7 @@ A Python toolkit for building WhatsApp chatbot backends.
 It gives you reusable building blocks for:
 - webhook validation and payload parsing,
 - queued processing,
-- per-user case/context storage in Supabase Postgres,
+- per-user case/context storage in PostgreSQL,
 - media storage in S3-compatible buckets,
 - idempotent ingestion,
 - multi-turn orchestration,
@@ -45,7 +45,7 @@ pip install -r requirements.txt
 `wa-agents` is designed around this flow:
 
 1. `WhatsAppAPIListener` receives webhook payload dictionaries and passes them to `AsyncWhatsAppDatabaseQueue`.
-2. `AsyncWhatsAppDatabaseQueue` audits and validates each payload, normalizes its messages in Supabase Postgres, resolves the normalized business/contact to a handler route, and enqueues newly persisted message IDs.
+2. `AsyncWhatsAppDatabaseQueue` audits and validates each payload, normalizes its messages in PostgreSQL, records available routes, and enqueues eligible messages without choosing a fallback handler.
 3. `WhatsAppAPIWorker` runs inside its FastAPI lifespan, drains queue items, calls your `WhatsAppCaseHandler`, and serves synchronous Flow data exchanges without passing them through the message queue.
 4. `CaseHandlerBase` (parent of `WhatsAppCaseHandler`) resolves the persisted business/contact identity and handles case open/close logic, context persistence, FSM state, and S3 media access without depending on a messaging transport.
 5. `WhatsAppCaseHandler` adds webhook-message conversion, deduplication, WhatsApp media-metadata persistence, API-message linking, and sending helpers.
@@ -55,44 +55,67 @@ pip install -r requirements.txt
 
 See [`docs/api_worker_mechanics.md`](docs/api_worker_mechanics.md) for the queue, lease, burst-debounce, and delayed-response lifecycle.
 
-## Required Environment Variables
+## Environment Variables by Deployment Case
 
-### Storage backend
+### PostgreSQL storage (required)
 
-| Variable                    | Description                                             |
-| --------------------------- | ------------------------------------------------------- |
-| `WA_AGENTS_STORAGE_BACKEND` | Optional `supabase` or `s3`.<br>Defaults to `supabase`. |
+Both services use the same database configuration; the combined server uses their union.
+Supply one connection URL unless the queue/storage is constructed with an explicit `database_url`.
 
-### Supabase Postgres storage (required)
+| Variable                          | Requirement | Value / behavior |
+| --------------------------------- | ----------- | ---------------- |
+| `SUPABASE_DB_CONNECTION_URL_IPv4` | Preferred URL for listener and worker | PostgreSQL URI, including any required TLS options; works with generic PostgreSQL and Supabase. |
+| `SUPABASE_DB_CONNECTION_URL_IPv6` | Alternative URL | Used only when the IPv4-named variable is unset or empty. |
 
-| Variable                          | Description |
-| --------------------------------- | --- |
-| `SUPABASE_DB_CONNECTION_URL_IPv4` | Dashboard<br>➡️ Connect<br>➡️ Connection String<br>✅ Type: URI<br>✅ **Method: Session Pooler (IPv4)** |
-| `SUPABASE_DB_CONNECTION_URL_IPv6` | Optional fallback Supabase connection URI for IPv6. |
+Apply `wa_agents/sql/abc_DDL.sql` to a new PostgreSQL 15+ database with `pgcrypto` available.
+Types, domains, tables, and encryption functions are schema-qualified under `wa_agents`.
+The DDL's `enable_rls` boolean defaults to `FALSE`; set it to `TRUE` for a Supabase initialization that requires RLS.
+False preserves existing RLS settings, and true requires appropriate runtime policies or bypass/ownership in addition to SQL grants.
+The canonical DDL can be reapplied at the same schema version; use the intentionally Git-ignored `wa_agents/sql/.migrations/` scripts to upgrade existing schemas.
+Apply the schema-names and durable-queue migrations before deploying the ECS recovery changes, with affected services stopped.
+The former keeps the shared public domain and encryption functions available to Sofia.
 
-Supabase credentials are mandatory because webhook audit storage and `WhatsAppDatabaseQueue` always use Postgres.
-Apply the schema in `wa_agents/sql/abc_DDL.sql` before running.
-Package-owned tables live in the `wa_agents` PostgreSQL schema and are not intended for PostgREST exposure.
+### S3-compatible media storage
 
-### S3-compatible bucket storage (required for media and legacy `s3` mode)
+These settings are required in processes that use media persistence, normally the worker.
+Text-only processing does not load the S3 backend.
 
-| Variable                   | Description |
-| -------------------------- | --- |
-| `BUCKET_NAME`              | Bucket name |
-| `BUCKET_REGION`            | Region code, for example `atl1` or `us-east-1` |
-| `BUCKET_KEY_ID`            | Access key ID |
-| `BUCKET_KEY_SECRET`        | Secret access key |
-| `BUCKET_ENDPOINT`          | Optional endpoint URL.<br>Defaults to Digital Ocean Spaces for `BUCKET_REGION`.<br>Set this for other S3-compatible services. |
-| `BUCKET_ADDRESSING_STYLE`  | Optional `path`, `virtual`, or `auto`.<br>Defaults to `virtual` for DigitalOcean Spaces endpoints and `path` for custom endpoints. |
-| `WA_AGENTS_MEDIA_CACHE_MB` | Optional process-wide media-cache MiB limit.<br>Defaults to `16` MiB; set to `0` to disable. The cache is cleared when the process restarts. |
+| Variable                   | Requirement | Value / default |
+| -------------------------- | ----------- | --------------- |
+| `BUCKET_NAME`              | Required for media | Bucket name. |
+| `BUCKET_REGION`            | Required for media | AWS region or S3-compatible provider region. |
+| `BUCKET_KEY_ID`            | Only for explicit bucket credentials | Set together with `BUCKET_KEY_SECRET`; omit both for the SDK credential chain. |
+| `BUCKET_KEY_SECRET`        | Only for explicit bucket credentials | Secret paired with `BUCKET_KEY_ID`. |
+| `BUCKET_ENDPOINT`          | Provider-dependent; see below | Full endpoint URL; omitted with bucket keys defaults to `https://<BUCKET_REGION>.digitaloceanspaces.com`, otherwise the SDK selects AWS S3. |
+| `BUCKET_ADDRESSING_STYLE`  | Optional | `auto`, `virtual`, or `path`; defaults to `auto` for SDK-selected AWS, `virtual` for Spaces, and `path` for custom endpoints. |
+| `WA_AGENTS_MEDIA_CACHE_MB` | Optional | Process-local cache size in MiB; default `16`, or `0` to disable. |
 
-### WhatsApp (required)
+Every media deployment sets `BUCKET_NAME` and `BUCKET_REGION`; choose its authentication case below.
 
-| Variable          | Description |
-| ----------------- | --- |
-| `WA_TOKEN`        | Graph API fallback token for registered numbers without an Embedded Signup record. |
-| `ENCRYPTION_KEY`  | Required to decrypt stored customer business tokens for Embedded Signup numbers. |
-| `WA_VERIFY_TOKEN` | Token used by webhook verification endpoint |
+| Deployment case                      | Additional credential / endpoint settings |
+| ------------------------------------ | ----------------------------------------- |
+| AWS ECS task role                    | Omit `BUCKET_KEY_ID`, `BUCKET_KEY_SECRET`, and normally `BUCKET_ENDPOINT`; the SDK obtains rotating credentials from the task role. |
+| AWS with SDK environment credentials | Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, plus `AWS_SESSION_TOKEN` for temporary credentials; omit both legacy bucket keys and normally `BUCKET_ENDPOINT`. |
+| AWS with legacy bucket-key variables | Set both `BUCKET_KEY_ID` and `BUCKET_KEY_SECRET` and an explicit AWS `BUCKET_ENDPOINT`; otherwise the legacy default targets Spaces. Use the SDK credential chain for temporary credentials. |
+| DigitalOcean Spaces                  | Set both `BUCKET_KEY_ID` and `BUCKET_KEY_SECRET`; `BUCKET_ENDPOINT` may be omitted to use the region's Spaces endpoint. |
+| Another S3-compatible provider       | Set `BUCKET_ENDPOINT` and supply its credentials through both bucket-key variables or the SDK credential chain; adjust `BUCKET_ADDRESSING_STYLE` if required by that provider. |
+
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` are consumed by the SDK, not by package-specific configuration.
+Uploads omit ACL headers so AWS Bucket owner enforced buckets work; control private access through bucket and IAM policies.
+
+### WhatsApp listener, sending, and Flows
+
+| Variable          | Service | Required when |
+| ----------------- | ------- | ------------- |
+| `WA_VERIFY_TOKEN` | Listener | Meta verifies the webhook subscription; configure the same value in Meta. |
+| `WA_TOKEN`        | Worker / other sending process | Sending or fetching media for an active registration without an Embedded Signup record. |
+| `ENCRYPTION_KEY`  | Worker / signup administration | Reading or writing encrypted Embedded Signup business tokens, Flow private keys, or Flow session/exchange data. |
+| `ENCRYPTION_KEY`  | Listener | Processing Flow-completion webhook messages, which persist encrypted completion data. Use the same key as the worker. |
+
+A standalone listener processing ordinary messages does not need `WA_TOKEN`, S3 credentials, or an LLM key.
+Meta app IDs and app secrets are supplied through the constructor's `apps` definitions, not package environment variables.
+The combined server needs all variables applicable to its listener and worker features.
+The connection-taking signup functions accept an explicit `secret_key`; their calling application decides how to load it.
 
 Messaging helpers resolve credentials from the sending `phone_number_id`, joining its WABA to `api_embedded_signup_data`.
 Connected ES accounts use their encrypted business token.
@@ -121,13 +144,16 @@ Configure the new registration's routes explicitly; previous routes are not copi
 
 ### LLM keys (optional, only if using `Agent`)
 
-- `OPENROUTER_API_KEY`
-- `OPENAI_API_KEY`
-- `MISTRAL_API_KEY`
+| Variable                             | Requirement | Value |
+| ------------------------------------ | ----------- | ----- |
+| `OPENROUTER_API_KEY`                 | Worker when using `Agent` / `AsyncAgent` with its default `api_key_name` | OpenRouter API key. |
+| The variable named by `api_key_name` | Instead of the default when the handler selects another name | OpenRouter API key for that agent; this is an application-selected variable name. |
+
+The current `Agent` routes all model calls through OpenRouter; separate provider keys are not used.
 
 ### Queue tuning
 
-Poll intervals come from `api_worker_configurations`, selected by the `server_name` passed to the worker. If that row is missing, the worker uses its class defaults of 1 second. `poll_interval_busy` and `poll_interval_idle` constructor arguments override the row.
+Poll intervals come from `api_worker_configurations.server_name`, selected by the worker’s `configuration` argument (`worker_config` on the combined server). If that row is missing, the worker uses its class defaults of 1 second. `poll_interval_busy` and `poll_interval_idle` constructor arguments override the row.
 
 Each handler configuration stores the burst timing. `response_delay_seconds` is the base interval for a trailing-edge debounce for delayed handler responses. `max_response_delay_seconds` caps that quiet period, and `burst_decay_minutes` is the time that removes one burst-score point.
 While the worker holds a contact lease, each newer queued message is persisted into the same case and restarts the quiet period.
@@ -156,7 +182,7 @@ The configuration requires a positive base, a maximum at least as large as that 
 Setting the maximum equal to the base gives a fixed quiet period.
 
 Before deploying this version to an existing database, provision the two burst-score tables and the outbound contact/time index from `abc_DDL.sql`.
-Do not replay the entire canonical DDL against an existing database.
+Use the corresponding incremental migration to upgrade an older schema; reapplying canonical DDL does not add missing columns to existing tables.
 Existing contacts start at zero on their first eligible arrival; old messages are not backfilled.
 The score/history transaction is idempotent per queue row, including retries after an ingestion failure.
 
@@ -226,12 +252,35 @@ worker   = WhatsAppAPIWorker(
 ```
 
 Each app exposes `GET /`, `GET /healthz`, and `GET /debugz`.
-The listener manages its database-pool lifetime, while the worker manages both the pool and its background processing task and exposes `POST /webhook/flows/{waba_id}`.
+The listener manages its database-pool lifetime, while the worker manages both the pool and its background processing task and exposes `POST /flows/{waba_id}`.
 `WhatsAppAPIServer` combines both roles with one shared queue and one lifespan.
 Its independent `flow_endpoint_path` defaults to `/flows/{waba_id}`.
 Call `validate_listener_routes()` after registering additional business routes so callback collisions fail at startup.
 
 An example container recipe is available at [`docs/Dockerfile.fastapi`](docs/Dockerfile.fastapi).
+
+## Recovery and health
+
+Webhook auditing is durable even when validation fails.
+Normalization, message insertion, and enqueueing share a transaction under a payload-row lock; an identical retry resumes an incomplete payload.
+Worker handler database ingestion and its delayed reply deadline also commit together.
+`ingested_at` and `response_due_at` distinguish pending ingestion from a recoverable response, and a successful newer ingestion replaces or cancels the previous deadline.
+Workers reclaim abandoned `processing` rows and unsent responses after the contact lease expires.
+The worker reads `api_worker_configurations.max_retries` at startup alongside its poll intervals.
+This nonnegative integer counts retries after the initial attempt, separately for ingestion and response; its default of 4 preserves five total attempts, and 0 disables retries.
+When no worker configuration is selected or found, the queue also defaults to 4 retries.
+Backoff starts at 30 seconds and doubles up to a 300-second cap; exhausted rows remain inspectable and require intervention.
+Use the same retry setting on worker replicas serving the same routes; raising it makes previously exhausted work eligible again.
+A new ingestion resets the attempt budget for its response phase.
+Recovery is at least once: an external send accepted just before a crash may be repeated, and customer tools must make external side effects idempotent.
+
+An independent heartbeat renews all owned contact leases every 20 seconds during slow calls.
+Async handler calls time out after 300 seconds; synchronous calls exceeding that bound make the worker unhealthy and retain ownership until their thread finishes or ECS terminates the process.
+OpenRouter requests use a 60-second SDK timeout and at most two SDK retries.
+Shutdown stops new work and waits up to 30 seconds before cancellation; a Python thread cannot be forcibly cancelled, so ECS must enforce its final stop timeout.
+Use a stop timeout greater than the drain interval and retain durable recovery for hard termination.
+`/healthz` checks database access, and worker/combined health also checks worker and heartbeat task state.
+Keep `/debugz` private.
 
 ## Case Handler Routing
 
@@ -239,8 +288,10 @@ Each handler class has a stable `HANDLER_KEY`.
 A route maps a business—and optionally one of its contacts—to that key.
 Contact-specific routes take precedence over the business default.
 Queue rows store the selected route ID. Rows without a route use the queue's configured fallback key.
-Pass `fallback_handler_key = None` to store those rows as `ignored`: no case handler runs, and no reply is sent.
-Numbers that should still use a handler, including a fallback handler, need an explicit route.
+Ingestion always stores eligible active-registration messages as `pending`, including when no route exists yet.
+The listener does not need the worker's fallback key or handler classes.
+Workers claim supported routes or their configured fallback; a worker without a fallback leaves unrouted messages pending for another worker or later routing configuration.
+`handler_cls` sets that worker's fallback; the corresponding `case_handler_configurations` row must exist.
 
 ```python
 from wa_agents.api_server import WhatsAppAPIServer
@@ -293,21 +344,19 @@ SET
   silence_timeout_minutes    = EXCLUDED.silence_timeout_minutes,
   updated_at                 = now();
 
-INSERT INTO wa_agents.case_handler_routes (
+INSERT INTO wa_agents.case_handler_routes_by_phone_number (
   phone_number,
-  contact,
   handler_config
 )
 VALUES (
   41,
-  NULL,
   (
     SELECT id
     FROM wa_agents.case_handler_configurations
     WHERE handler_key = 'retail'
   )
 )
-ON CONFLICT ( phone_number, contact)
+ON CONFLICT (phone_number)
 DO UPDATE
 SET
   handler_config = EXCLUDED.handler_config,
@@ -324,11 +373,11 @@ Customer messages received during silence are persisted for audit without advanc
 The open case is closed lazily on the first message after the deadline, and that message starts a fresh case and context.
 
 The canonical DDL defines these objects for new or rebuilt databases.
-Apply `.migrations/` before deploying this change to an existing database. That migration drops queue rows, route rows, and the old settings table.
+Apply the relevant scripts in `wa_agents/sql/.migrations/` before deploying schema changes to an existing database.
 
 `handler_url` is reserved for future remote-handler dispatch.
 Changing a route affects its pending jobs; deleting it clears their nullable route reference.
-A fallback whose key has a configuration row then claims them. A null fallback, or a fallback key without a configuration, marks those still-pending rows `ignored` on the next claim.
+A fallback whose key has a configuration row can claim them; otherwise they remain pending.
 A route whose key is not served by any worker stays pending.
 Before removing a handler deployment, inspect its pending or processing rows:
 ```sql
@@ -338,11 +387,16 @@ SELECT
   count(*)            AS count,
   min(que.created_at) AS oldest
 FROM
-  wa_agents.api_to_case_handler_queue AS que
+  wa_agents.api_to_case_handler_queue           AS que
 LEFT JOIN
-  wa_agents.case_handler_routes AS rou ON rou.id = que.handler_id
+  wa_agents.case_handler_routes_by_contact      AS ctc ON ctc.id = que.route_by_contact
 LEFT JOIN
-  wa_agents.case_handler_configurations AS cfg ON cfg.id = rou.handler_config
+  wa_agents.case_handler_routes_by_phone_number AS phn ON phn.id = que.route_by_phone_number
+LEFT JOIN
+  wa_agents.case_handler_configurations         AS cfg
+    ON cfg.id = COALESCE(
+      ctc.handler_config, phn.handler_config
+    )
 WHERE
   ( que.msg_status IN ( 'pending', 'processing' ) )
 GROUP BY
@@ -834,3 +888,10 @@ Expose `errors` through the Flow response field bound to the picker's `error-mes
 The exception is intentionally sanitized and never contains the signed CDN URL or encryption keys.
 Applications remain responsible for validating content types, scanning untrusted files, and storing accepted bytes.
 Meta enforces the picker file-count and size limits; these helpers verify transport and content integrity but do not add local limits.
+
+## Caller-owned signup transactions
+
+`wa_agents.supabase` provides connection-taking `async_*` functions for Embedded Signup sessions, WABA credentials, phone metadata, app-data sync requests, operator reads, and handler-route assignment.
+They execute packaged SQL using the supplied `Async_DB_Connection` and leave commit/rollback to the caller, allowing applications to combine WhatsApp writes with their own schema writes atomically.
+`async_upsert_waba()` and `async_get_waba_token()` require an explicit `secret_key`; applications retain responsibility for loading that secret.
+Signup `id_biz` and `id_user` values are opaque application metadata stored in `application_data`; these queries do not depend on Sofia tables or DTOs.

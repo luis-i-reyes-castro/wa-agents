@@ -43,8 +43,6 @@ BUCKET_NAME       : str = os.getenv("BUCKET_NAME")       or ""
 missing = [ label
             for label, value in
             [ ( "BUCKET_REGION",     BUCKET_REGION),
-              ( "BUCKET_KEY_ID",     BUCKET_KEY),
-              ( "BUCKET_KEY_SECRET", BUCKET_KEY_SECRET),
               ( "BUCKET_NAME",       BUCKET_NAME) ]
             if not value ]
 
@@ -52,13 +50,16 @@ if missing :
     missing_str = ", ".join(missing)
     raise RuntimeError(f"Missing S3 bucket environment variables: {missing_str}")
 
-BUCKET_ENDPOINT = (
-    os.getenv("BUCKET_ENDPOINT") or
-    f"https://{BUCKET_REGION}.digitaloceanspaces.com"
+if bool(BUCKET_KEY) != bool(BUCKET_KEY_SECRET) :
+    raise RuntimeError("Set both BUCKET_KEY_ID and BUCKET_KEY_SECRET, or neither")
+
+# Preserve existing Spaces installations; credential-chain users default to AWS.
+BUCKET_ENDPOINT = os.getenv("BUCKET_ENDPOINT") or (
+    f"https://{BUCKET_REGION}.digitaloceanspaces.com" if BUCKET_KEY else None
 )
-parsed_bucket_endpoint = urlparse(BUCKET_ENDPOINT)
-if not (
-    parsed_bucket_endpoint.scheme in ( "http", "https" ) and
+parsed_bucket_endpoint = urlparse( BUCKET_ENDPOINT or "" )
+if BUCKET_ENDPOINT and not (
+    parsed_bucket_endpoint.scheme in ( "http", "https") and
     parsed_bucket_endpoint.netloc
 ) :
     raise RuntimeError(f"Invalid S3 bucket endpoint '{BUCKET_ENDPOINT}'")
@@ -70,7 +71,10 @@ else :
     is_DO_bucket = (
         ( parsed_bucket_endpoint.hostname or "" ).endswith(".digitaloceanspaces.com")
     )
-    BUCKET_ADDRESSING_STYLE = "path" if ( not is_DO_bucket ) else "virtual"
+    BUCKET_ADDRESSING_STYLE = (
+        "auto"    if BUCKET_ENDPOINT is None else
+        "virtual" if is_DO_bucket            else "path"
+    )
 
 if BUCKET_ADDRESSING_STYLE not in ( "path", "virtual", "auto") :
     raise RuntimeError(
@@ -81,16 +85,23 @@ if BUCKET_ADDRESSING_STYLE not in ( "path", "virtual", "auto") :
 boto3_client_args = {
     "service_name" : "s3",
     "config"       : Config(
-        s3 = { "addressing_style" : BUCKET_ADDRESSING_STYLE },
+        s3              = { "addressing_style" : BUCKET_ADDRESSING_STYLE },
+        connect_timeout = 10,
+        read_timeout    = 30,
+        retries         = { "mode" : "standard", "max_attempts" : 3 },
     ),
-    "region_name"           : BUCKET_REGION,
-    "endpoint_url"          : BUCKET_ENDPOINT,
-    "aws_access_key_id"     : BUCKET_KEY,
-    "aws_secret_access_key" : BUCKET_KEY_SECRET
+    "region_name"  : BUCKET_REGION,
+    "endpoint_url" : BUCKET_ENDPOINT,
 }
 """
 Boto3 client arguments for both sync and async versions
 """
+
+if BUCKET_KEY :
+    boto3_client_args.update(
+        aws_access_key_id     = BUCKET_KEY,
+        aws_secret_access_key = BUCKET_KEY_SECRET,
+    )
 
 
 # =========================================================================================
@@ -258,7 +269,6 @@ def b3_put_media(
         Key         = str(key),
         Body        = content,
         ContentType = mime,
-        ACL         = "private",
     )
     
     return { "bucket" : BUCKET_NAME, "key" : str(key) }
@@ -451,7 +461,6 @@ async def async_b3_put_media(
             Key         = str(key),
             Body        = content,
             ContentType = mime,
-            ACL         = "private",
         )
     
     return { "bucket" : BUCKET_NAME, "key" : str(key) }

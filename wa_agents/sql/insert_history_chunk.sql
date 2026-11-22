@@ -25,7 +25,7 @@ WITH CTE_sync AS (
         WHEN @progress = 100             THEN 'completed'
         ELSE                                  'receiving'
       END
-    )::T_WHATSAPP_APP_DATA_SYNC_STATUS,
+    )::wa_agents.T_WHATSAPP_APP_DATA_SYNC_STATUS,
     now(),
     CASE WHEN @progress = 100 THEN now() ELSE NULL END,
     CASE

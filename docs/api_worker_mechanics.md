@@ -8,7 +8,8 @@ PostgreSQL queue.
 
 ## Main Loop
 
-Every 30 seconds, the existing worker tick renews waiting contact leases and removes jobs whose leases are lost. Each tick then performs three operations in order:
+A separate heartbeat renews all owned contact leases every 20 seconds, including during handler execution.
+Each processing tick performs three operations in order:
 
 1. Advance active contact bursts by claiming at most one newer message for each
    contact that already has a delayed response.
@@ -60,7 +61,7 @@ flowchart TD
 
 ## Global Queue Claim and Contact Lease
 
-The global queue claim atomically selects the oldest compatible pending row,
+The global queue claim atomically selects compatible pending, retryable, abandoned, or unfinished-response work in contact order,
 marks it `processing`, and acquires a 90-second lease for its contact. PostgreSQL
 row locking and `SKIP LOCKED` allow multiple workers to share the queue without
 claiming the same row or concurrently processing the same contact.
@@ -83,7 +84,7 @@ For every claimed queue row, the worker:
 2. Records the contact’s burst score and delay before any immediate reply can be sent.
 3. Fetches media bytes when the message contains media.
 4. Calls the routed handler’s `process_message(message, media)`.
-5. Renews the lease if a delayed response is needed, then marks the queue row `done`.
+5. Commits handler database ingestion, `ingested_at`, and the optional `response_due_at` together, marking ingestion `done`.
 
 `process_message()` is responsible for deduplication, case selection, state
 machine transitions, and durable message/context persistence. Its return value
@@ -97,7 +98,7 @@ response has already been generated or sent.
 
 ## Trailing-Edge Response Debounce
 
-Delayed responses are stored in memory with at most one scheduled job per contact.
+Delayed response deadlines are stored on queue rows; the in-memory schedule caches at most one owned job per contact.
 The effective quiet period is measured from the latest successfully ingested message that requested a response.
 `response_delay_seconds` is its base; the contact’s persistent burst score scales it exponentially.
 
@@ -226,7 +227,7 @@ are released after completion, lease loss, or a response exception.
 
 An inbound message that arrives after response execution begins is processed in the next response cycle.
 It still increases the burst score if it arrived before the successful send.
-The worker does not cancel an LLM or outbound API call already in progress.
+New messages do not cancel an LLM or outbound API call already in progress; lease loss, shutdown, or the operation timeout can cancel asynchronous execution.
 
 ## Echo Silence
 
@@ -241,24 +242,39 @@ old case during the next case decision.
 
 ## Failures and Recovery Boundaries
 
-- Ingestion failures mark the claimed row `error` and release its lease unless
-  an older valid delayed job still owns that lease.
-- Response failures are logged, after which the lease and scheduled job are
-  released.
-- Missing or expired leases prevent stale jobs from responding.
-- Queue rows, cases, messages, state, and contexts are durable in PostgreSQL.
-- Delayed response deadlines are process-local. A worker restart after a queue
-  row is marked `done` can lose its unsent delayed response; the abandoned lease
-  expires after 90 seconds. Durable response scheduling is outside the current
-  worker model.
+- A raw webhook audit survives normalization failure; normalization/enqueueing is atomic under a payload-row lock and retries resume incomplete payloads.
+- Handler storage calls in the same task (or the sync handler thread) and the delayed response deadline share a transaction; failed ingestion rolls back deduplication links as well as case/context changes.
+- A new successful ingestion supersedes the older contact deadline, or cancels it when the handler returns false.
+- `ingested_at` distinguishes an abandoned ingestion from an unsent response; `response_due_at` survives process replacement.
+- Global claims recover `processing` rows and scheduled responses after the old contact lease expires.
+- Failures retain durable work and retry with exponential backoff (30 seconds initially, capped at 300 seconds), up to `max_retries` retries after the initial attempt per phase (default 4).
+- Exhausted work remains in the database for operator intervention; inspect `attempts >= 5`, including abandoned processing rows.
+- Completion and error updates require the active lease owner's token, preventing a stale worker from overwriting a newer claim.
+- A separate heartbeat renews all owned leases every 20 seconds, independently of handler calls.
+- Lease loss cancels the worker and fails health checks.
+- Shutdown stops new claims and drains for 30 seconds before cancellation; waiting responses stay durable.
+- Python cannot cancel a running synchronous thread; shutdown waits for it and ECS must enforce the final process stop timeout.
+- External sends and tool side effects cannot be committed atomically with PostgreSQL; recovery is at least once and may repeat an accepted external operation after an ambiguous failure.
 
-## Timing Configuration
+Handlers must keep transactional storage writes in their processing task/thread; detached child tasks and external database clients do not join that transaction.
+
+`/healthz` returns 503 for database failure; worker/combined apps additionally require live worker and heartbeat tasks.
+Async handler operations are bounded to 300 seconds; synchronous operations exceeding this duration mark the process unhealthy until the thread finishes or ECS replaces it.
+The current worker still processes handler calls sequentially; use additional worker tasks for throughput and retain contact leases for exclusivity.
+
+## Worker Configuration
 
 Poll intervals are read from `api_worker_configurations` for the worker's
-`server_name`. When that row is absent, or `server_name` is omitted, the worker
+`configuration` argument (matching `server_name`). When that row is absent, or `configuration` is omitted, the worker
 uses `WhatsAppAPIWorker.DEFAULT_POLL_INTERVAL_BUSY` and
 `DEFAULT_POLL_INTERVAL_IDLE`, both 1 second. An explicit constructor argument
 overrides the table and the class default.
+
+`api_worker_configurations.max_retries` is also read at startup.
+It must be a nonnegative integer; 0 disables retries, and the default 4 allows five attempts per phase.
+Both claim queries apply this budget to candidate rows and older rows that could block them.
+Restart workers after changing the setting, and keep replicas serving the same routes consistent.
+Raising the budget can make previously exhausted rows eligible again.
 
 Burst timing, echo silence, and the stale-case threshold live on
 `case_handler_configurations` and travel with the claimed route:

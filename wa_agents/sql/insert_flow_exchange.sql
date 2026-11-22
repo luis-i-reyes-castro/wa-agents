@@ -21,7 +21,7 @@ VALUES (
   @request_hash,
   @request_action,
   @request_screen,
-  encrypt_text( @request_data, @secret_key)
+  wa_agents.encrypt_text( @request_data, @secret_key)
 )
 ON CONFLICT ( session, request_hash)
   WHERE ( session IS NOT NULL )

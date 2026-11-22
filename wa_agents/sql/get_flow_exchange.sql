@@ -21,7 +21,7 @@ SELECT
   exchange.error_message   AS error_message,
   CASE
     WHEN exchange.response_data IS NULL THEN NULL
-    ELSE decrypt_text( exchange.response_data, @secret_key)
+    ELSE wa_agents.decrypt_text( exchange.response_data, @secret_key)
   END                      AS response_data_decrypted
 FROM
   wa_agents.api_flow_data_exchanges AS exchange

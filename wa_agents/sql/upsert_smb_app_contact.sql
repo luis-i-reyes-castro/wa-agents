@@ -29,7 +29,7 @@ WITH CTE_sync AS (
         WHEN syn.sync_status = 'completed' THEN 'completed'
         ELSE 'receiving'
       END
-    )::T_WHATSAPP_APP_DATA_SYNC_STATUS,
+    )::wa_agents.T_WHATSAPP_APP_DATA_SYNC_STATUS,
     started_at  = COALESCE( syn.started_at, now()),
     last_error  = NULL
   RETURNING

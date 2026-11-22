@@ -7,17 +7,26 @@ imported by this module; it stores media bytes only.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 
+from contextlib import (
+    asynccontextmanager,
+    contextmanager,
+)
+from contextvars import ContextVar
 from datetime import (
     datetime,
     timedelta,
 )
 from hashlib import sha256
 from pathlib import Path
+from threading import get_ident
 from typing import (
     Any,
+    AsyncIterator,
+    Iterator,
     Self,
 )
 from uuid import UUID
@@ -30,10 +39,13 @@ from pydantic import (
     model_validator,
 )
 from sofia_utils.psycopg import (
+    Async_DB_Connection,
     Jsonb,
-    async_pooled_connection,
+    Sync_DB_Connection,
+    async_pooled_connection as _async_pooled_connection,
     load_sql_script,
-    sync_pooled_conection,
+    sync_pooled_conection   as _sync_pooled_conection,
+    wrap_params,
 )
 from sofia_utils.printing import get_qualname as here
 from sofia_utils.pydantic import (
@@ -51,6 +63,56 @@ from .io_models import (
     WhatsApp_IB_MetaData,
     WhatsApp_IB_Profile,
 )
+
+
+# Nested storage calls participate in the caller's transaction. Task/thread identity
+# prevents inherited contexts (heartbeat tasks and to_thread) sharing a connection.
+_sync_connection  = ContextVar( "wa_agents_sync_connection",  default = None)
+_async_connection = ContextVar( "wa_agents_async_connection", default = None)
+
+
+@contextmanager
+def sync_pooled_conection(
+    database_url : str,
+    **kwargs : Any,
+) -> Iterator[Sync_DB_Connection] :
+    """
+    Reuse the current thread's storage transaction for this database.
+    """
+    current = _sync_connection.get()
+    owner   = get_ident()
+    if current and ( current[:2] == ( owner, database_url) ) :
+        yield current[2]
+        return
+    
+    with _sync_pooled_conection( database_url, **kwargs) as conn :
+        token = _sync_connection.set(( owner, database_url, conn ))
+        try :
+            yield conn
+        finally :
+            _sync_connection.reset(token)
+
+
+@asynccontextmanager
+async def async_pooled_connection(
+    database_url : str,
+    **kwargs : Any,
+) -> AsyncIterator[Async_DB_Connection] :
+    """
+    Reuse the current task's storage transaction for this database.
+    """
+    current = _async_connection.get()
+    owner   = asyncio.current_task()
+    if current and ( current[:2] == ( owner, database_url) ) :
+        yield current[2]
+        return
+    
+    async with _async_pooled_connection( database_url, **kwargs) as conn :
+        token = _async_connection.set(( owner, database_url, conn ))
+        try :
+            yield conn
+        finally :
+            _async_connection.reset(token)
 
 
 # =========================================================================================

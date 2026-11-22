@@ -5,7 +5,8 @@ SELECT
   awc.id                 AS id,
   awc.server_name        AS server_name,
   awc.poll_interval_busy AS poll_interval_busy,
-  awc.poll_interval_idle AS poll_interval_idle
+  awc.poll_interval_idle AS poll_interval_idle,
+  awc.max_retries        AS max_retries
 FROM
   wa_agents.api_worker_configurations AS awc
 WHERE

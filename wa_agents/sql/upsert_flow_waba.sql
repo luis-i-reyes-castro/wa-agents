@@ -15,7 +15,7 @@ SELECT
   bus.id,
   @public_key,
   @public_key_fingerprint,
-  encrypt_text( @private_key, @secret_key)
+  wa_agents.encrypt_text( @private_key, @secret_key)
 FROM
   wa_agents.api_businesses AS bus
 WHERE

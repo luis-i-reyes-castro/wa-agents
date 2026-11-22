@@ -17,6 +17,7 @@ from contextlib import (
 )
 from dataclasses import dataclass
 from datetime import (
+    UTC,
     datetime,
     timedelta,
 )
@@ -48,7 +49,10 @@ from .case_handler_base import (
     WhatsAppCaseHandlerClass,
     WhatsAppCaseHandlerObject,
 )
-from .database_queue import AsyncWhatsAppDatabaseQueue
+from .database_queue import (
+    AsyncWhatsAppDatabaseQueue,
+    WhatsAppDatabaseQueue,
+)
 from .flows import WhatsAppFlowEndpoint
 from .io_functions import async_fetch_media
 from .io_models import (
@@ -58,6 +62,8 @@ from .io_models import (
 )
 from .supabase import (
     SyncSupabaseStorage,
+    async_pooled_connection,
+    sync_pooled_conection,
     WhatsAppDatabaseRecord_Business,
     WhatsAppDatabaseRecord_Contact,
 )
@@ -212,6 +218,10 @@ class WhatsAppAPIWorker (FastAPI) :
     Asynchronous message worker and synchronous Flow data endpoint.
     """
     
+    LEASE_HEARTBEAT_SECONDS  =  20.0
+    SHUTDOWN_TIMEOUT_SECONDS =  30.0
+    HANDLER_TIMEOUT_SECONDS  = 300.0
+    
     DEFAULT_POLL_INTERVAL_BUSY : float = 1.0
     """ Poll interval in seconds while the worker has pending jobs. """
     
@@ -339,6 +349,9 @@ class WhatsAppAPIWorker (FastAPI) :
             if configuration is not None else
             None
         )
+        if configured is not None :
+            self.queue.max_retries = configured["max_retries"]
+        
         configured_busy = (
             None
             if configured is None else
@@ -374,9 +387,14 @@ class WhatsAppAPIWorker (FastAPI) :
         )
         self.worker_task : asyncio.Task[None] | None = None
         
-        self._job_td             = JobTimeDict()
-        self._stop_flag          = False
-        self._last_lease_renewal = time.monotonic()
+        self._job_td    = JobTimeDict()
+        self._stop_flag = False
+        
+        self._leases      : dict[ int, UUID | str] = {}
+        self._lease_error = False
+        
+        self.heartbeat_task : asyncio.Task[None] | None = None
+        self._heartbeat_at  = time.monotonic()
         
         return
     
@@ -391,21 +409,50 @@ class WhatsAppAPIWorker (FastAPI) :
         )
         
         async with self.queue.connection_pool() :
+            
             self._stop_flag  = False
+            
             self.worker_task = asyncio.create_task(self.serve_forever())
             self.worker_task.add_done_callback(self._log_worker_task_result)
+            
+            self._lease_error  = False
+            self._heartbeat_at = time.monotonic()
+            
+            self.heartbeat_task = asyncio.create_task(self._renew_leases())
+            self.heartbeat_task.add_done_callback(self._log_worker_task_result)
             
             try :
                 yield
             
             finally :
                 self.stop()
-                if self.worker_task :
-                    self.worker_task.cancel()
-                    with suppress(asyncio.CancelledError) :
-                        await self.worker_task
-                    self.worker_task = None
-        
+                try :
+                    if self.worker_task :
+                        try :
+                            await asyncio.wait_for(
+                                asyncio.shield(self.worker_task),
+                                timeout = self.SHUTDOWN_TIMEOUT_SECONDS,
+                            )
+                        except ( TimeoutError, asyncio.CancelledError) :
+                            self.worker_task.cancel()
+                            with suppress(asyncio.CancelledError) :
+                                await self.worker_task
+                
+                finally :
+                    
+                    if self.heartbeat_task :
+                        self.heartbeat_task.cancel()
+                        with suppress( asyncio.CancelledError, Exception) :
+                            await self.heartbeat_task
+                    
+                    for contact, owner in list(self._leases.items()) :
+                        await self.queue.release_contact_lease( contact, owner)
+                    
+                    self._leases.clear()
+                    self._job_td.clear()
+                    self.worker_task    = None
+                    self.heartbeat_task = None
+
         logging.info("WhatsApp database queue worker lifespan stopped")
         
         return
@@ -491,9 +538,31 @@ class WhatsAppAPIWorker (FastAPI) :
         """
         Health endpoint.
         """
+        healthy = bool(
+            self.worker_task                               and
+            ( not self.worker_task.done()                ) and
+            self.heartbeat_task                            and
+            ( not self.heartbeat_task.done()             ) and
+            ( not self._stop_flag                        ) and
+            ( not self._lease_error                      ) and
+            ( time.monotonic() - self._heartbeat_at < 60 )
+        )
+        if healthy :
+            try :
+                await asyncio.wait_for(
+                    self.queue._fetch_one( "SELECT 1 AS healthy", {}),
+                    timeout = 3,
+                )
+            except Exception :
+                healthy = False
+        
         return JSONResponse(
-            content     = { "healthy" : True },
-            status_code = status.HTTP_200_OK,
+            content     = { "healthy" : healthy },
+            status_code = (
+                status.HTTP_200_OK
+                if healthy else
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
         )
     
     def _worker_debug_data(self) -> dict[str, Any] :
@@ -540,6 +609,7 @@ class WhatsAppAPIWorker (FastAPI) :
             job.user,
             api_inbound_msg_id    = job.api_inbound_msg_id,
             case_stale_hours      = job.case_stale_hours,
+            database_url          = self.queue.storage.database_url,
             debug                 = self.debug,
             owner_token           = job.owner_token,
             route_by_phone_number = job.route_by_phone_number,
@@ -582,16 +652,6 @@ class WhatsAppAPIWorker (FastAPI) :
     
     async def tick(self) -> bool :
         
-        if ( time.monotonic() - self._last_lease_renewal ) >= 30 :
-            for job in self._job_td.get_all() :
-                renewed = await self.queue.storage.renew_contact_lease(
-                    job.user.row_id,
-                    job.owner_token,
-                )
-                if not renewed :
-                    self._job_td.mark_as_done(job)
-            self._last_lease_renewal = time.monotonic()
-        
         refreshed_contacts = await self._process_pending_job_messages()
         received_message   = await self._process_message()
         processed_jobs     = await self._process_jobs(
@@ -606,6 +666,35 @@ class WhatsAppAPIWorker (FastAPI) :
             bool(self._job_td)
         )
     
+    async def _renew_leases(self) -> None :
+        """
+        Keep every owned contact alive independently of slow handler calls.
+        """
+        try :
+            while True :
+                for contact, owner in list(self._leases.items()) :
+                    renewed = await self.queue.storage.renew_contact_lease(
+                        contact     = contact,
+                        owner_token = owner,
+                    )
+                    if (
+                        ( not renewed                        ) and
+                        ( self._leases.get(contact) == owner )
+                    ) :
+                        raise RuntimeError(f"Contact lease lost for contact {contact}")
+                
+                self._heartbeat_at = time.monotonic()
+                await asyncio.sleep(self.LEASE_HEARTBEAT_SECONDS)
+        
+        except asyncio.CancelledError :
+            raise
+        
+        except Exception :
+            self._lease_error = True
+            if self.worker_task :
+                self.worker_task.cancel()
+            raise
+    
     async def _call_handler_method(
         self,
         method : Callable[..., Any],
@@ -613,10 +702,71 @@ class WhatsAppAPIWorker (FastAPI) :
     ) -> object :
         
         if iscoroutinefunction(method) :
-            return await method(*args)
+            async with asyncio.timeout(self.HANDLER_TIMEOUT_SECONDS) :
+                return await method(*args)
         
-        return await asyncio.to_thread( method, *args)
-    
+        task = asyncio.create_task(asyncio.to_thread( method, *args))
+        try :
+            return await asyncio.wait_for(
+                asyncio.shield(task), timeout = self.HANDLER_TIMEOUT_SECONDS,
+            )
+        except TimeoutError :
+            self._lease_error = True
+            self.stop()
+            # Keep ownership until completion; health checks request replacement.
+            try :
+                return await asyncio.shield(task)
+            except asyncio.CancelledError :
+                with suppress(Exception) :
+                    await task
+                raise
+        except asyncio.CancelledError :
+            # Python cannot cancel a running thread. Do not release its lease or
+            # close its pool while it can still perform external side effects.
+            with suppress(Exception) :
+                await task
+            raise
+
+    async def _ingest_message(
+        self,
+        handler : WhatsAppCaseHandlerObject,
+        job     : HandlerJob,
+        message : WhatsApp_IB_Message,
+        media   : bytes | None,
+        delay   : float,
+    ) -> datetime | None :
+        """
+        Persist handler database changes and the reply deadline in one transaction.
+        """
+        database_url = self.queue.storage.database_url
+        if iscoroutinefunction(handler.process_message) :
+            async with async_pooled_connection(database_url) :
+                respond = await self._call_handler_method(
+                    handler.process_message, message, media,
+                )
+                due = datetime.fromtimestamp( time.time() + delay, UTC) if respond else None
+                await self.queue.mark_done(
+                    job.queue_row_id,
+                    owner_token = job.owner_token,
+                    ingested = True,
+                    response_due_at = due,
+                )
+                return due
+
+        def ingest_sync() -> datetime | None :
+            with sync_pooled_conection(database_url) :
+                respond = handler.process_message( message, media)
+                due = datetime.fromtimestamp( time.time() + delay, UTC) if respond else None
+                WhatsAppDatabaseQueue(database_url).mark_done(
+                    job.queue_row_id,
+                    owner_token = job.owner_token,
+                    ingested = True,
+                    response_due_at = due,
+                )
+                return due
+
+        return await self._call_handler_method(ingest_sync)
+
     async def _process_claimed_message(
         self,
         item         : dict[str, Any],
@@ -626,12 +776,22 @@ class WhatsAppAPIWorker (FastAPI) :
         Ingest one claimed message and update its contact's delayed response.
         """
         row_id     = item["row_id"]
-        handler    = None
         keep_lease = previous_job is not None
+        job        = None
         
         try :
-            job, message = _job_and_message(item)
-            handler      = self._handler(job)
+            job, message                  = _job_and_message(item)
+            self._leases[job.user.row_id] = job.owner_token
+            
+            if item.get("ingested_at") is not None :
+                due = item["response_due_at"]
+                if due is None :
+                    raise RuntimeError("Recovered response has no deadline")
+                self._job_td.schedule( job, due.timestamp())
+                keep_lease = True
+                return
+            
+            handler = await self._call_handler_method( self._handler, job)
             
             burst = await self.queue.storage.update_contact_burst_score(
                 queue_row_id       = row_id,
@@ -649,50 +809,35 @@ class WhatsAppAPIWorker (FastAPI) :
                 )
                 if message.media_data else None
             )
-            respond = await self._call_handler_method(
-                handler.process_message,
-                message,
-                media_content,
-            )
-            if respond :
-                renewed = await self._call_handler_method(handler.renew_contact_lease)
-                if not renewed :
-                    raise RuntimeError(
-                        f"In {here()}: Contact lease expired during ingestion"
-                    )
             
-            await self.queue.mark_done(row_id)
-
+            due = await self._ingest_message(
+                handler, job, message, media_content,
+                burst["response_delay"] if burst else job.response_delay,
+            )
+            
             if previous_job :
                 self._job_td.mark_as_done(previous_job)
             
-            if respond :
-                self._job_td.schedule(
-                    job,
-                    time.time() + (
-                        burst["response_delay"] if burst else job.response_delay
-                    ),
-                )
-                keep_lease = True
-            else :
-                keep_lease = False
+            keep_lease = due is not None
+            
+            if due is not None :
+                self._job_td.schedule( job, due.timestamp())
         
         except Exception as ex :
             logging.error(
                 f"In {here()}: Worker failed for queue row {row_id}: {str(ex)}\n"
                 f"Exception trace: {format_exc()}"
             )
-            await self.queue.mark_error(row_id)
-        
+            await self.queue.mark_error(
+                row_id,
+                owner_token = job.owner_token if job else item["owner_token"],
+            )
         finally :
             if not keep_lease :
-                if handler :
-                    await self._call_handler_method(handler.release_contact_lease)
-                else :
-                    await self.queue.release_contact_lease(
-                        item["contact"],
-                        item["owner_token"],
-                    )
+                contact = job.user.row_id if job else item["contact"]
+                owner   = job.owner_token if job else item["owner_token"]
+                self._leases.pop( contact, None)
+                await self.queue.release_contact_lease( contact, owner)
         
         return
 
@@ -700,6 +845,9 @@ class WhatsAppAPIWorker (FastAPI) :
         """
         Claim and ingest one message for a contact without an active job.
         """
+        if self._stop_flag :
+            return False
+
         item = await self.queue.claim_next(self.handler_keys)
         if not item :
             return False
@@ -712,6 +860,9 @@ class WhatsAppAPIWorker (FastAPI) :
         """
         Claim and ingest one newer message using a delayed job's contact lease.
         """
+        if self._stop_flag :
+            return False
+
         item = await self.queue.claim_next_for_contact(
             job.user.row_id,
             job.owner_token,
@@ -747,6 +898,9 @@ class WhatsAppAPIWorker (FastAPI) :
         
         for job in jobs_to_process :
 
+            if self._stop_flag :
+                break
+
             if job.user.row_id in refreshed_contacts :
                 continue
 
@@ -754,9 +908,8 @@ class WhatsAppAPIWorker (FastAPI) :
                 processed_jobs = True
                 continue
             
-            handler = self._handler(job)
-            
             try :
+                handler = await self._call_handler_method( self._handler, job)
                 renewed = await self._call_handler_method(
                     handler.renew_contact_lease
                 )
@@ -781,6 +934,10 @@ class WhatsAppAPIWorker (FastAPI) :
                                 f"In {here()}: Contact lease expired during response"
                             )
                 
+                await self.queue.mark_done(
+                    job.queue_row_id,
+                    owner_token = job.owner_token,
+                )
                 processed_jobs = True
             
             except Exception as ex :
@@ -790,8 +947,16 @@ class WhatsAppAPIWorker (FastAPI) :
                     f"Exception trace: {format_exc()}"
                 )
             
+                await self.queue.mark_error(
+                    job.queue_row_id,
+                    owner_token = job.owner_token,
+                )
             finally :
-                await self._call_handler_method(handler.release_contact_lease)
+                self._leases.pop( job.user.row_id, None)
+                await self.queue.release_contact_lease(
+                    contact     = job.user.row_id,
+                    owner_token = job.owner_token,
+                )
                 self._job_td.mark_as_done(job)
         
         return processed_jobs

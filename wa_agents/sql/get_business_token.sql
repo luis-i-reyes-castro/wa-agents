@@ -10,7 +10,7 @@ SELECT
     WHEN ( num.registration_status = 'active'    ) AND
          ( esd.connection_status   = 'connected' ) AND
          ( NULLIF( @secret_key, '') IS NOT NULL  )
-    THEN decrypt_text( esd.business_token, @secret_key)
+    THEN wa_agents.decrypt_text( esd.business_token, @secret_key)
   END                     AS business_token
 FROM
   wa_agents.api_businesses           AS bus
