@@ -606,21 +606,52 @@ For a stateless API handler, build the context directly from `Message` subclasse
 There is no need to instantiate `CaseHandlerBase` or create WhatsApp API database records.
 
 A non-WhatsApp handler can reuse `CaseHandlerBase` or `AsyncCaseHandlerBase` when it needs persisted messages, case manifests, or FSM state.
-The current persistence schema identifies cases through `api_contacts`, so this setup requires placeholder business and contact rows in `api_businesses` and `api_contacts`.
-Construct the core handler with those rows or their IDs, then use `case_handler_models.Message` subclasses for the actual API input and output.
+Pass `headless=True` together with a persisted business and contact (records or row IDs).
+Business and contact remain required; reuse one fixed pair for the calling application.
+The business argument identifies an `api_phone_numbers` row, as it does for WhatsApp handlers.
+Synthetic registrations must remain pending and must never be activated for sending.
+
+```python
+handler = MyAsyncHandler(
+    business,
+    contact,
+    headless = True,
+)
+await handler.case_open_new()
+try :
+    await handler.apply_and_persist_message(HumanUserContentMsg( text = "Request"))
+finally :
+    await handler.case_mark_as_resolved()
+```
+
+`case_open_new()` atomically creates one `case_handler_invocations` row, its case manifest, the initial FSM snapshot, and initial agent contexts.
+The invocation stores its ID, creation time, and the handler's `HANDLER_KEY`.
+The manifest retains its required contact and references the invocation; its `case_index` is always 1.
+Use the invocation or case ID to distinguish requests, not the contact or case index.
+Messages, agent contexts, state histories, and OpenRouter usage remain in their existing case tables.
 
 In this mode:
 
-- Implement `process_message()` as a no-op to satisfy the abstract interface.
-- Persist messages with `apply_and_persist_message()` and load them with `context_build()`.
-- Do not call `dedup_and_ingest_message()` or the WhatsApp `send_*()` methods.
-- No row is written to `case_handler_to_api_bridge`; that mapping is populated only by the WhatsApp ingestion and sending paths.
-- Start a fresh case for every API call and close it in a `finally` block when the call completes.
-  Before opening it, close or recover any case left open by an interrupted earlier call.
+- Create a new handler instance for every call, including retries. Concurrent calls may share the same business/contact without sharing cases or contexts.
+- Implement `process_message()` and `run_while_in_action()` as appropriate for the application's direct calling flow.
+- Persist messages with `apply_and_persist_message()` and load the current case with `context_build()`.
+- Opening another case on the same instance or persisting after closure raises an error.
+- WhatsApp routing, silence, and contact leases are unavailable. No API-message bridge or queue row is created.
+- Close the case in `finally`. A process crash may leave an open audit case, but later calls create independent invocations and are not blocked.
+- Persistence errors propagate; headless mode is not best-effort auditing.
 
-The schema permits only one open case per contact.
-Calls sharing one placeholder contact must therefore be serialized.
-If requests may overlap, use separate placeholder contacts for their independent concurrency keys.
+Ordinary WhatsApp cases retain one open case per contact and their per-contact numbering.
+`get_open_case_manifest(contact)` excludes invocation cases.
+To read an invocation manifest, call `get_case_manifest(case_id, contact, invocation=invocation_id)` on either storage adapter.
+Direct storage callers can create an invocation through `insert_case_manifest(..., invocation_handler_key=handler_key)`.
+
+For existing installations, stop affected services and apply `wa_agents/sql/.migrations/2026-11-25_1_case_handler_invocations.sql` before deploying the package and updated consumer together.
+Execute the entire file as one batch on one connection, preserving its explicit `BEGIN` through `COMMIT`; do not run selected statements separately or use a runner that splits them across transactions or sessions.
+The cleanup uses a session-local temporary table with `ON COMMIT DROP`, so committing before the cleanup removes that table and causes error `42P01`.
+If execution fails, inspect the actual tables, columns, constraints, indexes, and remaining cleanup candidates before retrying. This one-time migration is not safely repeatable, and earlier statements may already have committed if the runner split the batch.
+The migration directory is intentionally Git-ignored; transfer that script separately.
+The migration retains WhatsApp records and removes only verified legacy IECED per-request contacts and their dependent audit data.
+It does not activate or remove the shared phone registration.
 
 ## WhatsApp Payload Data You Can Use
 

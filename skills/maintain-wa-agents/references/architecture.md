@@ -68,9 +68,13 @@ Treat `wa_agents/sql/abc_DDL.sql` as the canonical schema.
 - Status `msg_id` values may identify API outbound messages or inbound message
   echoes, so the status table indexes that external ID without an outbound-only
   foreign key.
-- One contact may have at most one open case through a partial unique index.
+- One contact may have at most one open conversation case through a partial unique
+  index excluding invocation cases. Headless calls retain their business/contact
+  identities and use `headless=True` to create an isolated `case_handler_invocations`
+  row and case atomically. Each handler instance serves one invocation; its case
+  index is 1, and it does not use contact leases, routes, or silence.
 - Case and message indices are one-based insertion ordinals, unique within their
-  contact and case respectively. Message allocation increments the manifest counter
+  contact (excluding invocations) and case respectively. Message allocation increments the manifest counter
   atomically with message persistence.
 - Case manifests persist `machine_state` so rebuilding a handler does not require
   replay merely to recover its current state.

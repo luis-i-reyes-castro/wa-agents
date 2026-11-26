@@ -348,6 +348,7 @@ class CaseHandlerBase (ABC) :
         case_stale_hours      : int | None        = None,
         database_url          : str | None        = None,
         debug                 : bool              = False,
+        headless              : bool              = False,
         hydrate_media         : bool              = True,
         owner_token           : UUID | str | None = None,
         route_by_phone_number : int | None        = None,
@@ -362,13 +363,27 @@ class CaseHandlerBase (ABC) :
             case_stale_hours      : Open-case staleness threshold in hours.
             database_url          : Optional PostgreSQL URL override.
             debug                 : Whether downstream components should emit debug output.
+            headless              : Give this instance one isolated invocation case.
             hydrate_media         : Whether to hydrate media during `context_build()`.
             owner_token           : Token owning the contact lease.
             route_by_phone_number : Optional phone-number route id.
             route_by_contact      : Optional contact route id. It trumps the phone route.
             silence_timeout       : Duration of message-echo silence mode.
         """
-        self.storage = SyncSupabaseStorage(database_url)
+        if headless and any(
+            value is not None for value in (
+                owner_token,
+                route_by_phone_number,
+                route_by_contact,
+                silence_timeout,
+            )
+        ) :
+            raise ValueError(
+                f"In {here()}: Headless invocations cannot use routes, silence, or leases"
+            )
+        
+        self.headless = headless
+        self.storage  = SyncSupabaseStorage(database_url)
         
         business_record, contact_record = (
             self.storage.resolve_business_and_contact( business, contact)
@@ -556,6 +571,9 @@ class CaseHandlerBase (ABC) :
     # CONTACT LEASES
 
     def acquire_contact_lease(self) -> bool :
+        if self.headless :
+            raise ValueError(f"In {here()}: Headless invocations do not use contact leases")
+        
         return bool(
             self.storage.acquire_contact_lease(
                 self.contact_id,
@@ -564,6 +582,9 @@ class CaseHandlerBase (ABC) :
         )
 
     def renew_contact_lease(self) -> bool :
+        if self.headless :
+            raise ValueError(f"In {here()}: Headless invocations do not use contact leases")
+        
         return bool(
             self.storage.renew_contact_lease(
                 self.contact_id,
@@ -572,6 +593,9 @@ class CaseHandlerBase (ABC) :
         )
 
     def release_contact_lease(self) -> bool :
+        if self.headless :
+            raise ValueError(f"In {here()}: Headless invocations do not use contact leases")
+        
         return self.storage.release_contact_lease(
             self.contact_id,
             self.owner_token,
@@ -584,6 +608,11 @@ class CaseHandlerBase (ABC) :
         """
         Continue the open case when current; otherwise create a new case.
         """
+        if self.headless :
+            if self.case_manifest :
+                return self.case_manifest.id, self.case_manifest
+            return self.case_open_new()
+        
         manifest = self.storage.get_open_case_manifest(self.contact_id)
         if manifest and (
             ( manifest.route_by_phone_number != self.route_by_phone_number ) or
@@ -633,23 +662,19 @@ class CaseHandlerBase (ABC) :
         """
         Insert and return a new open case for this contact.
         """
-        if self.AGENT_NAMES :
-            manifest = self.storage.insert_case_manifest(
-                self.contact_id,
-                self._machine_state(),
-                list(self.AGENT_NAMES),
-                route_by_phone_number = self.route_by_phone_number,
-                route_by_contact      = self.route_by_contact,
-            )
-        else :
-            manifest = self.storage.insert_case_manifest(
-                self.contact_id,
-                self._machine_state(),
-                route_by_phone_number = self.route_by_phone_number,
-                route_by_contact      = self.route_by_contact,
-            )
+        if self.headless and self.case_manifest :
+            raise RuntimeError(f"In {here()}: This handler already owns an invocation")
+        
+        manifest = self.storage.insert_case_manifest(
+            self.contact_id,
+            self._machine_state(),
+            list(self.AGENT_NAMES),
+            route_by_phone_number  = self.route_by_phone_number,
+            route_by_contact       = self.route_by_contact,
+            invocation_handler_key = self.HANDLER_KEY if self.headless else None,
+        )
 
-        if not manifest :
+        if ( not manifest ) and ( not self.headless ) :
             manifest = self.storage.get_open_case_manifest(self.contact_id)
         if not manifest :
             raise RuntimeError(
@@ -808,6 +833,9 @@ class CaseHandlerBase (ABC) :
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = self.case_decide()
+
+        if self.headless and ( not self.case_manifest.is_open ) :
+            raise RuntimeError(f"In {here()}: Cannot write to a closed invocation")
 
         if self.machine and apply_to_state_machine :
             self.apply_message_to_state_machine(message)
@@ -1639,6 +1667,7 @@ class AsyncCaseHandlerBase (ABC) :
         case_stale_hours      : int | None        = None,
         database_url          : str | None        = None,
         debug                 : bool              = False,
+        headless              : bool              = False,
         hydrate_media         : bool              = True,
         owner_token           : UUID | str | None = None,
         route_by_phone_number : int | None        = None,
@@ -1653,13 +1682,24 @@ class AsyncCaseHandlerBase (ABC) :
             case_stale_hours      : Open-case staleness threshold in hours.
             database_url          : Optional PostgreSQL URL override.
             debug                 : Whether downstream components should emit debug output.
+            headless              : Give this instance one isolated invocation case.
             hydrate_media         : Whether to hydrate media during `context_build()`.
             owner_token           : Token owning the contact lease.
             route_by_phone_number : Optional phone-number route id.
             route_by_contact      : Optional contact route id. It trumps the phone route.
             silence_timeout       : Duration of message-echo silence mode.
         """
-        self.storage = AsyncSupabaseStorage(database_url)
+        if headless and any(
+            value is not None for value in (
+                owner_token, route_by_phone_number, route_by_contact, silence_timeout,
+            )
+        ) :
+            raise ValueError(
+                f"In {here()}: Headless invocations cannot use routes, silence, or leases"
+            )
+        
+        self.headless = headless
+        self.storage  = AsyncSupabaseStorage(database_url)
         
         business_record, contact_record = SyncSupabaseStorage(
             self.storage.database_url
@@ -1851,6 +1891,9 @@ class AsyncCaseHandlerBase (ABC) :
     # CONTACT LEASES
 
     async def acquire_contact_lease(self) -> bool :
+        if self.headless :
+            raise ValueError(f"In {here()}: Headless invocations do not use contact leases")
+        
         row = await self.storage.acquire_contact_lease(
             self.contact_id,
             self.owner_token,
@@ -1858,6 +1901,9 @@ class AsyncCaseHandlerBase (ABC) :
         return bool(row)
 
     async def renew_contact_lease(self) -> bool :
+        if self.headless :
+            raise ValueError(f"In {here()}: Headless invocations do not use contact leases")
+        
         row = await self.storage.renew_contact_lease(
             self.contact_id,
             self.owner_token,
@@ -1865,6 +1911,9 @@ class AsyncCaseHandlerBase (ABC) :
         return bool(row)
 
     async def release_contact_lease(self) -> bool :
+        if self.headless :
+            raise ValueError(f"In {here()}: Headless invocations do not use contact leases")
+        
         return await self.storage.release_contact_lease(
             self.contact_id,
             self.owner_token,
@@ -1877,6 +1926,11 @@ class AsyncCaseHandlerBase (ABC) :
         """
         Continue the open case when current; otherwise create a new case.
         """
+        if self.headless :
+            if self.case_manifest :
+                return self.case_manifest.id, self.case_manifest
+            return await self.case_open_new()
+        
         manifest = await self.storage.get_open_case_manifest(self.contact_id)
         if manifest and (
             ( manifest.route_by_phone_number != self.route_by_phone_number ) or
@@ -1926,23 +1980,19 @@ class AsyncCaseHandlerBase (ABC) :
         """
         Insert and return a new open case for this contact.
         """
-        if self.AGENT_NAMES :
-            manifest = await self.storage.insert_case_manifest(
-                self.contact_id,
-                self._machine_state(),
-                list(self.AGENT_NAMES),
-                route_by_phone_number = self.route_by_phone_number,
-                route_by_contact      = self.route_by_contact,
-            )
-        else :
-            manifest = await self.storage.insert_case_manifest(
-                self.contact_id,
-                self._machine_state(),
-                route_by_phone_number = self.route_by_phone_number,
-                route_by_contact      = self.route_by_contact,
-            )
+        if self.headless and self.case_manifest :
+            raise RuntimeError(f"In {here()}: This handler already owns an invocation")
+        
+        manifest = await self.storage.insert_case_manifest(
+            self.contact_id,
+            self._machine_state(),
+            list(self.AGENT_NAMES),
+            route_by_phone_number  = self.route_by_phone_number,
+            route_by_contact       = self.route_by_contact,
+            invocation_handler_key = self.HANDLER_KEY if self.headless else None,
+        )
 
-        if not manifest :
+        if ( not manifest ) and ( not self.headless ) :
             manifest = await self.storage.get_open_case_manifest(self.contact_id)
         if not manifest :
             raise RuntimeError(
@@ -2100,6 +2150,9 @@ class AsyncCaseHandlerBase (ABC) :
         """
         if not ( self.case_id and self.case_manifest ) :
             self.case_id, self.case_manifest = await self.case_decide()
+
+        if self.headless and ( not self.case_manifest.is_open ) :
+            raise RuntimeError(f"In {here()}: Cannot write to a closed invocation")
 
         if self.machine and apply_to_state_machine :
             await self.apply_message_to_state_machine(message)

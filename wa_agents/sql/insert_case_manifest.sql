@@ -1,23 +1,39 @@
 -- PARAMS:
-  -- route_by_phone_number : case_handler_routes_by_phone_number.id | None
-  -- route_by_contact      : case_handler_routes_by_contact.id | None
-  -- contact               : api_contacts.id
-  -- machine_state : str | None
-  -- agent_names   : list[str]
+  -- route_by_phone_number  : case_handler_routes_by_phone_number.id | None
+  -- route_by_contact       : case_handler_routes_by_contact.id | None
+  -- contact                : api_contacts.id
+  -- invocation_handler_key : str | None (None selects a contact conversation)
+  -- machine_state          : str | None
+  -- agent_names            : list[str]
 
-WITH CTE_next_case AS (
+WITH CTE_invocation AS (
+  INSERT INTO wa_agents.case_handler_invocations (handler_key)
   SELECT
-    COALESCE( max(cas.case_index) + 1, 1 ) AS case_index
+    @invocation_handler_key::TEXT
+  WHERE
+    ( @invocation_handler_key::TEXT IS NOT NULL )
+  RETURNING
+    id
+),
+CTE_next_case AS (
+  SELECT
+    CASE
+      WHEN @invocation_handler_key::TEXT IS NOT NULL
+      THEN 1
+      ELSE COALESCE( max(cas.case_index) + 1, 1 )
+    END AS case_index
   FROM
     wa_agents.case_handler_case_manifests AS cas
   WHERE
-    ( cas.contact = @contact )
+    ( cas.contact = @contact ) AND
+    ( cas.invocation IS NULL )
 ),
 CTE_manifest AS (
   INSERT INTO wa_agents.case_handler_case_manifests (
     route_by_phone_number,
     route_by_contact,
     contact,
+    invocation,
     case_index,
     machine_state
   )
@@ -25,11 +41,12 @@ CTE_manifest AS (
     @route_by_phone_number,
     @route_by_contact,
     @contact,
+    ( SELECT id FROM CTE_invocation ),
     CTE_next_case.case_index,
     @machine_state
   FROM
     CTE_next_case
-  ON CONFLICT (contact) WHERE is_open
+  ON CONFLICT (contact) WHERE is_open AND invocation IS NULL
   DO
     NOTHING
   RETURNING
@@ -39,6 +56,7 @@ CTE_manifest AS (
     route_by_phone_number,
     route_by_contact,
     contact,
+    invocation,
     case_index,
     is_open,
     machine_state,
@@ -85,6 +103,7 @@ SELECT
   CTE_manifest.route_by_phone_number,
   CTE_manifest.route_by_contact,
   CTE_manifest.contact,
+  CTE_manifest.invocation,
   CTE_manifest.case_index,
   CTE_manifest.is_open,
   CTE_manifest.machine_state,

@@ -631,7 +631,8 @@ class CaseManifest (BaseModel) :
         `route_by_phone_number` : case_handler_routes_by_phone_number.id | null
         `route_by_contact`      : case_handler_routes_by_contact.id | null
         `contact`               : case_handler_case_manifests.contact
-        `case_index`            : one-based index for the contact
+        `invocation`            : case_handler_invocations.id | null
+        `case_index`            : one-based contact index, or 1 for an invocation
         `created_at`            : <timestamp>
         `updated_at`            : <timestamp> | null
         `is_open`               : bool
@@ -643,6 +644,7 @@ class CaseManifest (BaseModel) :
     route_by_phone_number : PositiveInt | None = None
     route_by_contact      : PositiveInt | None = None
     contact               : PositiveInt
+    invocation            : PositiveInt | None = None
     case_index            : PositiveInt = 1
     created_at            : datetime    = Field(
         default_factory = lambda : datetime.now(UTC)

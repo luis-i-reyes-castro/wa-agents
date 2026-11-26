@@ -401,6 +401,7 @@ def _manifest_from_row(
         route_by_phone_number = row.get("route_by_phone_number"),
         route_by_contact      = row.get("route_by_contact"),
         contact               = row["contact"],
+        invocation            = row.get("invocation"),
         case_index            = row.get( "case_index", 1),
         created_at            = row["created_at"],
         updated_at            = row.get("updated_at"),
@@ -1611,31 +1612,39 @@ class SyncSupabaseStorage :
         machine_state : str | None,
         agent_names   : list[str] | None = None,
         *,
-        route_by_phone_number : int | None = None,
-        route_by_contact      : int | None = None,
+        route_by_phone_number  : int | None = None,
+        route_by_contact       : int | None = None,
+        invocation_handler_key : str | None = None,
     ) -> CaseManifest | None :
         
         row = self._fetch_one(
             SQL_INSERT_CASE_MANIFEST,
             {
-                "route_by_phone_number" : route_by_phone_number,
-                "route_by_contact"      : route_by_contact,
-                "contact"               : contact,
-                "machine_state"         : machine_state,
-                "agent_names"           : agent_names or [],
+                "route_by_phone_number"  : route_by_phone_number,
+                "route_by_contact"       : route_by_contact,
+                "contact"                : contact,
+                "invocation_handler_key" : invocation_handler_key,
+                "machine_state"          : machine_state,
+                "agent_names"            : agent_names or [],
             },
         )
         return _manifest_from_row(row)
     
     def get_case_manifest(
         self,
-        case_id : int,
-        contact : int,
+        case_id    : int,
+        contact    : int,
+        *,
+        invocation : int | None = None,
     ) -> CaseManifest | None :
         
         row = self._fetch_one(
             SQL_GET_CASE_MANIFEST,
-            { "case_id" : case_id, "contact" : contact },
+            {
+                "case_id"    : case_id,
+                "contact"    : contact,
+                "invocation" : invocation,
+            },
         )
         ids = self._message_ids(case_id) if row else []
         
@@ -1664,6 +1673,7 @@ class SyncSupabaseStorage :
             {
                 "case_id"        : manifest.id,
                 "contact"        : manifest.contact,
+                "invocation"     : manifest.invocation,
                 "is_open"        : manifest.is_open,
                 "machine_state"  : manifest.machine_state,
                 "silenced_until" : manifest.silenced_until,
@@ -2712,31 +2722,39 @@ class AsyncSupabaseStorage :
         machine_state : str | None,
         agent_names   : list[str] | None = None,
         *,
-        route_by_phone_number : int | None = None,
-        route_by_contact      : int | None = None,
+        route_by_phone_number  : int | None = None,
+        route_by_contact       : int | None = None,
+        invocation_handler_key : str | None = None,
     ) -> CaseManifest | None :
         
         row = await self._fetch_one(
             SQL_INSERT_CASE_MANIFEST,
             {
-                "route_by_phone_number" : route_by_phone_number,
-                "route_by_contact"      : route_by_contact,
-                "contact"               : contact,
-                "machine_state"         : machine_state,
-                "agent_names"           : agent_names or [],
+                "route_by_phone_number"  : route_by_phone_number,
+                "route_by_contact"       : route_by_contact,
+                "contact"                : contact,
+                "invocation_handler_key" : invocation_handler_key,
+                "machine_state"          : machine_state,
+                "agent_names"            : agent_names or [],
             },
         )
         return _manifest_from_row(row)
     
     async def get_case_manifest(
         self,
-        case_id : int,
-        contact : int,
+        case_id    : int,
+        contact    : int,
+        *,
+        invocation : int | None = None,
     ) -> CaseManifest | None :
         
         row = await self._fetch_one(
             SQL_GET_CASE_MANIFEST,
-            { "case_id" : case_id, "contact" : contact },
+            {
+                "case_id"    : case_id,
+                "contact"    : contact,
+                "invocation" : invocation,
+            },
         )
         ids = await self._message_ids(case_id) if row else []
         
@@ -2765,6 +2783,7 @@ class AsyncSupabaseStorage :
             {
                 "case_id"        : manifest.id,
                 "contact"        : manifest.contact,
+                "invocation"     : manifest.invocation,
                 "is_open"        : manifest.is_open,
                 "machine_state"  : manifest.machine_state,
                 "silenced_until" : manifest.silenced_until,

@@ -1176,6 +1176,21 @@ IF enable_rls THEN
   ENABLE ROW LEVEL SECURITY;
 END IF;
 
+-- INVOCATIONS
+
+CREATE TABLE IF NOT EXISTS wa_agents.case_handler_invocations (
+  
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  handler_key   wa_agents.T_NO_WS_STR NOT NULL
+
+);
+
+IF enable_rls THEN
+  ALTER TABLE wa_agents.case_handler_invocations
+  ENABLE ROW LEVEL SECURITY;
+END IF;
+
 -- CASE MANIFESTS
 
 CREATE TABLE IF NOT EXISTS wa_agents.case_handler_case_manifests (
@@ -1193,6 +1208,7 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_case_manifests (
   route_by_phone_number BIGINT                DEFAULT NULL,
   route_by_contact      BIGINT                DEFAULT NULL,
   contact               BIGINT                NOT NULL,
+  invocation            BIGINT                DEFAULT NULL,
   case_index            INT                   NOT NULL,
   next_message_index    INT                   NOT NULL DEFAULT 1,
   is_open               BOOLEAN               NOT NULL DEFAULT TRUE,
@@ -1217,8 +1233,24 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_case_manifests (
     ON UPDATE CASCADE
     ON DELETE CASCADE,
   
-  CONSTRAINT case_handler_case_manifests_contact_case_index_unique
-    UNIQUE ( contact, case_index),
+  CONSTRAINT case_handler_case_manifests_invocation_fkey
+    FOREIGN KEY (invocation)
+    REFERENCES wa_agents.case_handler_invocations(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE,
+  
+  CONSTRAINT case_handler_case_manifests_invocation_unique
+    UNIQUE (invocation),
+  
+  CONSTRAINT case_handler_case_manifests_invocation_shape
+    CHECK (
+      ( invocation IS NULL ) OR (
+        ( case_index = 1                ) AND
+        ( route_by_phone_number IS NULL ) AND
+        ( route_by_contact IS NULL      ) AND
+        ( silenced_until IS NULL        )
+      )
+    ),
   
   CONSTRAINT case_handler_case_manifests_case_index_positive
     CHECK ( case_index >= 1 ),
@@ -1231,9 +1263,13 @@ CREATE TABLE IF NOT EXISTS wa_agents.case_handler_case_manifests (
 CREATE INDEX IF NOT EXISTS case_handler_case_manifests_contact_idx
   ON wa_agents.case_handler_case_manifests (contact);
 
+CREATE UNIQUE INDEX IF NOT EXISTS case_handler_case_manifests_contact_case_index_unique
+  ON wa_agents.case_handler_case_manifests ( contact, case_index)
+  WHERE invocation IS NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS case_handler_case_manifests_contact_open_idx
   ON wa_agents.case_handler_case_manifests (contact)
-  WHERE is_open;
+  WHERE is_open AND invocation IS NULL;
 
 IF enable_rls THEN
   ALTER TABLE wa_agents.case_handler_case_manifests

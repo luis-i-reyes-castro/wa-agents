@@ -8,6 +8,7 @@ SELECT
   cas.route_by_phone_number,
   cas.route_by_contact,
   cas.contact,
+  cas.invocation,
   cas.case_index,
   cas.is_open,
   cas.machine_state,
@@ -16,5 +17,6 @@ FROM
   wa_agents.case_handler_case_manifests AS cas
 WHERE
   ( cas.contact = @contact ) AND
-  ( cas.is_open            )
+  ( cas.is_open            ) AND
+  ( cas.invocation IS NULL )
 LIMIT 1;

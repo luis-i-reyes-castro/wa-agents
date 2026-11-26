@@ -64,6 +64,13 @@ to invoke this skill when `$inspect-wa-agents` was intended, use that skill and 
 8. Avoid compatibility layers when the user explicitly authorizes a clean schema or
    public-API break. Otherwise identify consumer impact before changing behavior.
 
+## Migration Execution Boundaries
+
+- For migrations delivered through Supabase's SQL editor or another SQL runner, do not assume separate statements share a connection or transaction. Prefer keeping cleanup candidate selection, safety checks, and deletion inside one `DO` block with local variables, avoiding temporary tables shared across top-level statements.
+- If a temporary table is necessary, verify the runner executes its creation and every use on the same connection and transaction. Temporary tables are session-local; `ON COMMIT DROP` also removes them at commit. An explicit `BEGIN` in the file does not prove the runner preserves that boundary. Schema qualification cannot repair a dropped or inaccessible table.
+- Validate transaction-dependent migrations using the intended execution mode on a disposable database. A successful single-connection test does not establish safety when a runner splits the script. State any unverified execution assumptions when delivering the migration.
+- After a migration error, use [inspect-wa-agents](../inspect-wa-agents/SKILL.md) for read-only inspection of persisted tables, columns, constraints, indexes, and remaining cleanup candidates before proposing a retry. Reconcile with the intended final state; do not blindly rerun non-repeatable DDL or assume either complete rollback or complete success.
+
 ## Verify Proportionally
 
 Read [references/verification.md](references/verification.md) before validating a persistence or queue change.
